@@ -1,42 +1,70 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { BidiValue } from "@/components/ui/bidi-value";
+import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
+import { PaginationControls } from "@/components/ui/pagination-controls";
+import { useI18n } from "@/hooks/useI18n";
+import type { PageResult } from "@/shared/pagination";
 import { formatPaymentMethod, formatPaymentType } from "@/shared/payments";
 import type { DailyPaymentRecord } from "@/shared/reports";
 
+const emptyPaymentPage: PageResult<DailyPaymentRecord> = {
+  rows: [],
+  total: 0,
+  page: 1,
+  pageSize: 25,
+  totalPages: 1,
+};
+
 export function DailyPaymentsReport() {
+  const { formatCurrency, formatDate, language, t } = useI18n();
   const [date, setDate] = useState(toDateInputValue(new Date()));
-  const [payments, setPayments] = useState<DailyPaymentRecord[]>([]);
+  const [paymentPage, setPaymentPage] = useState(emptyPaymentPage);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    window.rentalApp.reports
-      .getDailyPayments(date)
-      .then((data) => {
-        setPayments(data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        console.error(err);
-        setLoading(false);
-      });
-  }, [date]);
+  const loadPayments = useCallback(async (nextPage = page) => {
+    setLoading(true);
 
-  const total = payments.reduce(
-    (sum, payment) => sum + getSignedPaymentAmount(payment),
-    0,
-  );
+    try {
+      const data = await window.rentalApp.reports.getDailyPayments({
+        date,
+        page: nextPage,
+      });
+      setPaymentPage(data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }, [date, page]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void loadPayments(page);
+    }, 100);
+
+    return () => window.clearTimeout(timeout);
+  }, [loadPayments, page]);
+
+  const pageTotal = useMemo(() => {
+    return paymentPage.rows.reduce(
+      (sum, payment) => sum + getSignedPaymentAmount(payment),
+      0,
+    );
+  }, [paymentPage.rows]);
 
   function handleDateChange(value: string) {
-    setLoading(true);
     setDate(value);
+    setPage(1);
   }
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-4">
         <label htmlFor="paymentDate" className="text-sm font-medium">
-          Payment Date
+          {t("Payment Date")}
         </label>
         <Input
           id="paymentDate"
@@ -47,68 +75,62 @@ export function DailyPaymentsReport() {
         />
       </div>
 
-      <div className="overflow-hidden rounded-md border">
-        <div className="grid grid-cols-[1fr_2fr_1fr_1fr_1fr] bg-muted px-4 py-3 text-sm font-medium">
-          <span>Date</span>
-          <span>Rental & Customer</span>
-          <span>Type</span>
-          <span>Method</span>
-          <span className="text-right">Amount</span>
-        </div>
-        {loading ? (
-          <div className="p-8 text-center text-sm text-muted-foreground">Loading...</div>
-        ) : payments.length === 0 ? (
-          <div className="flex min-h-32 items-center justify-center px-4 py-8 text-center text-sm text-muted-foreground">
-            No payments recorded on this date.
-          </div>
-        ) : (
-          <div className="divide-y">
-            {payments.map((payment) => (
-              <div
-                key={payment.id}
-                className="grid grid-cols-[1fr_2fr_1fr_1fr_1fr] items-center gap-4 px-4 py-3 text-sm hover:bg-muted/50"
-              >
-                <div className="truncate text-muted-foreground">
-                  {new Date(payment.paymentDate).toLocaleDateString()}
-                </div>
-                <div className="min-w-0">
-                  <div className="truncate font-medium">{payment.contractNo}</div>
-                  <div className="truncate text-muted-foreground">{payment.customerName}</div>
-                </div>
-                <div>
-                  <Badge variant="outline" className="capitalize">
-                    {formatPaymentType(payment.type)}
-                  </Badge>
-                </div>
-                <div>
-                  <span className="capitalize text-muted-foreground">
-                    {formatPaymentMethod(payment.method)}
-                  </span>
-                </div>
-                <div className="text-right font-medium">
-                  {formatMoney(getSignedPaymentAmount(payment))}
-                </div>
-              </div>
-            ))}
-            <div className="grid grid-cols-[1fr_2fr_1fr_1fr_1fr] items-center gap-4 bg-muted/30 px-4 py-3 text-sm font-semibold">
-              <div className="col-span-4 text-right">Total:</div>
-              <div className="text-right">{formatMoney(total)}</div>
-            </div>
-          </div>
-        )}
-      </div>
+      <DataTable className="min-w-[760px]">
+        <thead>
+          <tr>
+            <Th>{t("Date")}</Th>
+            <Th>{t("Rental & Customer")}</Th>
+            <Th>{t("Type")}</Th>
+            <Th>{t("Method")}</Th>
+            <Th className="text-end">{t("Amount")}</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {loading ? (
+            <EmptyTableRow colSpan={5} message={t("Loading...")} />
+          ) : paymentPage.rows.length === 0 ? (
+            <EmptyTableRow colSpan={5} message={t("No payments recorded on this date.")} />
+          ) : (
+            <>
+              {paymentPage.rows.map((payment) => (
+                <tr key={payment.id} className="border-t">
+                  <Td className="whitespace-nowrap tabular-nums text-muted-foreground">
+                    <BidiValue value={formatDate(payment.paymentDate)} />
+                  </Td>
+                  <Td>
+                    <div className="truncate font-medium"><BidiValue value={payment.contractNo} /></div>
+                    <div className="truncate text-muted-foreground">{payment.customerName}</div>
+                  </Td>
+                  <Td>
+                    <Badge variant="outline" className="capitalize">
+                      {formatPaymentType(payment.type, language)}
+                    </Badge>
+                  </Td>
+                  <Td>
+                    <span className="capitalize text-muted-foreground">
+                      {formatPaymentMethod(payment.method, language)}
+                    </span>
+                  </Td>
+                  <Td className="text-end font-medium">
+                    <BidiValue value={formatCurrency(getSignedPaymentAmount(payment))} />
+                  </Td>
+                </tr>
+              ))}
+              <tr className="bg-muted/30 font-semibold">
+                <Td className="text-end" colSpan={4}>{t("Page Total:")}</Td>
+                <Td className="text-end"><BidiValue value={formatCurrency(pageTotal)} /></Td>
+              </tr>
+            </>
+          )}
+        </tbody>
+      </DataTable>
+      <PaginationControls page={paymentPage} t={t} onPageChange={setPage} />
     </div>
   );
 }
 
 function getSignedPaymentAmount(payment: DailyPaymentRecord): number {
   return payment.type === "refund" ? -payment.amount : payment.amount;
-}
-
-function formatMoney(value: number): string {
-  const sign = value < 0 ? "-" : "";
-
-  return `${sign}$${Math.abs(value).toFixed(2)}`;
 }
 
 function toDateInputValue(date: Date): string {

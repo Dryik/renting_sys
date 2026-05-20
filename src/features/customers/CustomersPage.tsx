@@ -1,18 +1,16 @@
 import { Edit, Plus, Search } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
+import { PaginationControls } from "@/components/ui/pagination-controls";
+import { SidePanel } from "@/components/ui/side-panel";
+import { useI18n } from "@/hooks/useI18n";
 import type { CustomerInput, CustomerRecord } from "@/shared/customers";
+import type { PageResult } from "@/shared/pagination";
 import { CustomerForm } from "./CustomerForm";
 
 type FormState =
@@ -26,59 +24,50 @@ type FormState =
     }
   | null;
 
+const emptyCustomerPage: PageResult<CustomerRecord> = {
+  rows: [],
+  total: 0,
+  page: 1,
+  pageSize: 25,
+  totalPages: 1,
+};
+
 export function CustomersPage() {
-  const [customers, setCustomers] = useState<CustomerRecord[]>([]);
+  const { formatDate, t } = useI18n();
+  const [customerPage, setCustomerPage] = useState(emptyCustomerPage);
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [formState, setFormState] = useState<FormState>(null);
+  const [customerToDeactivate, setCustomerToDeactivate] = useState<CustomerRecord | null>(null);
 
-  const loadCustomers = useCallback(async (searchValue: string) => {
+  const loadCustomers = useCallback(async (nextPage = page) => {
     setIsLoading(true);
     setListError(null);
 
     try {
-      const records = await window.rentalApp.customers.list(searchValue);
-      setCustomers(records);
+      const result = await window.rentalApp.customers.list({
+        page: nextPage,
+        search,
+      });
+      setCustomerPage(result);
     } catch (error) {
-      setListError(getErrorMessage(error, "Customers could not be loaded."));
+      setListError(getErrorMessage(error, t("Customers could not be loaded.")));
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [page, search, t]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
-      void loadCustomers(search);
+      void loadCustomers(page);
     }, 150);
 
     return () => window.clearTimeout(timeout);
-  }, [loadCustomers, search]);
-
-  const summary = useMemo(() => {
-    return customers.reduce(
-      (values, customer) => {
-        values.total += 1;
-
-        if (customer.driverLicenseNo) {
-          values.withLicense += 1;
-        }
-
-        if (customer.nationalId) {
-          values.withId += 1;
-        }
-
-        return values;
-      },
-      {
-        total: 0,
-        withLicense: 0,
-        withId: 0,
-      },
-    );
-  }, [customers]);
+  }, [loadCustomers, page]);
 
   async function handleSave(input: CustomerInput) {
     setIsSaving(true);
@@ -92,32 +81,27 @@ export function CustomersPage() {
       }
 
       setFormState(null);
-      await loadCustomers(search);
+      await loadCustomers(page);
     } catch (error) {
-      setFormError(getErrorMessage(error, "Customer could not be saved."));
+      setFormError(getErrorMessage(error, t("Customer could not be saved.")));
     } finally {
       setIsSaving(false);
     }
   }
 
   async function handleDeactivate(id: number) {
-    const confirmed = window.confirm(
-      "Are you sure you want to deactivate this customer? They will be removed from the active list.",
-    );
-
-    if (!confirmed) return;
-
     setIsSaving(true);
     setFormError(null);
 
     try {
       await window.rentalApp.customers.deactivate(id);
       setFormState(null);
-      await loadCustomers(search);
+      await loadCustomers(page);
     } catch (error) {
-      setFormError(getErrorMessage(error, "Customer could not be deactivated."));
+      setFormError(getErrorMessage(error, t("Customer could not be deactivated.")));
     } finally {
       setIsSaving(false);
+      setCustomerToDeactivate(null);
     }
   }
 
@@ -135,178 +119,139 @@ export function CustomersPage() {
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="relative w-full max-w-md">
-          <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Search className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
-            className="pl-10"
-            placeholder="Search name, phone, ID, or license"
+            className="ps-10"
+            placeholder={t("Search name, phone, ID, or license")}
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(1);
+            }}
           />
         </div>
 
         <Button onClick={openCreateForm}>
           <Plus data-icon="inline-start" />
-          Add Customer
+          {t("Add Customer")}
         </Button>
       </div>
 
-      {formState ? (
+      <SidePanel
+        open={Boolean(formState)}
+        title={formState?.mode === "edit" ? t("Edit Customer") : t("Add Customer")}
+        description={t("Customer form description")}
+        width="lg"
+        onClose={() => setFormState(null)}
+      >
         <CustomerForm
-          customer={formState.customer}
+          customer={formState?.customer ?? null}
           error={formError}
           isSaving={isSaving}
           onCancel={() => setFormState(null)}
           onSave={handleSave}
           onDeactivate={
-            formState.mode === "edit"
-              ? () => handleDeactivate(formState.customer.id)
+            formState?.mode === "edit"
+              ? () => setCustomerToDeactivate(formState.customer)
               : undefined
           }
         />
-      ) : null}
+      </SidePanel>
 
-      <div className="grid gap-3 md:grid-cols-3">
-        <SummaryBadge label="Total" value={summary.total} />
-        <SummaryBadge label="With License" value={summary.withLicense} />
-        <SummaryBadge label="With ID / Passport" value={summary.withId} />
-      </div>
-
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <CardTitle>Customer List</CardTitle>
-              <CardDescription>
-                Search by name, phone, ID number, or driver license.
-              </CardDescription>
-            </div>
-            <Badge variant="secondary">{customers.length} shown</Badge>
+      <section className="rounded-md border bg-card p-5 shadow-xs">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="font-semibold">{t("Customer List")}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t("Search by name, phone, ID number, or driver license.")}
+            </p>
           </div>
-        </CardHeader>
-        <CardContent>
-          {listError ? (
-            <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {listError}
-            </div>
-          ) : null}
+          <Badge variant="secondary">{t("{{count}} shown", { count: customerPage.total })}</Badge>
+        </div>
+        {listError ? (
+          <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {listError}
+          </div>
+        ) : null}
 
-          <div className="overflow-hidden rounded-md border">
-            <table className="w-full border-collapse text-left text-sm">
-              <thead className="bg-muted text-muted-foreground">
-                <tr>
-                  <Th>Customer</Th>
-                  <Th>Phone</Th>
-                  <Th>ID / Passport</Th>
-                  <Th>Driver License</Th>
-                  <Th>Address</Th>
-                  <Th className="text-right">Actions</Th>
+        <DataTable className="min-w-[760px]">
+          <thead className="bg-muted text-muted-foreground">
+            <tr>
+              <Th>{t("Customer")}</Th>
+              <Th>{t("Phone")}</Th>
+              <Th>{t("ID / Passport")}</Th>
+              <Th>{t("Driver License")}</Th>
+              <Th className="text-end">{t("Actions")}</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading ? (
+              <EmptyTableRow colSpan={5} message={t("Loading customers...")} />
+            ) : customerPage.rows.length === 0 ? (
+              <EmptyTableRow
+                colSpan={5}
+                message={
+                  search.trim()
+                    ? t("No customers match this search.")
+                    : t("No customers yet. Use Add Customer to create the first one.")
+                }
+              />
+            ) : (
+              customerPage.rows.map((customer) => (
+                <tr key={customer.id} className="border-t hover:bg-muted/25">
+                  <Td>
+                    <div className="flex flex-col gap-1">
+                      <span className="font-semibold">{customer.fullName}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {t("Added")} <BidiValue value={formatDate(customer.createdAt)} />
+                      </span>
+                    </div>
+                  </Td>
+                  <Td>
+                    <div className="flex flex-col gap-1">
+                      <BidiValue value={customer.phone} />
+                      {customer.secondaryPhone ? (
+                        <BidiValue className="text-xs text-muted-foreground" value={customer.secondaryPhone} />
+                      ) : null}
+                    </div>
+                  </Td>
+                  <Td>{customer.nationalId ? <BidiValue value={customer.nationalId} /> : t("No ID")}</Td>
+                  <Td>{customer.driverLicenseNo ? <BidiValue value={customer.driverLicenseNo} /> : t("No license")}</Td>
+                  <Td className="text-end">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openEditForm(customer)}
+                    >
+                      <Edit data-icon="inline-start" />
+                      {t("Edit")}
+                    </Button>
+                  </Td>
                 </tr>
-              </thead>
-              <tbody>
-                {isLoading ? (
-                  <EmptyRow message="Loading customers..." />
-                ) : customers.length === 0 ? (
-                  <EmptyRow
-                    message={
-                      search.trim()
-                        ? "No customers match this search."
-                        : "No customers yet. Use Add Customer to create the first one."
-                    }
-                  />
-                ) : (
-                  customers.map((customer) => (
-                    <tr key={customer.id} className="border-t">
-                      <Td>
-                        <div className="flex flex-col gap-1">
-                          <span className="font-semibold">{customer.fullName}</span>
-                          <span className="text-xs text-muted-foreground">
-                            Added {formatDate(customer.createdAt)}
-                          </span>
-                        </div>
-                      </Td>
-                      <Td>
-                        <div className="flex flex-col gap-1">
-                          <span>{customer.phone}</span>
-                          <span className="text-xs text-muted-foreground">
-                            Second: {customer.secondaryPhone ?? "No second phone"}
-                          </span>
-                        </div>
-                      </Td>
-                      <Td>{customer.nationalId ?? "No ID"}</Td>
-                      <Td>
-                        <div className="flex flex-col gap-1">
-                          <span>{customer.driverLicenseNo ?? "No license"}</span>
-                          <span className="text-xs text-muted-foreground">
-                            Expiry: {customer.licenseExpiryDate ?? "No date"}
-                          </span>
-                        </div>
-                      </Td>
-                      <Td>{customer.address ?? "No address"}</Td>
-                      <Td className="text-right">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => openEditForm(customer)}
-                        >
-                          <Edit data-icon="inline-start" />
-                          Edit
-                        </Button>
-                      </Td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+              ))
+            )}
+          </tbody>
+        </DataTable>
+        <PaginationControls page={customerPage} t={t} onPageChange={setPage} />
+      </section>
+
+      <ConfirmDialog
+        open={Boolean(customerToDeactivate)}
+        title={t("Deactivate customer?")}
+        description={t("Deactivate customer confirmation")}
+        cancelLabel={t("Cancel")}
+        confirmLabel={t("Deactivate")}
+        variant="destructive"
+        isBusy={isSaving}
+        onCancel={() => setCustomerToDeactivate(null)}
+        onConfirm={() => {
+          if (customerToDeactivate) {
+            void handleDeactivate(customerToDeactivate.id);
+          }
+        }}
+      />
     </div>
   );
-}
-
-function SummaryBadge({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-lg border bg-card px-4 py-3 shadow-sm">
-      <p className="text-sm text-muted-foreground">{label}</p>
-      <p className="mt-1 text-2xl font-semibold">{value}</p>
-    </div>
-  );
-}
-
-function Th({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return <th className={cn("px-4 py-3 font-medium", className)}>{children}</th>;
-}
-
-function Td({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return <td className={cn("px-4 py-3 align-middle", className)}>{children}</td>;
-}
-
-function EmptyRow({ message }: { message: string }) {
-  return (
-    <tr>
-      <td className="px-4 py-12 text-center text-muted-foreground" colSpan={6}>
-        {message}
-      </td>
-    </tr>
-  );
-}
-
-function formatDate(value: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-  }).format(new Date(value));
 }
 
 function getErrorMessage(error: unknown, fallback: string): string {

@@ -1,16 +1,24 @@
-import { and, asc, desc, eq, inArray, like, lt, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, like, lt, or, sql, type SQL } from "drizzle-orm";
 import { ZodError } from "zod";
 import {
+  calculateCancelledRentalBalance,
+  calculateInitialRentalBalance,
   calculateReturnSummary,
   calculateRentalSummary,
   type RentalActivationInput,
   type RentalFormOptions,
+  type RentalListRequest,
   type RentalListRecord,
+  type RentalListSummary,
+  type RentalQueue,
   rentalActivationInputSchema,
   rentalReturnInputSchema,
 } from "../../src/shared/rentals";
-import { customers, rentals, vehicles } from "./schema";
+import type { PageResult } from "../../src/shared/pagination";
+import { customers, payments, rentals, vehicles } from "./schema";
 import { getDatabase } from "./database";
+import { createPageResult, normalizePageRequest, toLikeTerm } from "./listing";
+import { getShopSettings } from "./settings.service";
 
 const activeRentalStatuses = ["active", "overdue"] as const;
 
@@ -47,38 +55,94 @@ const rentalListFields = {
   updatedAt: rentals.updatedAt,
 };
 
-export function listRentals(search = ""): RentalListRecord[] {
+export function listRentals(
+  request?: RentalListRequest | string,
+): PageResult<RentalListRecord, RentalListSummary> {
   refreshOverdueRentals();
 
   const db = getDatabase();
-  const trimmedSearch = search.trim();
+  const pageRequest = normalizePageRequest(request);
+  const listRequest = typeof request === "object" && request !== null ? request : {};
+  const queue = isRentalQueue(listRequest.queue) ? listRequest.queue : "active";
+  const conditions: SQL[] = [];
 
-  if (trimmedSearch === "") {
-    return db
-      .select(rentalListFields)
-      .from(rentals)
-      .innerJoin(customers, eq(rentals.customerId, customers.id))
-      .innerJoin(vehicles, eq(rentals.vehicleId, vehicles.id))
-      .orderBy(desc(rentals.createdAt))
-      .all();
+  if (pageRequest.search) {
+    const term = toLikeTerm(pageRequest.search);
+
+    const searchFilter = or(
+      like(rentals.contractNo, term),
+      like(customers.fullName, term),
+      like(vehicles.plateNumber, term),
+    );
+
+    if (searchFilter) {
+      conditions.push(searchFilter);
+    }
   }
 
-  const term = `%${trimmedSearch}%`;
+  if (queue === "active") {
+    conditions.push(inArray(rentals.status, ["active", "overdue"]));
+  } else if (queue === "overdue") {
+    conditions.push(eq(rentals.status, "overdue"));
+  } else if (queue === "due_today") {
+    const today = getLocalDateRange(toDateInputValue(new Date()));
+    const dueTodayFilter = and(
+      inArray(rentals.status, ["active", "overdue"]),
+      gte(rentals.expectedReturnDatetime, today.start),
+      lt(rentals.expectedReturnDatetime, today.end),
+    );
 
-  return db
+    if (dueTodayFilter) {
+      conditions.push(dueTodayFilter);
+    }
+  } else if (queue === "returned") {
+    conditions.push(eq(rentals.status, "returned"));
+  } else if (queue === "cancelled") {
+    conditions.push(eq(rentals.status, "cancelled"));
+  }
+
+  const whereFilter = conditions.length ? and(...conditions) : undefined;
+  const total = db
+    .select({ count: count() })
+    .from(rentals)
+    .innerJoin(customers, eq(rentals.customerId, customers.id))
+    .innerJoin(vehicles, eq(rentals.vehicleId, vehicles.id))
+    .where(whereFilter)
+    .get()?.count ?? 0;
+  const summaryRow = db
+    .select({
+      total: count(),
+      active: sql<number>`sum(case when ${rentals.status} = 'active' then 1 else 0 end)`.mapWith(Number),
+      overdue: sql<number>`sum(case when ${rentals.status} = 'overdue' then 1 else 0 end)`.mapWith(Number),
+      returned: sql<number>`sum(case when ${rentals.status} = 'returned' then 1 else 0 end)`.mapWith(Number),
+      amount: sql<number>`coalesce(sum(${rentals.totalAmount}), 0)`.mapWith(Number),
+    })
+    .from(rentals)
+    .innerJoin(customers, eq(rentals.customerId, customers.id))
+    .innerJoin(vehicles, eq(rentals.vehicleId, vehicles.id))
+    .where(whereFilter)
+    .get();
+  const rows = db
     .select(rentalListFields)
     .from(rentals)
     .innerJoin(customers, eq(rentals.customerId, customers.id))
     .innerJoin(vehicles, eq(rentals.vehicleId, vehicles.id))
-    .where(
-      or(
-        like(rentals.contractNo, term),
-        like(customers.fullName, term),
-        like(vehicles.plateNumber, term),
-      ),
+    .where(whereFilter)
+    .orderBy(
+      sql`case ${rentals.status} when 'overdue' then 0 when 'active' then 1 when 'draft' then 2 when 'returned' then 3 else 4 end`,
+      desc(rentals.createdAt),
     )
-    .orderBy(desc(rentals.createdAt))
+    .limit(pageRequest.pageSize)
+    .offset(pageRequest.offset)
     .all();
+
+  return createPageResult(rows, total, pageRequest, {
+    total: summaryRow?.total ?? 0,
+    active: summaryRow?.active ?? 0,
+    overdue: summaryRow?.overdue ?? 0,
+    returned: summaryRow?.returned ?? 0,
+    amount: summaryRow?.amount ?? 0,
+  });
 }
 
 export function getRentalFormOptions(): RentalFormOptions {
@@ -113,12 +177,24 @@ export function getRentalFormOptions(): RentalFormOptions {
 }
 
 export function activateRental(input: unknown): RentalListRecord {
-  const values = rentalActivationInputSchema.parse(input);
+  const parsedValues = rentalActivationInputSchema.parse(input);
+  const settings = getShopSettings();
+  const values = settings.enableClientDeposit
+    ? parsedValues
+    : {
+        ...parsedValues,
+        depositRequired: 0,
+        depositPaid: 0,
+      };
   const now = new Date().toISOString();
   const { totalAmount } = calculateRentalSummary(
     values.startDatetime,
     values.expectedReturnDatetime,
     values.dailyPrice,
+  );
+  const initialBalance = calculateInitialRentalBalance(
+    totalAmount,
+    values.depositPaid,
   );
 
   try {
@@ -167,9 +243,23 @@ export function activateRental(input: unknown): RentalListRecord {
 
       const insertedRental = tx
         .insert(rentals)
-        .values(toRentalInsert(values, now, totalAmount))
+        .values(toRentalInsert(values, now, totalAmount, initialBalance))
         .returning({ id: rentals.id })
         .get();
+
+      if (values.depositPaid > 0) {
+        tx.insert(payments)
+          .values({
+            rentalId: insertedRental.id,
+            type: "deposit",
+            method: "cash",
+            amount: values.depositPaid,
+            paymentDate: now,
+            notes: "Deposit paid at rental start.",
+            createdAt: now,
+          })
+          .run();
+      }
 
       tx.update(vehicles)
         .set({
@@ -186,6 +276,63 @@ export function activateRental(input: unknown): RentalListRecord {
 
     if (!rental) {
       throw new Error("Rental was created but could not be loaded.");
+    }
+
+    return rental;
+  } catch (error) {
+    throw normalizeRentalServiceError(error);
+  }
+}
+
+export function cancelRental(id: unknown): RentalListRecord {
+  const rentalId = parseRentalId(id);
+  const now = new Date().toISOString();
+  const { remainingAmount } = calculateCancelledRentalBalance();
+
+  try {
+    const cancelledRentalId = getDatabase().transaction((tx) => {
+      const rental = tx
+        .select({
+          id: rentals.id,
+          vehicleId: rentals.vehicleId,
+          status: rentals.status,
+        })
+        .from(rentals)
+        .where(eq(rentals.id, rentalId))
+        .get();
+
+      if (!rental) {
+        throw new Error("Rental was not found.");
+      }
+
+      if (rental.status !== "active" && rental.status !== "overdue") {
+        throw new Error("Only active or overdue rentals can be cancelled.");
+      }
+
+      tx.update(rentals)
+        .set({
+          status: "cancelled",
+          remainingAmount,
+          updatedAt: now,
+        })
+        .where(eq(rentals.id, rentalId))
+        .run();
+
+      tx.update(vehicles)
+        .set({
+          status: "available",
+          updatedAt: now,
+        })
+        .where(eq(vehicles.id, rental.vehicleId))
+        .run();
+
+      return rental.id;
+    });
+
+    const rental = getRentalById(cancelledRentalId);
+
+    if (!rental) {
+      throw new Error("Rental was cancelled but could not be loaded.");
     }
 
     return rental;
@@ -306,10 +453,54 @@ function refreshOverdueRentals(): void {
     .run();
 }
 
+function getLocalDateRange(startDate: string, endDate = startDate) {
+  const start = parseDateInput(startDate);
+  const end = parseDateInput(endDate);
+
+  end.setDate(end.getDate() + 1);
+
+  return {
+    start: start.toISOString(),
+    end: end.toISOString(),
+  };
+}
+
+function parseDateInput(value: string): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+
+  if (!match) {
+    throw new Error("Date is invalid.");
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    throw new Error("Date is invalid.");
+  }
+
+  return date;
+}
+
+function toDateInputValue(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
 function toRentalInsert(
   values: RentalActivationInput,
   now: string,
   totalAmount: number,
+  initialBalance: { paidAmount: number; remainingAmount: number },
 ) {
   return {
     contractNo: createContractNumber(now),
@@ -332,11 +523,32 @@ function toRentalInsert(
     extraCharges: 0,
     discount: 0,
     totalAmount,
-    paidAmount: 0,
-    remainingAmount: totalAmount,
+    paidAmount: initialBalance.paidAmount,
+    remainingAmount: initialBalance.remainingAmount,
     createdAt: now,
     updatedAt: now,
   };
+}
+
+function parseRentalId(id: unknown): number {
+  const parsedId = Number(id);
+
+  if (!Number.isInteger(parsedId) || parsedId <= 0) {
+    throw new Error("Rental ID is invalid.");
+  }
+
+  return parsedId;
+}
+
+function isRentalQueue(value: unknown): value is RentalQueue {
+  return (
+    value === "active" ||
+    value === "overdue" ||
+    value === "due_today" ||
+    value === "returned" ||
+    value === "cancelled" ||
+    value === "all"
+  );
 }
 
 function createContractNumber(now: string): string {

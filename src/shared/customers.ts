@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { PageRequest } from "./pagination";
 
 const optionalTextField = (maxLength: number) =>
   z
@@ -32,6 +33,8 @@ export const customerFormSchema = z
   .transform((values) => customerInputSchema.parse(values));
 
 export type CustomerInput = z.infer<typeof customerInputSchema>;
+
+export type CustomerListRequest = PageRequest;
 
 export type CustomerRecord = CustomerInput & {
   id: number;

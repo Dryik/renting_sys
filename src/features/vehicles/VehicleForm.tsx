@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { useI18n } from "@/hooks/useI18n";
 import {
   emptyVehicleFormValues,
   formatVehicleStatus,
@@ -33,6 +34,7 @@ export function VehicleForm({
   onCancel,
   onSave,
 }: VehicleFormProps) {
+  const { language, settings, t } = useI18n();
   const {
     formState: { errors },
     handleSubmit,
@@ -50,30 +52,16 @@ export function VehicleForm({
 
   return (
     <form
-      className="rounded-lg border bg-card p-5 shadow-sm"
+      className="flex flex-col gap-5"
       onSubmit={handleSubmit((values) => onSave(values))}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b pb-4">
-        <div>
-          <h4 className="text-lg font-semibold">
-            {vehicle ? "Edit Vehicle" : "Add Vehicle"}
-          </h4>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Keep the required details short and clear for front-desk staff.
-          </p>
-        </div>
-        <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
-
       {error ? (
-        <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {error}
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {t(error)}
         </div>
       ) : null}
 
-      <div className="mt-5 grid gap-4 lg:grid-cols-4 md:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-4 md:grid-cols-2">
         <Field label="Type" error={errors.type?.message}>
           <select
             className="h-10 w-full rounded-md border bg-background px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
@@ -82,7 +70,7 @@ export function VehicleForm({
           >
             {vehicleTypeValues.map((type) => (
               <option key={type} value={type}>
-                {type === "car" ? "Car" : "Motorcycle"}
+                {type === "car" ? t("Car") : t("Motorcycle")}
               </option>
             ))}
           </select>
@@ -91,7 +79,8 @@ export function VehicleForm({
         <Field label="Plate Number" required error={errors.plateNumber?.message}>
           <Input
             aria-invalid={Boolean(errors.plateNumber)}
-            placeholder="123-ABC"
+            data-ltr="true"
+            placeholder={t("Plate example")}
             {...register("plateNumber")}
           />
         </Field>
@@ -99,7 +88,7 @@ export function VehicleForm({
         <Field label="Brand" required error={errors.brand?.message}>
           <Input
             aria-invalid={Boolean(errors.brand)}
-            placeholder="Toyota"
+            placeholder={t("Brand example")}
             {...register("brand")}
           />
         </Field>
@@ -107,7 +96,7 @@ export function VehicleForm({
         <Field label="Model" required error={errors.model?.message}>
           <Input
             aria-invalid={Boolean(errors.model)}
-            placeholder="Corolla"
+            placeholder={t("Model example")}
             {...register("model")}
           />
         </Field>
@@ -115,20 +104,26 @@ export function VehicleForm({
         <Field label="Daily Price" required error={errors.dailyPrice?.message}>
           <Input
             aria-invalid={Boolean(errors.dailyPrice)}
+            data-ltr="true"
             inputMode="decimal"
             placeholder="50"
             {...register("dailyPrice")}
           />
         </Field>
 
-        <Field label="Deposit" required error={errors.depositAmount?.message}>
-          <Input
-            aria-invalid={Boolean(errors.depositAmount)}
-            inputMode="decimal"
-            placeholder="100"
-            {...register("depositAmount")}
-          />
-        </Field>
+        {settings.enableClientDeposit ? (
+          <Field label="Deposit" required error={errors.depositAmount?.message}>
+            <Input
+              aria-invalid={Boolean(errors.depositAmount)}
+              data-ltr="true"
+              inputMode="decimal"
+              placeholder="100"
+              {...register("depositAmount")}
+            />
+          </Field>
+        ) : (
+          <input type="hidden" {...register("depositAmount")} defaultValue="0" />
+        )}
 
         <Field label="Status" error={errors.status?.message}>
           <select
@@ -138,52 +133,49 @@ export function VehicleForm({
           >
             {vehicleStatusValues.map((status) => (
               <option key={status} value={status}>
-                {formatVehicleStatus(status)}
+                {formatVehicleStatus(status, language)}
               </option>
             ))}
           </select>
         </Field>
 
         <Field label="Color" error={errors.color?.message}>
-          <Input placeholder="White" {...register("color")} />
+          <Input placeholder={t("Color example")} {...register("color")} />
         </Field>
 
         <Field label="Year" error={errors.year?.message}>
-          <Input inputMode="numeric" placeholder="2022" {...register("year")} />
+          <Input data-ltr="true" inputMode="numeric" placeholder="2022" {...register("year")} />
         </Field>
 
         <Field label="Mileage" error={errors.mileage?.message}>
-          <Input inputMode="numeric" placeholder="25000" {...register("mileage")} />
+          <Input data-ltr="true" inputMode="numeric" placeholder="25000" {...register("mileage")} />
         </Field>
 
         <Field label="Insurance Expiry" error={errors.insuranceExpiryDate?.message}>
-          <Input type="date" {...register("insuranceExpiryDate")} />
+          <Input data-ltr="true" type="date" {...register("insuranceExpiryDate")} />
         </Field>
 
         <Field
           label="Registration Expiry"
           error={errors.registrationExpiryDate?.message}
         >
-          <Input type="date" {...register("registrationExpiryDate")} />
+          <Input data-ltr="true" type="date" {...register("registrationExpiryDate")} />
         </Field>
       </div>
 
-      <div className="mt-4">
+      <div>
         <Field label="Notes" error={errors.notes?.message}>
-          <Textarea
-            placeholder="Optional vehicle notes"
-            {...register("notes")}
-          />
+          <Textarea placeholder={t("Optional vehicle notes")} {...register("notes")} />
         </Field>
       </div>
 
-      <div className="mt-5 flex justify-end gap-3 border-t pt-4">
+      <div className="flex justify-end gap-3 border-t pt-4">
         <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
+          {t("Cancel")}
         </Button>
         <Button type="submit" disabled={isSaving}>
           {isSaving ? <Loader2 data-icon="inline-start" /> : null}
-          {vehicle ? "Save Changes" : "Save Vehicle"}
+          {vehicle ? t("Save Changes") : t("Save Vehicle")}
         </Button>
       </div>
     </form>
@@ -201,15 +193,17 @@ function Field({
   label: string;
   required?: boolean;
 }) {
+  const { t } = useI18n();
+
   return (
     <label className="flex flex-col gap-2 text-sm font-medium">
       <span>
-        {label}
+        {t(label)}
         {required ? <span className="text-destructive"> *</span> : null}
       </span>
       {children}
       {error ? (
-        <span className="text-sm font-normal text-destructive">{error}</span>
+        <span className="text-sm font-normal text-destructive">{t(error)}</span>
       ) : null}
     </label>
   );

@@ -142,13 +142,38 @@ function runInitialSchema(database: Database.Database): void {
       cost real not null default 0,
       start_date text not null,
       end_date text,
-      created_at text not null
+      is_archived integer not null default 0,
+      created_at text not null,
+      updated_at text not null
     );
 
     create table if not exists app_settings (
       key text primary key,
       value text not null
     );
+
+    create index if not exists vehicles_status_idx on vehicles(status);
+    create index if not exists vehicles_type_idx on vehicles(type);
+
+    create index if not exists customers_is_active_idx on customers(is_active);
+    create index if not exists customers_full_name_idx on customers(full_name);
+    create index if not exists customers_phone_idx on customers(phone);
+    create index if not exists customers_national_id_idx on customers(national_id);
+
+    create index if not exists rentals_status_idx on rentals(status);
+    create index if not exists rentals_created_at_idx on rentals(created_at);
+    create index if not exists rentals_expected_return_datetime_idx on rentals(expected_return_datetime);
+    create index if not exists rentals_actual_return_datetime_idx on rentals(actual_return_datetime);
+    create index if not exists rentals_customer_id_idx on rentals(customer_id);
+    create index if not exists rentals_vehicle_id_idx on rentals(vehicle_id);
+
+    create index if not exists payments_payment_date_idx on payments(payment_date);
+    create index if not exists payments_type_idx on payments(type);
+    create index if not exists payments_rental_id_idx on payments(rental_id);
+
+    create index if not exists maintenance_is_archived_idx on maintenance_records(is_archived);
+    create index if not exists maintenance_start_date_idx on maintenance_records(start_date);
+    create index if not exists maintenance_vehicle_id_idx on maintenance_records(vehicle_id);
   `);
 
   try {
@@ -156,4 +181,18 @@ function runInitialSchema(database: Database.Database): void {
   } catch {
     // Ignore if column already exists
   }
+
+  try {
+    database.exec("alter table maintenance_records add column is_archived integer not null default 0;");
+  } catch {
+    // Ignore if column already exists
+  }
+
+  try {
+    database.exec("alter table maintenance_records add column updated_at text;");
+  } catch {
+    // Ignore if column already exists
+  }
+
+  database.exec("update maintenance_records set updated_at = created_at where updated_at is null;");
 }

@@ -1,6 +1,7 @@
 import { relations } from "drizzle-orm";
 import {
   integer,
+  index,
   real,
   sqliteTable,
   text,
@@ -35,23 +36,34 @@ export const vehicles = sqliteTable(
     plateNumberIdx: uniqueIndex("vehicles_plate_number_idx").on(
       table.plateNumber,
     ),
+    statusIdx: index("vehicles_status_idx").on(table.status),
+    typeIdx: index("vehicles_type_idx").on(table.type),
   }),
 );
 
-export const customers = sqliteTable("customers", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  fullName: text("full_name").notNull(),
-  phone: text("phone").notNull(),
-  secondaryPhone: text("secondary_phone"),
-  nationalId: text("national_id"),
-  driverLicenseNo: text("driver_license_no"),
-  licenseExpiryDate: text("license_expiry_date"),
-  address: text("address"),
-  notes: text("notes"),
-  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
-  createdAt: text("created_at").notNull(),
-  updatedAt: text("updated_at").notNull(),
-});
+export const customers = sqliteTable(
+  "customers",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    fullName: text("full_name").notNull(),
+    phone: text("phone").notNull(),
+    secondaryPhone: text("secondary_phone"),
+    nationalId: text("national_id"),
+    driverLicenseNo: text("driver_license_no"),
+    licenseExpiryDate: text("license_expiry_date"),
+    address: text("address"),
+    notes: text("notes"),
+    isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    activeIdx: index("customers_is_active_idx").on(table.isActive),
+    fullNameIdx: index("customers_full_name_idx").on(table.fullName),
+    phoneIdx: index("customers_phone_idx").on(table.phone),
+    nationalIdIdx: index("customers_national_id_idx").on(table.nationalId),
+  }),
+);
 
 export const rentals = sqliteTable(
   "rentals",
@@ -92,38 +104,66 @@ export const rentals = sqliteTable(
   },
   (table) => ({
     contractNoIdx: uniqueIndex("rentals_contract_no_idx").on(table.contractNo),
+    statusIdx: index("rentals_status_idx").on(table.status),
+    createdAtIdx: index("rentals_created_at_idx").on(table.createdAt),
+    expectedReturnIdx: index("rentals_expected_return_datetime_idx").on(
+      table.expectedReturnDatetime,
+    ),
+    actualReturnIdx: index("rentals_actual_return_datetime_idx").on(
+      table.actualReturnDatetime,
+    ),
+    customerIdIdx: index("rentals_customer_id_idx").on(table.customerId),
+    vehicleIdIdx: index("rentals_vehicle_id_idx").on(table.vehicleId),
   }),
 );
 
-export const payments = sqliteTable("payments", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  rentalId: integer("rental_id")
-    .notNull()
-    .references(() => rentals.id),
-  type: text("type", {
-    enum: ["rent", "deposit", "extra_charge", "refund"],
-  }).notNull(),
-  method: text("method", {
-    enum: ["cash", "card", "bank_transfer", "other"],
-  }).notNull(),
-  amount: real("amount").notNull(),
-  paymentDate: text("payment_date").notNull(),
-  notes: text("notes"),
-  createdAt: text("created_at").notNull(),
-});
+export const payments = sqliteTable(
+  "payments",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    rentalId: integer("rental_id")
+      .notNull()
+      .references(() => rentals.id),
+    type: text("type", {
+      enum: ["rent", "deposit", "extra_charge", "refund"],
+    }).notNull(),
+    method: text("method", {
+      enum: ["cash", "card", "bank_transfer", "other"],
+    }).notNull(),
+    amount: real("amount").notNull(),
+    paymentDate: text("payment_date").notNull(),
+    notes: text("notes"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    paymentDateIdx: index("payments_payment_date_idx").on(table.paymentDate),
+    typeIdx: index("payments_type_idx").on(table.type),
+    rentalIdIdx: index("payments_rental_id_idx").on(table.rentalId),
+  }),
+);
 
-export const maintenanceRecords = sqliteTable("maintenance_records", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  vehicleId: integer("vehicle_id")
-    .notNull()
-    .references(() => vehicles.id),
-  title: text("title").notNull(),
-  description: text("description"),
-  cost: real("cost").notNull().default(0),
-  startDate: text("start_date").notNull(),
-  endDate: text("end_date"),
-  createdAt: text("created_at").notNull(),
-});
+export const maintenanceRecords = sqliteTable(
+  "maintenance_records",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    vehicleId: integer("vehicle_id")
+      .notNull()
+      .references(() => vehicles.id),
+    title: text("title").notNull(),
+    description: text("description"),
+    cost: real("cost").notNull().default(0),
+    startDate: text("start_date").notNull(),
+    endDate: text("end_date"),
+    isArchived: integer("is_archived", { mode: "boolean" }).notNull().default(false),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    archivedIdx: index("maintenance_is_archived_idx").on(table.isArchived),
+    startDateIdx: index("maintenance_start_date_idx").on(table.startDate),
+    vehicleIdIdx: index("maintenance_vehicle_id_idx").on(table.vehicleId),
+  }),
+);
 
 export const appSettings = sqliteTable("app_settings", {
   key: text("key").primaryKey(),

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ARAK favicon">
+  <defs>
+    <linearGradient id="bg" x1="6" y1="6" x2="58" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#43BDEB" />
+      <stop offset="1" stop-color="#1D97D7" />
+    </linearGradient>
+  </defs>
+
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#bg)" />
+
+  <path
+    fill="#FFFFFF"
+    fill-rule="evenodd"
+    d="M18 50L32 14L46 50H39.6L36.5 42H27.5L24.4 50H18ZM29.4 36.8H34.6L32 28.5L29.4 36.8Z"
+  />
+
+  <path d="M8 26A18 18 0 0 1 26 44" fill="none" stroke="#0F2B3D" stroke-width="3" stroke-linecap="round" />
+  <path d="M8 20A24 24 0 0 1 32 44" fill="none" stroke="#0F2B3D" stroke-width="3" stroke-linecap="round" opacity="0.9" />
+
+  <circle cx="51" cy="51" r="6" fill="#0F2B3D" stroke="#7DDBFF" stroke-width="2" />
+</svg>

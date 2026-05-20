@@ -1,4 +1,5 @@
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { useI18n } from "@/hooks/useI18n";
 import {
   formatRentalStatus,
   type RentalListRecord,
@@ -8,19 +9,23 @@ type RentalStatusBadgeProps = {
   status: RentalListRecord["status"];
 };
 
-const statusVariant: Record<
+const statusTone: Record<
   RentalListRecord["status"],
-  "default" | "secondary" | "outline" | "destructive"
+  "success" | "warning" | "danger" | "neutral" | "default"
 > = {
-  draft: "secondary",
+  draft: "neutral",
   active: "default",
-  returned: "secondary",
-  cancelled: "outline",
-  overdue: "destructive",
+  returned: "success",
+  cancelled: "neutral",
+  overdue: "danger",
 };
 
 export function RentalStatusBadge({ status }: RentalStatusBadgeProps) {
+  const { language } = useI18n();
+
   return (
-    <Badge variant={statusVariant[status]}>{formatRentalStatus(status)}</Badge>
+    <StatusBadge tone={statusTone[status]}>
+      {formatRentalStatus(status, language)}
+    </StatusBadge>
   );
 }

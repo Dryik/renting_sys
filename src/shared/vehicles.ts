@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { translate } from "./i18n";
+import type { LanguageCode } from "./language";
+import type { PageRequest } from "./pagination";
 
 export const vehicleTypeValues = ["car", "motorcycle"] as const;
 export const vehicleStatusValues = [
@@ -45,6 +48,14 @@ export const vehicleInputSchema = z.object({
 });
 
 export type VehicleInput = z.infer<typeof vehicleInputSchema>;
+
+export type VehicleTypeFilter = "all" | (typeof vehicleTypeValues)[number];
+export type VehicleStatusFilter = "all" | (typeof vehicleStatusValues)[number];
+
+export type VehicleListRequest = PageRequest & {
+  type?: VehicleTypeFilter;
+  status?: VehicleStatusFilter;
+};
 
 export type VehicleRecord = VehicleInput & {
   id: number;
@@ -170,11 +181,17 @@ export function vehicleToFormValues(vehicle: VehicleRecord): VehicleFormValues {
   };
 }
 
-export function formatVehicleType(type: VehicleRecord["type"]): string {
-  return type === "car" ? "Car" : "Motorcycle";
+export function formatVehicleType(
+  type: VehicleRecord["type"],
+  language: LanguageCode = "en",
+): string {
+  return translate(language, type === "car" ? "Car" : "Motorcycle");
 }
 
-export function formatVehicleStatus(status: VehicleRecord["status"]): string {
+export function formatVehicleStatus(
+  status: VehicleRecord["status"],
+  language: LanguageCode = "en",
+): string {
   const labels: Record<VehicleRecord["status"], string> = {
     available: "Available",
     rented: "Rented",
@@ -182,5 +199,5 @@ export function formatVehicleStatus(status: VehicleRecord["status"]): string {
     inactive: "Inactive",
   };
 
-  return labels[status];
+  return translate(language, labels[status]);
 }

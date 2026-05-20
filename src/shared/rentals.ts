@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { translate } from "./i18n";
+import type { LanguageCode } from "./language";
+import type { PageRequest } from "./pagination";
 
 export const rentalStatusValues = [
   "draft",
@@ -9,6 +12,29 @@ export const rentalStatusValues = [
 ] as const;
 
 export type RentalStatus = (typeof rentalStatusValues)[number];
+
+export const rentalQueueValues = [
+  "active",
+  "overdue",
+  "due_today",
+  "returned",
+  "cancelled",
+  "all",
+] as const;
+
+export type RentalQueue = (typeof rentalQueueValues)[number];
+
+export type RentalListRequest = PageRequest & {
+  queue?: RentalQueue;
+};
+
+export type RentalListSummary = {
+  total: number;
+  active: number;
+  overdue: number;
+  returned: number;
+  amount: number;
+};
 
 const optionalTextField = (maxLength: number) =>
   z
@@ -304,12 +330,13 @@ export function getDefaultRentalFormValues(): RentalFormValues {
 
 export function getDefaultRentalReturnFormValues(
   rental: RentalListRecord,
+  defaultLateFee = rental.dailyPrice,
 ): RentalReturnFormValues {
   const actualReturn = roundToNearestMinutes(new Date(), 15);
 
   return {
     actualReturnDatetime: toDatetimeLocalValue(actualReturn),
-    lateFeePerDay: String(rental.dailyPrice),
+    lateFeePerDay: String(defaultLateFee),
     damageCharge: "0",
     discount: "0",
     mileageIn: rental.mileageOut === null ? "" : String(rental.mileageOut),
@@ -389,6 +416,32 @@ export type ReturnSummary = {
   remainingAmount: number;
 };
 
+export type RentalInitialBalance = {
+  paidAmount: number;
+  remainingAmount: number;
+};
+
+export function calculateInitialRentalBalance(
+  totalAmount: number,
+  depositPaid: number,
+): RentalInitialBalance {
+  const paidAmount = roundMoney(Math.max(0, depositPaid));
+
+  return {
+    paidAmount,
+    remainingAmount: roundMoney(Math.max(0, totalAmount) - paidAmount),
+  };
+}
+
+export function calculateCancelledRentalBalance(): Pick<
+  RentalInitialBalance,
+  "remainingAmount"
+> {
+  return {
+    remainingAmount: 0,
+  };
+}
+
 export function calculateReturnSummary(input: ReturnSummaryInput): ReturnSummary {
   const lateDays = calculateLateDays(
     input.expectedReturnDatetime,
@@ -414,7 +467,10 @@ export function calculateReturnSummary(input: ReturnSummaryInput): ReturnSummary
   };
 }
 
-export function formatRentalStatus(status: RentalStatus): string {
+export function formatRentalStatus(
+  status: RentalStatus,
+  language: LanguageCode = "en",
+): string {
   const labels: Record<RentalStatus, string> = {
     draft: "Draft",
     active: "Active",
@@ -423,7 +479,7 @@ export function formatRentalStatus(status: RentalStatus): string {
     overdue: "Overdue",
   };
 
-  return labels[status];
+  return translate(language, labels[status]);
 }
 
 function roundMoney(value: number): number {

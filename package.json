@@ -1,7 +1,8 @@
 {
-  "name": "local-vehicle-rental-desktop",
+  "name": "arak-rental-desk",
   "version": "0.1.0",
-  "description": "Local Windows desktop app for small car and motorcycle rental shops.",
+  "description": "ARAK Rental Desk desktop product for small car and motorcycle rental shops.",
+  "author": "ARAK Communication & IT Services",
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",
@@ -19,6 +20,7 @@
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-slot": "^1.2.4",
+    "adm-zip": "^0.5.17",
     "better-sqlite3": "^12.5.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -34,6 +36,7 @@
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@tailwindcss/vite": "^4.1.17",
+    "@types/adm-zip": "^0.5.8",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.7",
@@ -54,8 +57,8 @@
     "vitest": "^4.1.6"
   },
   "build": {
-    "appId": "com.localvehiclerental.desktop",
-    "productName": "Local Vehicle Rental",
+    "appId": "ly.arak.rentaldesk",
+    "productName": "ARAK Rental Desk",
     "directories": {
       "output": "release"
     },
@@ -64,7 +67,9 @@
       "package.json"
     ],
     "win": {
-      "target": "nsis"
-    }
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "artifactName": "ARAK Rental Desk Setup ${version}.${ext}"
   }
 }

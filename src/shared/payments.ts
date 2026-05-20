@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { translate } from "./i18n";
+import type { LanguageCode } from "./language";
+import type { PageRequest } from "./pagination";
 
 export const paymentTypeValues = [
   "rent",
@@ -16,6 +19,14 @@ export const paymentMethodValues = [
 
 export type PaymentType = (typeof paymentTypeValues)[number];
 export type PaymentMethod = (typeof paymentMethodValues)[number];
+
+export type PaymentTypeFilter = "all" | PaymentType;
+
+export type PaymentListRequest = PageRequest & {
+  type?: PaymentTypeFilter;
+  dateFrom?: string;
+  dateTo?: string;
+};
 
 const optionalTextField = (maxLength: number) =>
   z
@@ -80,6 +91,19 @@ export type PaymentRecord = PaymentInput & {
   createdAt: string;
 };
 
+export type PaymentListRecord = {
+  id: number;
+  rentalId: number;
+  contractNo: string;
+  customerName: string;
+  vehiclePlateNumber: string;
+  type: PaymentType;
+  method: PaymentMethod;
+  amount: number;
+  paymentDate: string;
+  notes: string | null;
+};
+
 export type PaymentFormValues = {
   type: PaymentType;
   method: PaymentMethod;
@@ -131,7 +155,10 @@ export function calculateRemainingAmount(
   return roundMoney(totalAmount - paidAmount);
 }
 
-export function formatPaymentType(type: PaymentType): string {
+export function formatPaymentType(
+  type: PaymentType,
+  language: LanguageCode = "en",
+): string {
   const labels: Record<PaymentType, string> = {
     rent: "Rent",
     deposit: "Deposit",
@@ -139,10 +166,13 @@ export function formatPaymentType(type: PaymentType): string {
     refund: "Refund",
   };
 
-  return labels[type];
+  return translate(language, labels[type]);
 }
 
-export function formatPaymentMethod(method: PaymentMethod): string {
+export function formatPaymentMethod(
+  method: PaymentMethod,
+  language: LanguageCode = "en",
+): string {
   const labels: Record<PaymentMethod, string> = {
     cash: "Cash",
     card: "Card",
@@ -150,7 +180,7 @@ export function formatPaymentMethod(method: PaymentMethod): string {
     other: "Other",
   };
 
-  return labels[method];
+  return translate(language, labels[method]);
 }
 
 function roundMoney(value: number): number {

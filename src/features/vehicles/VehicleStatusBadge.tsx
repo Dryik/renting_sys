@@ -1,4 +1,5 @@
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { useI18n } from "@/hooks/useI18n";
 import {
   formatVehicleStatus,
   type VehicleRecord,
@@ -8,18 +9,22 @@ type VehicleStatusBadgeProps = {
   status: VehicleRecord["status"];
 };
 
-const statusVariant: Record<
+const statusTone: Record<
   VehicleRecord["status"],
-  "default" | "secondary" | "outline" | "destructive"
+  "success" | "warning" | "neutral" | "default"
 > = {
-  available: "default",
-  rented: "secondary",
-  maintenance: "outline",
-  inactive: "secondary",
+  available: "success",
+  rented: "default",
+  maintenance: "warning",
+  inactive: "neutral",
 };
 
 export function VehicleStatusBadge({ status }: VehicleStatusBadgeProps) {
+  const { language } = useI18n();
+
   return (
-    <Badge variant={statusVariant[status]}>{formatVehicleStatus(status)}</Badge>
+    <StatusBadge tone={statusTone[status]}>
+      {formatVehicleStatus(status, language)}
+    </StatusBadge>
   );
 }

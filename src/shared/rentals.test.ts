@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  calculateCancelledRentalBalance,
+  calculateInitialRentalBalance,
   calculateLateDays,
   calculateRentalDays,
   calculateRentalTotal,
   calculateReturnSummary,
 } from "./rentals";
 import { calculatePaidAmount, calculateRemainingAmount } from "./payments";
+import { hasRequiredBackupEntries } from "./backup";
+import { formatMoney } from "./money";
+import { getVehicleStatusAfterMaintenanceChange } from "./maintenance";
 
 describe("rental calculations", () => {
   it("uses at least one rental day for same-day rentals", () => {
@@ -62,5 +67,45 @@ describe("rental calculations", () => {
 
   it("calculates remaining amount from total minus paid", () => {
     expect(calculateRemainingAmount(300, 210)).toBe(90);
+  });
+
+  it("counts deposit paid at activation toward the first remaining balance", () => {
+    expect(calculateInitialRentalBalance(300, 100)).toEqual({
+      paidAmount: 100,
+      remainingAmount: 200,
+    });
+  });
+
+  it("sets cancelled rental remaining balance to zero", () => {
+    expect(calculateCancelledRentalBalance()).toEqual({
+      remainingAmount: 0,
+    });
+  });
+
+  it("keeps maintenance status while active maintenance records exist", () => {
+    expect(getVehicleStatusAfterMaintenanceChange("available", 1)).toBe(
+      "maintenance",
+    );
+    expect(getVehicleStatusAfterMaintenanceChange("maintenance", 0)).toBe(
+      "available",
+    );
+  });
+
+  it("does not change rented vehicle status from maintenance helpers", () => {
+    expect(getVehicleStatusAfterMaintenanceChange("rented", 1)).toBe("rented");
+  });
+
+  it("validates required backup ZIP entries", () => {
+    expect(
+      hasRequiredBackupEntries(["metadata.json", "rental_app.db", "uploads/doc.txt"]),
+    ).toBe(true);
+    expect(hasRequiredBackupEntries(["metadata.json", "../rental_app.db"])).toBe(
+      false,
+    );
+  });
+
+  it("formats money with a symbol fallback", () => {
+    expect(formatMoney(12.5, "$")).toBe("$12.50");
+    expect(formatMoney(1250, "LYD", "ar-LY-u-nu-latn")).toBe("1,250.00 LYD");
   });
 });

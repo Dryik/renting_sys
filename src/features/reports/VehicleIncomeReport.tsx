@@ -1,8 +1,12 @@
 import { useEffect, useState } from "react";
+import { BidiValue } from "@/components/ui/bidi-value";
+import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
+import { useI18n } from "@/hooks/useI18n";
 import type { VehicleIncomeRecord } from "@/shared/reports";
 
 export function VehicleIncomeReport() {
+  const { formatCurrency, locale, t } = useI18n();
   const today = new Date();
   const firstDay = toDateInputValue(
     new Date(today.getFullYear(), today.getMonth(), 1),
@@ -57,7 +61,7 @@ export function VehicleIncomeReport() {
       <div className="flex flex-wrap items-center gap-4">
         <div className="flex items-center gap-2">
           <label htmlFor="startDate" className="text-sm font-medium">
-            From
+            {t("From")}
           </label>
           <Input
             id="startDate"
@@ -69,7 +73,7 @@ export function VehicleIncomeReport() {
         </div>
         <div className="flex items-center gap-2">
           <label htmlFor="endDate" className="text-sm font-medium">
-            To
+            {t("To")}
           </label>
           <Input
             id="endDate"
@@ -81,49 +85,50 @@ export function VehicleIncomeReport() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-md border">
-        <div className="grid grid-cols-[2fr_1fr_1fr] bg-muted px-4 py-3 text-sm font-medium">
-          <span>Vehicle</span>
-          <span className="text-right">Rentals</span>
-          <span className="text-right">Income</span>
-        </div>
+      <DataTable className="min-w-[620px]">
+        <thead>
+          <tr>
+            <Th>{t("Vehicle")}</Th>
+            <Th className="text-end">{t("Rentals")}</Th>
+            <Th className="text-end">{t("Income")}</Th>
+          </tr>
+        </thead>
+        <tbody>
         {loading ? (
-          <div className="p-8 text-center text-sm text-muted-foreground">Loading...</div>
+          <EmptyTableRow colSpan={3} message={t("Loading...")} />
         ) : incomeRecords.length === 0 ? (
-          <div className="flex min-h-32 items-center justify-center px-4 py-8 text-center text-sm text-muted-foreground">
-            No income recorded for this period.
-          </div>
+          <EmptyTableRow colSpan={3} message={t("No income recorded for this period.")} />
         ) : (
-          <div className="divide-y">
+          <>
             {incomeRecords.map((record) => (
-              <div
+              <tr
                 key={record.vehicleId}
-                className="grid grid-cols-[2fr_1fr_1fr] items-center gap-4 px-4 py-3 text-sm hover:bg-muted/50"
               >
-                <div className="min-w-0">
+                <Td>
                   <div className="truncate font-medium">
                     {record.brand} {record.model}
                   </div>
                   <div className="truncate text-muted-foreground">
-                    {record.plateNumber}
+                    <BidiValue value={record.plateNumber} />
                   </div>
-                </div>
-                <div className="text-right text-muted-foreground">
-                  {record.rentalCount}
-                </div>
-                <div className="text-right font-medium">
-                  {formatMoney(record.totalIncome)}
-                </div>
-              </div>
+                </Td>
+                <Td className="text-end text-muted-foreground">
+                  <BidiValue value={new Intl.NumberFormat(locale).format(record.rentalCount)} />
+                </Td>
+                <Td className="text-end font-medium">
+                  <BidiValue value={formatCurrency(record.totalIncome)} />
+                </Td>
+              </tr>
             ))}
-            <div className="grid grid-cols-[2fr_1fr_1fr] items-center gap-4 bg-muted/30 px-4 py-3 text-sm font-semibold">
-              <div className="text-right">Total:</div>
-              <div className="text-right">{totalRentals}</div>
-              <div className="text-right">{formatMoney(totalIncome)}</div>
-            </div>
-          </div>
+            <tr className="bg-muted/30 font-semibold">
+              <Td className="text-end">{t("Total:")}</Td>
+              <Td className="text-end"><BidiValue value={new Intl.NumberFormat(locale).format(totalRentals)} /></Td>
+              <Td className="text-end"><BidiValue value={formatCurrency(totalIncome)} /></Td>
+            </tr>
+          </>
         )}
-      </div>
+        </tbody>
+      </DataTable>
     </div>
   );
 }
@@ -134,10 +139,4 @@ function toDateInputValue(date: Date): string {
   const day = String(date.getDate()).padStart(2, "0");
 
   return `${year}-${month}-${day}`;
-}
-
-function formatMoney(value: number): string {
-  const sign = value < 0 ? "-" : "";
-
-  return `${sign}$${Math.abs(value).toFixed(2)}`;
 }

@@ -1,23 +1,32 @@
-import { CheckCircle2, CreditCard, Plus, Search } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ReactNode } from "react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+  CheckCircle2,
+  CreditCard,
+  FileDown,
+  Info,
+  Plus,
+  Printer,
+  Search,
+  XCircle,
+} from "lucide-react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Badge } from "@/components/ui/badge";
+import { BidiValue } from "@/components/ui/bidi-value";
+import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
+import { MetricStrip } from "@/components/ui/metric-strip";
+import { PaginationControls } from "@/components/ui/pagination-controls";
+import { SidePanel } from "@/components/ui/side-panel";
+import { useI18n } from "@/hooks/useI18n";
+import type { PageResult } from "@/shared/pagination";
 import type { PaymentInput, PaymentRecord } from "@/shared/payments";
-import { calculateRentalDays } from "@/shared/rentals";
 import type {
   RentalActivationInput,
   RentalFormOptions,
   RentalListRecord,
+  RentalListSummary,
+  RentalQueue,
   RentalReturnInput,
 } from "@/shared/rentals";
 import { RentalForm } from "./RentalForm";
@@ -25,50 +34,78 @@ import { RentalPaymentPanel } from "./RentalPaymentPanel";
 import { RentalReturnForm } from "./RentalReturnForm";
 import { RentalStatusBadge } from "./RentalStatusBadge";
 
-type RentalFormState =
-  | {
-      mode: "create";
-    }
-  | {
-      mode: "return";
-      rental: RentalListRecord;
-    }
-  | {
-      mode: "payment";
-      rental: RentalListRecord;
-    }
+type RentalPanelState =
+  | { mode: "create" }
+  | { mode: "detail"; rental: RentalListRecord }
+  | { mode: "return"; rental: RentalListRecord }
+  | { mode: "payment"; rental: RentalListRecord }
   | null;
 
+const emptySummary: RentalListSummary = {
+  total: 0,
+  active: 0,
+  overdue: 0,
+  returned: 0,
+  amount: 0,
+};
+
+const emptyRentalPage: PageResult<RentalListRecord, RentalListSummary> = {
+  rows: [],
+  total: 0,
+  page: 1,
+  pageSize: 25,
+  totalPages: 1,
+  summary: emptySummary,
+};
+
+const queueTabs: { value: RentalQueue; label: string }[] = [
+  { value: "active", label: "Active" },
+  { value: "overdue", label: "Overdue" },
+  { value: "due_today", label: "Due Today" },
+  { value: "returned", label: "Returned" },
+  { value: "cancelled", label: "Cancelled" },
+  { value: "all", label: "All" },
+];
+
 export function RentalsPage() {
-  const [rentals, setRentals] = useState<RentalListRecord[]>([]);
+  const { formatCurrency, formatDateTime, locale, settings, t } = useI18n();
+  const [rentalPage, setRentalPage] = useState(emptyRentalPage);
   const [options, setOptions] = useState<RentalFormOptions>({
     customers: [],
     vehicles: [],
   });
+  const [queue, setQueue] = useState<RentalQueue>("active");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [formState, setFormState] = useState<RentalFormState>(null);
+  const [panelState, setPanelState] = useState<RentalPanelState>(null);
   const [paymentRecords, setPaymentRecords] = useState<PaymentRecord[]>([]);
   const [listError, setListError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [pendingReturn, setPendingReturn] = useState<RentalReturnInput | null>(null);
+  const [rentalToCancel, setRentalToCancel] = useState<RentalListRecord | null>(null);
 
-  const loadRentals = useCallback(async (searchValue: string) => {
+  const loadRentals = useCallback(async (nextPage = page) => {
     setIsLoading(true);
     setListError(null);
 
     try {
-      const records = await window.rentalApp.rentals.list(searchValue);
-      setRentals(records);
-      return records;
+      const result = await window.rentalApp.rentals.list({
+        page: nextPage,
+        queue,
+        search,
+      });
+      setRentalPage(result);
+      return result.rows;
     } catch (error) {
-      setListError(getErrorMessage(error, "Rentals could not be loaded."));
+      setListError(getErrorMessage(error, t("Rentals could not be loaded.")));
       return [];
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [page, queue, search, t]);
 
   const loadOptions = useCallback(async () => {
     const formOptions = await window.rentalApp.rentals.getFormOptions();
@@ -83,10 +120,10 @@ export function RentalsPage() {
       setPaymentRecords(records);
       return records;
     } catch (error) {
-      setPaymentError(getErrorMessage(error, "Payments could not be loaded."));
+      setPaymentError(getErrorMessage(error, t("Payments could not be loaded.")));
       return [];
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -98,41 +135,13 @@ export function RentalsPage() {
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
-      void loadRentals(search);
+      void loadRentals(page);
     }, 150);
 
     return () => window.clearTimeout(timeout);
-  }, [loadRentals, search]);
+  }, [loadRentals, page]);
 
-  const summary = useMemo(() => {
-    return rentals.reduce(
-      (values, rental) => {
-        values.total += 1;
-
-        if (rental.status === "active") {
-          values.active += 1;
-        }
-
-        if (rental.status === "overdue") {
-          values.overdue += 1;
-        }
-
-        if (rental.status === "returned") {
-          values.returned += 1;
-        }
-
-        values.amount += rental.totalAmount;
-        return values;
-      },
-      {
-        total: 0,
-        active: 0,
-        overdue: 0,
-        returned: 0,
-        amount: 0,
-      },
-    );
-  }, [rentals]);
+  const summary = rentalPage.summary ?? emptySummary;
 
   async function handleActivateRental(input: RentalActivationInput) {
     setIsSaving(true);
@@ -140,10 +149,11 @@ export function RentalsPage() {
 
     try {
       await window.rentalApp.rentals.activate(input);
-      setFormState(null);
-      await Promise.all([loadOptions(), loadRentals(search)]);
+      setPanelState(null);
+      setPage(1);
+      await Promise.all([loadOptions(), loadRentals(1)]);
     } catch (error) {
-      setFormError(getErrorMessage(error, "Rental could not be activated."));
+      setFormError(getErrorMessage(error, t("Rental could not be activated.")));
     } finally {
       setIsSaving(false);
     }
@@ -155,12 +165,28 @@ export function RentalsPage() {
 
     try {
       await window.rentalApp.rentals.return(input);
-      setFormState(null);
-      await Promise.all([loadOptions(), loadRentals(search)]);
+      setPanelState(null);
+      await Promise.all([loadOptions(), loadRentals(page)]);
     } catch (error) {
-      setFormError(getErrorMessage(error, "Rental could not be returned."));
+      setFormError(getErrorMessage(error, t("Rental could not be returned.")));
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function handleCancelRental(rental: RentalListRecord) {
+    setIsSaving(true);
+    setListError(null);
+
+    try {
+      await window.rentalApp.rentals.cancel(rental.id);
+      setPanelState(null);
+      await Promise.all([loadOptions(), loadRentals(page)]);
+    } catch (error) {
+      setListError(getErrorMessage(error, t("Rental could not be cancelled.")));
+    } finally {
+      setIsSaving(false);
+      setRentalToCancel(null);
     }
   }
 
@@ -171,7 +197,7 @@ export function RentalsPage() {
     try {
       await window.rentalApp.payments.create(input);
       const [updatedRentals] = await Promise.all([
-        loadRentals(search),
+        loadRentals(page),
         loadPayments(input.rentalId),
       ]);
       const updatedRental = updatedRentals.find(
@@ -179,266 +205,489 @@ export function RentalsPage() {
       );
 
       if (updatedRental) {
-        setFormState({ mode: "payment", rental: updatedRental });
+        setPanelState({ mode: "payment", rental: updatedRental });
       }
     } catch (error) {
-      setPaymentError(getErrorMessage(error, "Payment could not be saved."));
+      setPaymentError(getErrorMessage(error, t("Payment could not be saved.")));
     } finally {
       setIsSaving(false);
     }
   }
 
-  async function openForm() {
+  async function openCreateForm() {
     setFormError(null);
     await loadOptions();
-    setFormState({ mode: "create" });
+    setPanelState({ mode: "create" });
+  }
+
+  async function openDetailPanel(rental: RentalListRecord) {
+    setPaymentRecords([]);
+    await loadPayments(rental.id);
+    setPanelState({ mode: "detail", rental });
   }
 
   function openReturnForm(rental: RentalListRecord) {
     setFormError(null);
-    setFormState({ mode: "return", rental });
+    setPanelState({ mode: "return", rental });
   }
 
   async function openPaymentPanel(rental: RentalListRecord) {
     setPaymentError(null);
     setPaymentRecords([]);
     await loadPayments(rental.id);
-    setFormState({ mode: "payment", rental });
+    setPanelState({ mode: "payment", rental });
+  }
+
+  function handleSearchChange(value: string) {
+    setSearch(value);
+    setPage(1);
+  }
+
+  function handleQueueChange(nextQueue: RentalQueue) {
+    setQueue(nextQueue);
+    setPage(1);
   }
 
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="relative w-full max-w-md">
-          <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Search className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
-            className="pl-10"
-            placeholder="Search contract, customer, or plate"
+            className="ps-10"
+            placeholder={t("Search contract, customer, or plate")}
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => handleSearchChange(event.target.value)}
           />
         </div>
 
-        <Button onClick={() => void openForm()}>
+        <Button onClick={() => void openCreateForm()}>
           <Plus data-icon="inline-start" />
-          New Rental
+          {t("New Rental")}
         </Button>
       </div>
 
-      {formState?.mode === "create" ? (
-        <RentalForm
-          error={formError}
-          isSaving={isSaving}
-          options={options}
-          onCancel={() => setFormState(null)}
-          onSave={handleActivateRental}
-        />
-      ) : null}
-
-      {formState?.mode === "return" ? (
-        <RentalReturnForm
-          error={formError}
-          isSaving={isSaving}
-          rental={formState.rental}
-          onCancel={() => setFormState(null)}
-          onSave={handleReturnRental}
-        />
-      ) : null}
-
-      {formState?.mode === "payment" ? (
-        <RentalPaymentPanel
-          error={paymentError}
-          isSaving={isSaving}
-          payments={paymentRecords}
-          rental={formState.rental}
-          onCancel={() => setFormState(null)}
-          onSave={handleCreatePayment}
-        />
-      ) : null}
-
-      <div className="grid gap-3 lg:grid-cols-5 md:grid-cols-2">
-        <SummaryBadge label="Total Rentals" value={String(summary.total)} />
-        <SummaryBadge label="Active" value={String(summary.active)} />
-        <SummaryBadge label="Overdue" value={String(summary.overdue)} />
-        <SummaryBadge label="Returned" value={String(summary.returned)} />
-        <SummaryBadge label="Rent Total" value={formatMoney(summary.amount)} />
+      <div className="flex flex-wrap gap-2">
+        {queueTabs.map((tab) => (
+          <Button
+            key={tab.value}
+            type="button"
+            size="sm"
+            variant={queue === tab.value ? "default" : "outline"}
+            onClick={() => handleQueueChange(tab.value)}
+          >
+            {t(tab.label)}
+          </Button>
+        ))}
       </div>
 
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <CardTitle>Rental List</CardTitle>
-              <CardDescription>
-                Search by contract number, customer name, or plate number.
-              </CardDescription>
-            </div>
-            <Badge variant="secondary">{rentals.length} shown</Badge>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {listError ? (
-            <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {listError}
-            </div>
-          ) : null}
+      <SidePanel
+        open={Boolean(panelState)}
+        title={getPanelTitle(panelState, t)}
+        description={getPanelDescription(panelState, t)}
+        width={panelState?.mode === "create" ? "lg" : "md"}
+        onClose={() => setPanelState(null)}
+      >
+        {panelState?.mode === "create" ? (
+          <RentalForm
+            error={formError}
+            isSaving={isSaving}
+            options={options}
+            onCancel={() => setPanelState(null)}
+            onSave={handleActivateRental}
+          />
+        ) : null}
 
-          <div className="overflow-x-auto rounded-md border">
-            <table className="w-full min-w-[1120px] border-collapse text-left text-sm">
-              <thead className="bg-muted text-muted-foreground">
-                <tr>
-                  <Th>Contract</Th>
-                  <Th>Customer</Th>
-                  <Th>Vehicle</Th>
-                  <Th>Start</Th>
-                  <Th>Expected Return</Th>
-                  <Th>Days</Th>
-                  <Th>Total</Th>
-                  <Th>Paid</Th>
-                  <Th>Remaining</Th>
-                  <Th>Status</Th>
-                  <Th className="text-right">Actions</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {isLoading ? (
-                  <EmptyRow message="Loading rentals..." />
-                ) : rentals.length === 0 ? (
-                  <EmptyRow
-                    message={
-                      search.trim()
-                        ? "No rentals match this search."
-                        : "No rentals yet. Use New Rental to activate the first one."
-                    }
-                  />
-                ) : (
-                  rentals.map((rental) => (
-                    <tr key={rental.id} className="border-t">
-                      <Td>
-                        <span className="font-semibold">{rental.contractNo}</span>
-                      </Td>
-                      <Td>
-                        <div className="flex flex-col gap-1">
-                          <span className="font-medium">{rental.customerName}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {rental.customerPhone}
-                          </span>
-                        </div>
-                      </Td>
-                      <Td>
-                        <div className="flex flex-col gap-1">
-                          <span className="font-medium">
-                            {rental.vehiclePlateNumber}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {rental.vehicleBrand} {rental.vehicleModel}
-                          </span>
-                        </div>
-                      </Td>
-                      <Td>{formatDateTime(rental.startDatetime)}</Td>
-                      <Td>{formatDateTime(rental.expectedReturnDatetime)}</Td>
-                      <Td>
-                        {calculateDaysLabel(
-                          rental.startDatetime,
-                          rental.expectedReturnDatetime,
-                        )}
-                      </Td>
-                      <Td>{formatMoney(rental.totalAmount)}</Td>
-                      <Td>{formatMoney(rental.paidAmount)}</Td>
-                      <Td>{formatMoney(rental.remainingAmount)}</Td>
-                      <Td>
-                        <RentalStatusBadge status={rental.status} />
-                      </Td>
-                      <Td className="text-right">
-                        <div className="flex justify-end gap-2">
+        {panelState?.mode === "detail" ? (
+          <RentalDetailPanel
+            currency={settings.defaultCurrency}
+            formatCurrency={formatCurrency}
+            formatDateTime={formatDateTime}
+            isSaving={isSaving}
+            paymentError={paymentError}
+            payments={paymentRecords}
+            rental={panelState.rental}
+            t={t}
+            onCancelRental={() => setRentalToCancel(panelState.rental)}
+            onPrintContract={(printToPDF) =>
+              void window.rentalApp.rentals.printContract(panelState.rental.id, printToPDF)
+            }
+            onRecordPayment={() => void openPaymentPanel(panelState.rental)}
+            onReturnVehicle={() => openReturnForm(panelState.rental)}
+          />
+        ) : null}
+
+        {panelState?.mode === "return" ? (
+          <RentalReturnForm
+            error={formError}
+            currency={settings.defaultCurrency}
+            defaultLateFee={settings.defaultLateFee}
+            isSaving={isSaving}
+            rental={panelState.rental}
+            onCancel={() => setPanelState({ mode: "detail", rental: panelState.rental })}
+            onSave={(input) => {
+              setPendingReturn(input);
+              return Promise.resolve();
+            }}
+          />
+        ) : null}
+
+        {panelState?.mode === "payment" ? (
+          <RentalPaymentPanel
+            error={paymentError}
+            currency={settings.defaultCurrency}
+            isSaving={isSaving}
+            payments={paymentRecords}
+            rental={panelState.rental}
+            onCancel={() => setPanelState({ mode: "detail", rental: panelState.rental })}
+            onSave={handleCreatePayment}
+          />
+        ) : null}
+      </SidePanel>
+
+      <MetricStrip
+        columns={5}
+        items={[
+          { label: t("Total Rentals"), value: <BidiValue value={new Intl.NumberFormat(locale).format(summary.total)} /> },
+          { label: t("Active"), value: <BidiValue value={new Intl.NumberFormat(locale).format(summary.active)} /> },
+          { label: t("Overdue"), tone: "danger", value: <BidiValue value={new Intl.NumberFormat(locale).format(summary.overdue)} /> },
+          { label: t("Returned"), value: <BidiValue value={new Intl.NumberFormat(locale).format(summary.returned)} /> },
+          { label: t("Rent Total"), value: <BidiValue value={formatCurrency(summary.amount)} /> },
+        ]}
+      />
+
+      <section className="rounded-md border bg-card p-5 shadow-xs">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="font-semibold">{t("Rental List")}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t("Search by contract number, customer name, or plate number.")}
+            </p>
+          </div>
+          <Badge variant="secondary">
+            {t("{{count}} shown", { count: rentalPage.total })}
+          </Badge>
+        </div>
+        {listError ? (
+          <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {listError}
+          </div>
+        ) : null}
+
+        <DataTable className="min-w-[900px]">
+          <thead className="bg-muted text-muted-foreground">
+            <tr>
+              <Th>{t("Contract")}</Th>
+              <Th>{t("Customer")}</Th>
+              <Th>{t("Vehicle")}</Th>
+              <Th>{t("Due / Returned")}</Th>
+              <Th className="text-end">{t("Remaining")}</Th>
+              <Th>{t("Status")}</Th>
+              <Th className="text-end">{t("Actions")}</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading ? (
+              <EmptyTableRow colSpan={7} message={t("Loading rentals...")} />
+            ) : rentalPage.rows.length === 0 ? (
+              <EmptyTableRow
+                colSpan={7}
+                message={
+                  search.trim()
+                    ? t("No rentals match this search.")
+                    : t("No rentals yet. Use New Rental to activate the first one.")
+                }
+              />
+            ) : (
+              rentalPage.rows.map((rental) => (
+                <tr key={rental.id} className="border-t hover:bg-muted/25">
+                  <Td>
+                    <BidiValue className="font-semibold" value={rental.contractNo} />
+                  </Td>
+                  <Td>
+                    <div className="flex flex-col gap-1">
+                      <span className="font-medium">{rental.customerName}</span>
+                      <BidiValue className="text-xs text-muted-foreground" value={rental.customerPhone} />
+                    </div>
+                  </Td>
+                  <Td>
+                    <div className="flex flex-col gap-1">
+                      <BidiValue className="font-medium" value={rental.vehiclePlateNumber} />
+                      <span className="text-xs text-muted-foreground">
+                        {rental.vehicleBrand} {rental.vehicleModel}
+                      </span>
+                    </div>
+                  </Td>
+                  <Td className="whitespace-nowrap tabular-nums">
+                    <BidiValue
+                      value={formatDateTime(
+                        rental.actualReturnDatetime ?? rental.expectedReturnDatetime,
+                      )}
+                    />
+                  </Td>
+                  <Td className="text-end font-semibold">
+                    <BidiValue value={formatCurrency(rental.remainingAmount)} />
+                  </Td>
+                  <Td>
+                    <RentalStatusBadge status={rental.status} />
+                  </Td>
+                  <Td className="text-end">
+                    <div className="flex flex-wrap justify-end gap-2">
+                      {canOperateRental(rental) ? (
+                        <>
+                          <Button size="sm" onClick={() => openReturnForm(rental)}>
+                            <CheckCircle2 data-icon="inline-start" />
+                            {t("Return Vehicle")}
+                          </Button>
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => void openPaymentPanel(rental)}
                           >
                             <CreditCard data-icon="inline-start" />
-                            Record Payment
+                            {t("Record Payment")}
                           </Button>
-                          {rental.status === "active" ||
-                          rental.status === "overdue" ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => openReturnForm(rental)}
-                          >
-                            <CheckCircle2 data-icon="inline-start" />
-                            Return Vehicle
-                          </Button>
-                          ) : null}
-                        </div>
-                      </Td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                        </>
+                      ) : null}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void openDetailPanel(rental)}
+                      >
+                        <Info data-icon="inline-start" />
+                        {t("Details")}
+                      </Button>
+                    </div>
+                  </Td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </DataTable>
+        <PaginationControls page={rentalPage} t={t} onPageChange={setPage} />
+      </section>
+
+      <ConfirmDialog
+        open={Boolean(rentalToCancel)}
+        title={t("Cancel rental?")}
+        description={t("Cancel rental confirmation")}
+        cancelLabel={t("Keep Rental")}
+        confirmLabel={t("Cancel Rental")}
+        variant="destructive"
+        isBusy={isSaving}
+        onCancel={() => setRentalToCancel(null)}
+        onConfirm={() => {
+          if (rentalToCancel) {
+            void handleCancelRental(rentalToCancel);
+          }
+        }}
+      />
+
+      <ConfirmDialog
+        open={Boolean(pendingReturn)}
+        title={t("Return vehicle?")}
+        description={t("Return vehicle confirmation")}
+        cancelLabel={t("Cancel")}
+        confirmLabel={t("Mark Returned")}
+        isBusy={isSaving}
+        onCancel={() => setPendingReturn(null)}
+        onConfirm={() => {
+          if (pendingReturn) {
+            void handleReturnRental(pendingReturn).then(() => setPendingReturn(null));
+          }
+        }}
+      />
+    </div>
+  );
+}
+
+function RentalDetailPanel({
+  currency,
+  formatCurrency,
+  formatDateTime,
+  isSaving,
+  onCancelRental,
+  onPrintContract,
+  onRecordPayment,
+  onReturnVehicle,
+  paymentError,
+  payments,
+  rental,
+  t,
+}: {
+  currency: string;
+  formatCurrency: (amount: number) => string;
+  formatDateTime: (value: string | Date) => string;
+  isSaving: boolean;
+  onCancelRental: () => void;
+  onPrintContract: (printToPDF: boolean) => void;
+  onRecordPayment: () => void;
+  onReturnVehicle: () => void;
+  paymentError: string | null;
+  payments: PaymentRecord[];
+  rental: RentalListRecord;
+  t: (key: string, values?: Record<string, string | number>) => string;
+}) {
+  const canOperate = canOperateRental(rental);
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <DetailItem label={t("Contract")} value={<BidiValue value={rental.contractNo} />} />
+        <DetailItem label={t("Status")} value={<RentalStatusBadge status={rental.status} />} />
+        <DetailItem label={t("Customer")} value={rental.customerName} />
+        <DetailItem label={t("Phone")} value={<BidiValue value={rental.customerPhone} />} />
+        <DetailItem
+          label={t("Vehicle")}
+          value={`${rental.vehicleBrand} ${rental.vehicleModel}`}
+        />
+        <DetailItem label={t("Plate")} value={<BidiValue value={rental.vehiclePlateNumber} />} />
+      </div>
+
+      <div className="rounded-md border">
+        <div className="border-b px-4 py-3 font-medium">{t("Amounts")}</div>
+        <div className="grid gap-3 p-4 sm:grid-cols-3">
+          <DetailItem label={t("Total Amount")} value={<BidiValue value={formatCurrency(rental.totalAmount)} />} alignEnd />
+          <DetailItem label={t("Paid Amount")} value={<BidiValue value={formatCurrency(rental.paidAmount)} />} alignEnd />
+          <DetailItem label={t("Remaining")} value={<BidiValue value={formatCurrency(rental.remainingAmount)} />} alignEnd />
+        </div>
+      </div>
+
+      <div className="rounded-md border">
+        <div className="border-b px-4 py-3 font-medium">{t("Rental Period")}</div>
+        <div className="grid gap-3 p-4 sm:grid-cols-2">
+          <DetailItem label={t("Start")} value={<BidiValue value={formatDateTime(rental.startDatetime)} />} />
+          <DetailItem label={t("Expected Return")} value={<BidiValue value={formatDateTime(rental.expectedReturnDatetime)} />} />
+          <DetailItem
+            label={t("Actual Return")}
+            value={
+              rental.actualReturnDatetime
+                ? <BidiValue value={formatDateTime(rental.actualReturnDatetime)} />
+                : t("No date")
+            }
+          />
+          <DetailItem label={t("Currency")} value={<BidiValue value={currency} />} />
+        </div>
+      </div>
+
+      <div className="rounded-md border">
+        <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+          <h3 className="font-medium">{t("Payments")}</h3>
+          <Button size="sm" variant="outline" onClick={onRecordPayment}>
+            <CreditCard data-icon="inline-start" />
+            {t("Record Payment")}
+          </Button>
+        </div>
+        {paymentError ? (
+          <div className="m-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {paymentError}
           </div>
-        </CardContent>
-      </Card>
+        ) : null}
+        <div className="flex flex-col">
+          {payments.length === 0 ? (
+            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+              {t("No payments recorded for this rental yet.")}
+            </div>
+          ) : (
+            payments.map((payment) => (
+              <div key={payment.id} className="grid gap-2 border-t px-4 py-3 sm:grid-cols-[1fr_auto]">
+                <div className="min-w-0">
+                  <div className="font-medium">{t(payment.type === "refund" ? "Refund" : "Payment")}</div>
+                  <BidiValue className="text-xs text-muted-foreground" value={formatDateTime(payment.paymentDate)} />
+                </div>
+                <BidiValue
+                  className="text-end font-semibold"
+                  value={`${payment.type === "refund" ? "-" : ""}${formatCurrency(payment.amount)}`}
+                />
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
+        {canOperate ? (
+          <Button onClick={onReturnVehicle}>
+            <CheckCircle2 data-icon="inline-start" />
+            {t("Return Vehicle")}
+          </Button>
+        ) : null}
+        <Button variant="outline" onClick={() => onPrintContract(false)}>
+          <Printer data-icon="inline-start" />
+          {t("Print Contract")}
+        </Button>
+        <Button variant="outline" onClick={() => onPrintContract(true)}>
+          <FileDown data-icon="inline-start" />
+          {t("PDF")}
+        </Button>
+        {canOperate ? (
+          <Button variant="destructive" disabled={isSaving} onClick={onCancelRental}>
+            <XCircle data-icon="inline-start" />
+            {t("Cancel Rental")}
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
 }
 
-function SummaryBadge({ label, value }: { label: string; value: string }) {
+function DetailItem({
+  alignEnd = false,
+  label,
+  value,
+}: {
+  alignEnd?: boolean;
+  label: string;
+  value: ReactNode;
+}) {
   return (
-    <div className="rounded-lg border bg-card px-4 py-3 shadow-sm">
-      <p className="text-sm text-muted-foreground">{label}</p>
-      <p className="mt-1 text-2xl font-semibold">{value}</p>
+    <div className={alignEnd ? "text-end" : undefined}>
+      <div className="text-xs font-medium text-muted-foreground">{label}</div>
+      <div className="mt-1 min-w-0 text-sm font-medium">{value}</div>
     </div>
   );
 }
 
-function Th({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return <th className={cn("px-4 py-3 font-medium", className)}>{children}</th>;
+function getPanelTitle(
+  panelState: RentalPanelState,
+  t: (key: string) => string,
+): string {
+  if (panelState?.mode === "detail") {
+    return t("Rental Details");
+  }
+
+  if (panelState?.mode === "return") {
+    return t("Return Vehicle");
+  }
+
+  if (panelState?.mode === "payment") {
+    return t("Record Payment");
+  }
+
+  return t("New Rental");
 }
 
-function Td({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return <td className={cn("px-4 py-3 align-middle", className)}>{children}</td>;
+function getPanelDescription(
+  panelState: RentalPanelState,
+  t: (key: string) => string,
+): string {
+  if (panelState?.mode === "detail") {
+    return `${panelState.rental.contractNo} · ${panelState.rental.customerName} · ${panelState.rental.vehiclePlateNumber}`;
+  }
+
+  if (panelState?.mode === "return") {
+    return `${panelState.rental.contractNo} · ${panelState.rental.vehiclePlateNumber} · ${panelState.rental.customerName}`;
+  }
+
+  if (panelState?.mode === "payment") {
+    return `${panelState.rental.contractNo} · ${panelState.rental.customerName} · ${panelState.rental.vehiclePlateNumber}`;
+  }
+
+  return t("Choose customer and vehicle, then activate the contract.");
 }
 
-function EmptyRow({ message }: { message: string }) {
-  return (
-    <tr>
-      <td className="px-4 py-12 text-center text-muted-foreground" colSpan={11}>
-        {message}
-      </td>
-    </tr>
-  );
-}
-
-function calculateDaysLabel(startDatetime: string, expectedReturnDatetime: string) {
-  return String(calculateRentalDays(startDatetime, expectedReturnDatetime));
-}
-
-function formatDateTime(value: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
-
-function formatMoney(value: number): string {
-  return new Intl.NumberFormat(undefined, {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: 2,
-  }).format(value);
+function canOperateRental(rental: RentalListRecord): boolean {
+  return rental.status === "active" || rental.status === "overdue";
 }
 
 function getErrorMessage(error: unknown, fallback: string): string {

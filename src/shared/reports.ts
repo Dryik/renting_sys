@@ -6,6 +6,25 @@ export type DashboardStats = {
   incomeToday: number;
 };
 
+export type ReturnedRentalsReportRequest = {
+  dateFrom?: string;
+  dateTo?: string;
+  page?: number;
+  pageSize?: number;
+};
+
+export type CustomerRentalHistoryRequest = {
+  customerId: number;
+  page?: number;
+  pageSize?: number;
+};
+
+export type DailyPaymentsReportRequest = {
+  date: string;
+  page?: number;
+  pageSize?: number;
+};
+
 export type DailyPaymentRecord = {
   id: number;
   rentalId: number;

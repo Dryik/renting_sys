@@ -1,11 +1,16 @@
 import { and, count, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import type { RentalListRecord } from "../../src/shared/rentals";
+import type { PageResult } from "../../src/shared/pagination";
 import type {
+  CustomerRentalHistoryRequest,
   DailyPaymentRecord,
+  DailyPaymentsReportRequest,
   DashboardStats,
+  ReturnedRentalsReportRequest,
   VehicleIncomeRecord,
 } from "../../src/shared/reports";
 import { getDatabase } from "./database";
+import { createPageResult, normalizePageRequest } from "./listing";
 import { customers, payments, rentals, vehicles } from "./schema";
 
 export function getDashboardStats(): DashboardStats {
@@ -125,10 +130,99 @@ export function getOverdueRentals(): RentalListRecord[] {
     .all();
 }
 
-export function getDailyPayments(date: string): DailyPaymentRecord[] {
-  const range = getLocalDateRange(date);
+export function getReturnedRentals(
+  request: ReturnedRentalsReportRequest = {},
+): PageResult<RentalListRecord> {
+  const db = getDatabase();
+  const pageRequest = normalizePageRequest(request);
+  const today = new Date();
+  const dateFrom =
+    request.dateFrom ?? toDateInputValue(new Date(today.getFullYear(), today.getMonth(), 1));
+  const dateTo = request.dateTo ?? toDateInputValue(today);
+  const range = getLocalDateRange(dateFrom, dateTo);
+  const whereFilter = and(
+    eq(rentals.status, "returned"),
+    gte(rentals.actualReturnDatetime, range.start),
+    lt(rentals.actualReturnDatetime, range.end),
+  );
+  const total = db
+    .select({ count: count() })
+    .from(rentals)
+    .innerJoin(customers, eq(rentals.customerId, customers.id))
+    .innerJoin(vehicles, eq(rentals.vehicleId, vehicles.id))
+    .where(whereFilter)
+    .get()?.count ?? 0;
+  const rows = db
+    .select(rentalListFields)
+    .from(rentals)
+    .innerJoin(customers, eq(rentals.customerId, customers.id))
+    .innerJoin(vehicles, eq(rentals.vehicleId, vehicles.id))
+    .where(whereFilter)
+    .orderBy(desc(rentals.actualReturnDatetime), desc(rentals.createdAt))
+    .limit(pageRequest.pageSize)
+    .offset(pageRequest.offset)
+    .all();
 
-  return getDatabase()
+  return createPageResult(rows, total, pageRequest);
+}
+
+export function getCustomerRentalHistory(
+  request: CustomerRentalHistoryRequest | number,
+): PageResult<RentalListRecord> {
+  const customerId =
+    typeof request === "number" ? request : Number(request.customerId);
+  if (!Number.isInteger(customerId) || customerId <= 0) {
+    throw new Error("Customer is required.");
+  }
+
+  const db = getDatabase();
+  const pageRequest = normalizePageRequest(
+    typeof request === "number" ? undefined : request,
+  );
+  const whereFilter = eq(rentals.customerId, customerId);
+  const total = db
+    .select({ count: count() })
+    .from(rentals)
+    .innerJoin(customers, eq(rentals.customerId, customers.id))
+    .innerJoin(vehicles, eq(rentals.vehicleId, vehicles.id))
+    .where(whereFilter)
+    .get()?.count ?? 0;
+  const rows = db
+    .select(rentalListFields)
+    .from(rentals)
+    .innerJoin(customers, eq(rentals.customerId, customers.id))
+    .innerJoin(vehicles, eq(rentals.vehicleId, vehicles.id))
+    .where(whereFilter)
+    .orderBy(desc(rentals.createdAt))
+    .limit(pageRequest.pageSize)
+    .offset(pageRequest.offset)
+    .all();
+
+  return createPageResult(rows, total, pageRequest);
+}
+
+export function getDailyPayments(
+  request: DailyPaymentsReportRequest | string,
+): PageResult<DailyPaymentRecord> {
+  const date = typeof request === "string" ? request : request.date;
+  const range = getLocalDateRange(date);
+  const pageRequest = normalizePageRequest(
+    typeof request === "string" ? undefined : request,
+  );
+  const whereFilter = and(
+    gte(payments.paymentDate, range.start),
+    lt(payments.paymentDate, range.end),
+  );
+  const db = getDatabase();
+  const total = db
+    .select({ count: count() })
+    .from(payments)
+    .innerJoin(rentals, eq(payments.rentalId, rentals.id))
+    .innerJoin(customers, eq(rentals.customerId, customers.id))
+    .where(whereFilter)
+    .get()?.count ?? 0;
+
+  const rows = db
     .select({
       id: payments.id,
       rentalId: payments.rentalId,
@@ -145,9 +239,13 @@ export function getDailyPayments(date: string): DailyPaymentRecord[] {
     .from(payments)
     .innerJoin(rentals, eq(payments.rentalId, rentals.id))
     .innerJoin(customers, eq(rentals.customerId, customers.id))
-    .where(and(gte(payments.paymentDate, range.start), lt(payments.paymentDate, range.end)))
+    .where(whereFilter)
     .orderBy(desc(payments.paymentDate))
+    .limit(pageRequest.pageSize)
+    .offset(pageRequest.offset)
     .all();
+
+  return createPageResult(rows, total, pageRequest);
 }
 
 export function getVehicleIncome(

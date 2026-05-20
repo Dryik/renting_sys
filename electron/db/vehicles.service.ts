@@ -1,34 +1,61 @@
-import { asc, eq, like, or } from "drizzle-orm";
+import { and, asc, count, eq, like, or, type SQL } from "drizzle-orm";
 import { ZodError } from "zod";
 import {
+  type VehicleListRequest,
   type VehicleRecord,
   vehicleInputSchema,
 } from "../../src/shared/vehicles";
+import type { PageResult } from "../../src/shared/pagination";
 import { getDatabase } from "./database";
+import { createPageResult, normalizePageRequest, toLikeTerm } from "./listing";
 import { vehicles } from "./schema";
 
-export function listVehicles(search = ""): VehicleRecord[] {
+export function listVehicles(request?: VehicleListRequest | string): PageResult<VehicleRecord> {
   const db = getDatabase();
-  const trimmedSearch = search.trim();
+  const pageRequest = normalizePageRequest(request);
+  const listRequest = typeof request === "object" && request !== null ? request : {};
+  const type = isVehicleType(listRequest.type) ? listRequest.type : "all";
+  const status = isVehicleStatus(listRequest.status) ? listRequest.status : "all";
+  const conditions: SQL[] = [];
 
-  if (trimmedSearch === "") {
-    return db.select().from(vehicles).orderBy(asc(vehicles.plateNumber)).all();
+  if (pageRequest.search) {
+    const term = toLikeTerm(pageRequest.search);
+
+    const searchFilter = or(
+      like(vehicles.plateNumber, term),
+      like(vehicles.brand, term),
+      like(vehicles.model, term),
+    );
+
+    if (searchFilter) {
+      conditions.push(searchFilter);
+    }
   }
 
-  const term = `%${trimmedSearch}%`;
+  if (type !== "all") {
+    conditions.push(eq(vehicles.type, type));
+  }
 
-  return db
+  if (status !== "all") {
+    conditions.push(eq(vehicles.status, status));
+  }
+
+  const whereFilter = conditions.length ? and(...conditions) : undefined;
+  const total = db
+    .select({ count: count() })
+    .from(vehicles)
+    .where(whereFilter)
+    .get()?.count ?? 0;
+  const rows = db
     .select()
     .from(vehicles)
-    .where(
-      or(
-        like(vehicles.plateNumber, term),
-        like(vehicles.brand, term),
-        like(vehicles.model, term),
-      ),
-    )
+    .where(whereFilter)
     .orderBy(asc(vehicles.plateNumber))
+    .limit(pageRequest.pageSize)
+    .offset(pageRequest.offset)
     .all();
+
+  return createPageResult(rows, total, pageRequest);
 }
 
 export function createVehicle(input: unknown): VehicleRecord {
@@ -83,6 +110,19 @@ function parseVehicleId(id: unknown): number {
   }
 
   return parsedId;
+}
+
+function isVehicleType(value: unknown): value is VehicleRecord["type"] {
+  return value === "car" || value === "motorcycle";
+}
+
+function isVehicleStatus(value: unknown): value is VehicleRecord["status"] {
+  return (
+    value === "available" ||
+    value === "rented" ||
+    value === "maintenance" ||
+    value === "inactive"
+  );
 }
 
 function normalizeVehicleServiceError(error: unknown): Error {

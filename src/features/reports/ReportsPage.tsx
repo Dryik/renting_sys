@@ -1,20 +1,26 @@
 import { useState } from "react";
+import { useI18n } from "@/hooks/useI18n";
 import { cn } from "@/lib/utils";
 import { ActiveRentalsReport } from "./ActiveRentalsReport";
 import { OverdueRentalsReport } from "./OverdueRentalsReport";
 import { DailyPaymentsReport } from "./DailyPaymentsReport";
 import { VehicleIncomeReport } from "./VehicleIncomeReport";
+import { ReturnedRentalsReport } from "./ReturnedRentalsReport";
+import { CustomerRentalHistoryReport } from "./CustomerRentalHistoryReport";
 
-type ReportTab = "active" | "overdue" | "daily" | "income";
+type ReportTab = "active" | "overdue" | "returned" | "daily" | "income" | "customer";
 
 export function ReportsPage() {
+  const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<ReportTab>("active");
 
   const tabs = [
     { id: "active", label: "Active Rentals" },
     { id: "overdue", label: "Overdue Rentals" },
+    { id: "returned", label: "Returned Rentals" },
     { id: "daily", label: "Daily Payments" },
     { id: "income", label: "Vehicle Income" },
+    { id: "customer", label: "Customer History" },
   ] as const;
 
   return (
@@ -31,7 +37,7 @@ export function ReportsPage() {
                 : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
             )}
           >
-            {tab.label}
+            {t(tab.label)}
           </button>
         ))}
       </div>
@@ -39,8 +45,10 @@ export function ReportsPage() {
       <div className="min-h-[500px]">
         {activeTab === "active" && <ActiveRentalsReport />}
         {activeTab === "overdue" && <OverdueRentalsReport />}
+        {activeTab === "returned" && <ReturnedRentalsReport />}
         {activeTab === "daily" && <DailyPaymentsReport />}
         {activeTab === "income" && <VehicleIncomeReport />}
+        {activeTab === "customer" && <CustomerRentalHistoryReport />}
       </div>
     </div>
   );
