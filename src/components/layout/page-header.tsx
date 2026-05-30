@@ -2,21 +2,32 @@ import type { ReactNode } from "react";
 
 type PageHeaderProps = {
   actions?: ReactNode;
+  account?: ReactNode;
   description?: string;
   title: string;
 };
 
-export function PageHeader({ actions, description, title }: PageHeaderProps) {
+export function PageHeader({
+  account,
+  actions,
+  description,
+  title,
+}: PageHeaderProps) {
   return (
-    <header className="border-b bg-card px-6 py-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
-          <h2 className="text-2xl font-semibold tracking-normal">{title}</h2>
+    <header className="sticky top-0 z-20 border-b border-border/80 bg-card/95 px-5 py-3 shadow-xs backdrop-blur lg:px-8">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="min-w-0 text-start">
+          <h2 className="text-xl font-bold tracking-normal text-card-foreground">{title}</h2>
           {description ? (
-            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{description}</p>
+            <p className="mt-1 max-w-3xl text-sm leading-5 text-muted-foreground">
+              {description}
+            </p>
           ) : null}
         </div>
-        {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+          {actions}
+          {account}
+        </div>
       </div>
     </header>
   );

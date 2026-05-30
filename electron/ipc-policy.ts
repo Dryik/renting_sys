@@ -1,0 +1,130 @@
+// This policy gates business-write access under offline licensing. A few local
+// maintenance writes, such as trial timestamps, license import, and current-user
+// PIN changes, remain available in read-only mode by design.
+export const ipcAccessPolicy = {
+  "auth:get-state": { requiresWriteAccess: false },
+  "auth:setup-owner": { requiresWriteAccess: true },
+  "auth:login": { requiresWriteAccess: false },
+  "auth:logout": { requiresWriteAccess: false },
+  "auth:lock": { requiresWriteAccess: false },
+  "auth:unlock": { requiresWriteAccess: false },
+  "auth:change-password": { requiresWriteAccess: false },
+  "users:list": { requiresWriteAccess: false },
+  "users:create": { requiresWriteAccess: true },
+  "users:update": { requiresWriteAccess: true },
+  "users:deactivate": { requiresWriteAccess: true },
+  "users:reactivate": { requiresWriteAccess: true },
+  "users:reset-password": { requiresWriteAccess: true },
+  "audit:list": { requiresWriteAccess: false },
+  "app:get-info": { requiresWriteAccess: false },
+  "license:get-status": { requiresWriteAccess: false },
+  "license:export-request": { requiresWriteAccess: false },
+  "license:import-license": { requiresWriteAccess: false },
+  "vehicles:list": { requiresWriteAccess: false },
+  "vehicles:create": { requiresWriteAccess: true },
+  "vehicles:update": { requiresWriteAccess: true },
+  "vehicle-sales:list": { requiresWriteAccess: false },
+  "vehicle-sales:get-for-vehicle": { requiresWriteAccess: false },
+  "vehicle-sales:create": { requiresWriteAccess: true },
+  "vehicle-sales:void": { requiresWriteAccess: true },
+  "vehicle-sales:print-receipt": { requiresWriteAccess: false },
+  "customers:list": { requiresWriteAccess: false },
+  "customers:create": { requiresWriteAccess: true },
+  "customers:update": { requiresWriteAccess: true },
+  "customers:deactivate": { requiresWriteAccess: true },
+  "rentals:list": { requiresWriteAccess: false },
+  "rentals:get-form-options": { requiresWriteAccess: false },
+  "rentals:activate": { requiresWriteAccess: true },
+  "rentals:create-draft": { requiresWriteAccess: true },
+  "rentals:update-draft": { requiresWriteAccess: true },
+  "rentals:activate-draft": { requiresWriteAccess: true },
+  "rentals:update-active": { requiresWriteAccess: true },
+  "rentals:return": { requiresWriteAccess: true },
+  "rentals:return-with-payment": { requiresWriteAccess: true },
+  "rentals:cancel": { requiresWriteAccess: true },
+  "rentals:find-open-by-plate": { requiresWriteAccess: false },
+  "rentals:print-contract": { requiresWriteAccess: false },
+  "payments:list": { requiresWriteAccess: false },
+  "payments:list-for-rental": { requiresWriteAccess: false },
+  "payments:create": { requiresWriteAccess: true },
+  "payments:void": { requiresWriteAccess: true },
+  "payments:correct": { requiresWriteAccess: true },
+  "payments:print-receipt": { requiresWriteAccess: false },
+  "accounting:get-summary": { requiresWriteAccess: false },
+  "accounting:list-transactions": { requiresWriteAccess: false },
+  "accounting:list-expenses": { requiresWriteAccess: false },
+  "accounting:create-expense": { requiresWriteAccess: true },
+  "accounting:void-expense": { requiresWriteAccess: true },
+  "accounting:create-cash-movement": { requiresWriteAccess: true },
+  "accounting:void-cash-movement": { requiresWriteAccess: true },
+  "accounting:create-adjustment": { requiresWriteAccess: true },
+  "accounting:void-adjustment": { requiresWriteAccess: true },
+  "accounting:get-daily-closing": { requiresWriteAccess: false },
+  "accounting:save-daily-closing": { requiresWriteAccess: true },
+  "reports:get-active-rentals": { requiresWriteAccess: false },
+  "reports:get-overdue-rentals": { requiresWriteAccess: false },
+  "reports:get-returned-rentals": { requiresWriteAccess: false },
+  "reports:get-customer-rental-history": { requiresWriteAccess: false },
+  "reports:get-daily-payments": { requiresWriteAccess: false },
+  "reports:get-vehicle-income": { requiresWriteAccess: false },
+  "reports:get-outstanding-balances": { requiresWriteAccess: false },
+  "reports:list-outstanding-balances": { requiresWriteAccess: false },
+  "reports:get-daily-closing": { requiresWriteAccess: false },
+  "reports:get-deposits": { requiresWriteAccess: false },
+  "reports:list-deposits": { requiresWriteAccess: false },
+  "reports:get-vehicle-utilization": { requiresWriteAccess: false },
+  "reports:get-vehicle-net-summary": { requiresWriteAccess: false },
+  "reports:get-expiring-documents": { requiresWriteAccess: false },
+  "reports:get-cancelled-rentals": { requiresWriteAccess: false },
+  "reports:get-payment-voids": { requiresWriteAccess: false },
+  "reports:get-vehicle-sales": { requiresWriteAccess: false },
+  "reports:export": { requiresWriteAccess: false },
+  "backup:run-backup": { requiresWriteAccess: false },
+  "backup:run-restore": { requiresWriteAccess: true },
+  "backup:get-status": { requiresWriteAccess: false },
+  "backup:preview": { requiresWriteAccess: false },
+  "backup:verify": { requiresWriteAccess: false },
+  "settings:get": { requiresWriteAccess: false },
+  "settings:save": { requiresWriteAccess: true },
+  "settings:select-logo": { requiresWriteAccess: true },
+  "settings:clear-logo": { requiresWriteAccess: true },
+  "maintenance:list": { requiresWriteAccess: false },
+  "maintenance:create": { requiresWriteAccess: true },
+  "maintenance:update": { requiresWriteAccess: true },
+  "maintenance:archive": { requiresWriteAccess: true },
+  "attachments:list": { requiresWriteAccess: false },
+  "attachments:add": { requiresWriteAccess: true },
+  "attachments:upload": { requiresWriteAccess: true },
+  "attachments:save-captured-photo": { requiresWriteAccess: true },
+  "attachments:replace": { requiresWriteAccess: true },
+  "attachments:open": { requiresWriteAccess: false },
+  "attachments:get-preview": { requiresWriteAccess: false },
+  "attachments:archive": { requiresWriteAccess: true },
+  "search:global": { requiresWriteAccess: false },
+  "diagnostics:get-status": { requiresWriteAccess: false },
+  "data-health:scan": { requiresWriteAccess: false },
+  "data-health:apply-fix": { requiresWriteAccess: true },
+  "security:set-owner-pin": { requiresWriteAccess: true },
+  "security:clear-owner-pin": { requiresWriteAccess: true },
+  "security:approve-sensitive-action": { requiresWriteAccess: true },
+} as const satisfies Record<string, { requiresWriteAccess: boolean }>;
+
+export type IpcChannel = keyof typeof ipcAccessPolicy;
+
+export function getIpcAccessPolicy(channel: string): { requiresWriteAccess: boolean } {
+  const policy = ipcAccessPolicy[channel as IpcChannel];
+
+  if (!policy) {
+    throw new Error(`IPC channel is not classified: ${channel}`);
+  }
+
+  return policy;
+}
+
+export function assertIpcAccessAllowed(channel: string, canWrite: boolean): void {
+  const policy = getIpcAccessPolicy(channel);
+
+  if (policy.requiresWriteAccess && !canWrite) {
+    throw new Error("License required. The app is currently read-only.");
+  }
+}

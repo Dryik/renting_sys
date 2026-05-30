@@ -8,6 +8,7 @@ import { useI18n } from "@/hooks/useI18n";
 import type { PageResult } from "@/shared/pagination";
 import { formatPaymentMethod, formatPaymentType } from "@/shared/payments";
 import type { DailyPaymentRecord } from "@/shared/reports";
+import { ReportExportButtons } from "./ReportExportButtons";
 
 const emptyPaymentPage: PageResult<DailyPaymentRecord> = {
   rows: [],
@@ -62,20 +63,23 @@ export function DailyPaymentsReport() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-4">
-        <label htmlFor="paymentDate" className="text-sm font-medium">
-          {t("Payment Date")}
-        </label>
-        <Input
-          id="paymentDate"
-          type="date"
-          value={date}
-          onChange={(event) => handleDateChange(event.target.value)}
-          className="w-40"
-        />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-4">
+          <label htmlFor="paymentDate" className="text-sm font-medium">
+            {t("Payment Date")}
+          </label>
+          <Input
+            id="paymentDate"
+            type="date"
+            value={date}
+            onChange={(event) => handleDateChange(event.target.value)}
+            className="w-40"
+          />
+        </div>
+        <ReportExportButtons type="dailyPayments" date={date} />
       </div>
 
-      <DataTable className="min-w-[760px]">
+      <DataTable className="min-w-full">
         <thead>
           <tr>
             <Th>{t("Date")}</Th>
@@ -87,35 +91,39 @@ export function DailyPaymentsReport() {
         </thead>
         <tbody>
           {loading ? (
-            <EmptyTableRow colSpan={5} message={t("Loading...")} />
+            <EmptyTableRow colSpan={5} message={t("Loading...")} state="loading" />
           ) : paymentPage.rows.length === 0 ? (
             <EmptyTableRow colSpan={5} message={t("No payments recorded on this date.")} />
           ) : (
             <>
-              {paymentPage.rows.map((payment) => (
-                <tr key={payment.id} className="border-t">
-                  <Td className="whitespace-nowrap tabular-nums text-muted-foreground">
-                    <BidiValue value={formatDate(payment.paymentDate)} />
-                  </Td>
-                  <Td>
-                    <div className="truncate font-medium"><BidiValue value={payment.contractNo} /></div>
-                    <div className="truncate text-muted-foreground">{payment.customerName}</div>
-                  </Td>
-                  <Td>
-                    <Badge variant="outline" className="capitalize">
-                      {formatPaymentType(payment.type, language)}
-                    </Badge>
-                  </Td>
-                  <Td>
-                    <span className="capitalize text-muted-foreground">
-                      {formatPaymentMethod(payment.method, language)}
-                    </span>
-                  </Td>
-                  <Td className="text-end font-medium">
-                    <BidiValue value={formatCurrency(getSignedPaymentAmount(payment))} />
-                  </Td>
-                </tr>
-              ))}
+              {paymentPage.rows.map((payment) => {
+                const isRefund = payment.type === "refund";
+
+                return (
+                  <tr key={payment.id} className="border-t">
+                    <Td className="whitespace-nowrap tabular-nums text-muted-foreground">
+                      <BidiValue value={formatDate(payment.paymentDate)} />
+                    </Td>
+                    <Td>
+                      <div className="truncate font-medium"><BidiValue value={payment.contractNo} /></div>
+                      <div className="truncate text-muted-foreground">{payment.customerName}</div>
+                    </Td>
+                    <Td>
+                      <Badge variant="outline" className="capitalize">
+                        {formatPaymentType(payment.type, language)}
+                      </Badge>
+                    </Td>
+                    <Td>
+                      <span className="capitalize text-muted-foreground">
+                        {formatPaymentMethod(payment.method, language)}
+                      </span>
+                    </Td>
+                    <Td className={`text-end font-medium ${isRefund ? "text-warning" : ""}`}>
+                      <BidiValue value={formatCurrency(getSignedPaymentAmount(payment))} />
+                    </Td>
+                  </tr>
+                );
+              })}
               <tr className="bg-muted/30 font-semibold">
                 <Td className="text-end" colSpan={4}>{t("Page Total:")}</Td>
                 <Td className="text-end"><BidiValue value={formatCurrency(pageTotal)} /></Td>

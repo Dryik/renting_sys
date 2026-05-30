@@ -1,13 +1,18 @@
-import { Archive, CheckCircle2, Edit, Plus, Search } from "lucide-react";
+import { Archive, CheckCircle2, Edit, Plus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
-import { Input } from "@/components/ui/input";
+import { ListToolbar } from "@/components/ui/list-toolbar";
 import { PaginationControls } from "@/components/ui/pagination-controls";
+import { SearchInput } from "@/components/ui/search-input";
+import { SectionPanel } from "@/components/ui/section-panel";
+import { SegmentedFilter } from "@/components/ui/segmented-filter";
 import { SidePanel } from "@/components/ui/side-panel";
+import { ReasonDialog } from "@/components/ui/reason-dialog";
+import { useAuth } from "@/hooks/useAuth";
 import { useI18n } from "@/hooks/useI18n";
 import type {
   MaintenanceInput,
@@ -43,7 +48,11 @@ const stateFilters: { value: MaintenanceListState; label: string }[] = [
   { value: "completed", label: "Completed" },
 ];
 
+const rowClassName =
+  "group transition-colors hover:bg-muted/35 focus-within:bg-muted/40";
+
 export function MaintenancePage() {
+  const { can } = useAuth();
   const { formatCurrency, formatDate, t } = useI18n();
   const [maintenancePage, setMaintenancePage] = useState(emptyMaintenancePage);
   const [vehicles, setVehicles] = useState<VehicleRecord[]>([]);
@@ -133,12 +142,18 @@ export function MaintenancePage() {
     setRecordToComplete(null);
   }
 
-  async function handleArchive(record: MaintenanceRecordWithVehicle) {
+  async function handleArchiveWithReason(
+    record: MaintenanceRecordWithVehicle,
+    reason: string,
+  ) {
     setIsSaving(true);
     setListError(null);
 
     try {
-      await window.rentalApp.maintenance.archive(record.id);
+      await window.rentalApp.maintenance.archive({
+        maintenanceId: record.id,
+        reason,
+      });
       await Promise.all([loadMaintenance(page), loadVehicles()]);
     } catch (error) {
       setListError(getErrorMessage(error, t("Maintenance record could not be archived.")));
@@ -167,41 +182,39 @@ export function MaintenancePage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="relative w-full max-w-md">
-          <Search className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            className="ps-10"
-            placeholder={t("Search service, plate, brand, or model")}
-            value={search}
-            onChange={(event) => {
-              setSearch(event.target.value);
-              setPage(1);
-            }}
-          />
-        </div>
-
-        <Button onClick={() => setFormState({ mode: "create", record: null })}>
-          <Plus data-icon="inline-start" />
-          {t("Record Maintenance")}
-        </Button>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        {stateFilters.map((filter) => (
+      <ListToolbar
+        actions={can("maintenance.create") ? (
           <Button
-            key={filter.value}
-            type="button"
-            size="sm"
-            variant={state === filter.value ? "default" : "outline"}
-            onClick={() => {
-              setState(filter.value);
-              setPage(1);
-            }}
+            className="w-full sm:w-auto"
+            size="lg"
+            onClick={() => setFormState({ mode: "create", record: null })}
           >
-            {t(filter.label)}
+            <Plus data-icon="inline-start" />
+            {t("Record Maintenance")}
           </Button>
-        ))}
+        ) : null}
+      >
+        <SearchInput
+          placeholder={t("Search service, plate, brand, or model")}
+          value={search}
+          onChange={(event) => {
+            setSearch(event.target.value);
+            setPage(1);
+          }}
+        />
+      </ListToolbar>
+
+      <div className="flex flex-wrap gap-3">
+        <SegmentedFilter
+          label="Status"
+          options={stateFilters}
+          t={t}
+          value={state}
+          onChange={(value) => {
+            setState(value);
+            setPage(1);
+          }}
+        />
       </div>
 
       <SidePanel
@@ -221,24 +234,19 @@ export function MaintenancePage() {
         />
       </SidePanel>
 
-      <section className="rounded-md border bg-card p-5 shadow-xs">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h3 className="font-semibold">{t("Maintenance List")}</h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {t("Record repairs, service, and maintenance costs by vehicle.")}
-            </p>
-          </div>
-          <Badge variant="secondary">{t("{{count}} shown", { count: maintenancePage.total })}</Badge>
-        </div>
+      <SectionPanel
+        title={t("Maintenance")}
+        description={t("Record repairs, service, and maintenance costs by vehicle.")}
+        badge={t("{{count}} shown", { count: maintenancePage.total })}
+      >
         {listError ? (
           <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {listError}
+            {t(listError)}
           </div>
         ) : null}
 
-        <DataTable className="min-w-[820px]">
-          <thead className="bg-muted text-muted-foreground">
+        <DataTable className="min-w-[820px]" containerClassName="min-h-[22rem]">
+          <thead className="bg-muted/70 text-muted-foreground">
             <tr>
               <Th>{t("Vehicle")}</Th>
               <Th>{t("Service")}</Th>
@@ -250,19 +258,21 @@ export function MaintenancePage() {
           </thead>
           <tbody>
             {isLoading ? (
-              <EmptyTableRow colSpan={6} message={t("Loading maintenance records...")} />
+              <EmptyTableRow colSpan={6} message={t("Loading maintenance records...")} state="loading" />
             ) : maintenancePage.rows.length === 0 ? (
-              <EmptyTableRow
+              <MaintenanceEmptyRow
                 colSpan={6}
-                message={
-                  search.trim()
-                    ? t("No maintenance records match this search.")
-                    : t("No maintenance records yet. Use Record Maintenance to add the first one.")
+                hasSearch={Boolean(search.trim() || state !== "all")}
+                t={t}
+                onRecordMaintenance={
+                  can("maintenance.create")
+                    ? () => setFormState({ mode: "create", record: null })
+                    : null
                 }
               />
             ) : (
               maintenancePage.rows.map((record) => (
-                <tr key={record.id} className="border-t hover:bg-muted/25">
+                <tr key={record.id} className={rowClassName}>
                   <Td>
                     <div className="flex flex-col gap-1">
                       <BidiValue className="font-medium" value={record.vehiclePlateNumber} />
@@ -287,15 +297,17 @@ export function MaintenancePage() {
                   </Td>
                   <Td className="text-end">
                     <div className="flex flex-wrap justify-end gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setFormState({ mode: "edit", record })}
-                      >
-                        <Edit data-icon="inline-start" />
-                        {t("Edit")}
-                      </Button>
-                      {!record.endDate ? (
+                      {can("maintenance.edit") ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setFormState({ mode: "edit", record })}
+                        >
+                          <Edit data-icon="inline-start" />
+                          {t("Edit")}
+                        </Button>
+                      ) : null}
+                      {!record.endDate && can("maintenance.complete") ? (
                         <Button
                           size="sm"
                           variant="outline"
@@ -306,15 +318,18 @@ export function MaintenancePage() {
                           {t("Mark Complete")}
                         </Button>
                       ) : null}
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        disabled={isSaving}
-                        onClick={() => setRecordToArchive(record)}
-                      >
-                        <Archive data-icon="inline-start" />
-                        {t("Archive")}
-                      </Button>
+                      {can("maintenance.archive") ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          disabled={isSaving}
+                          onClick={() => setRecordToArchive(record)}
+                        >
+                          <Archive data-icon="inline-start" />
+                          {t("Archive")}
+                        </Button>
+                      ) : null}
                     </div>
                   </Td>
                 </tr>
@@ -323,7 +338,7 @@ export function MaintenancePage() {
           </tbody>
         </DataTable>
         <PaginationControls page={maintenancePage} t={t} onPageChange={setPage} />
-      </section>
+      </SectionPanel>
 
       <ConfirmDialog
         open={Boolean(recordToComplete)}
@@ -340,22 +355,60 @@ export function MaintenancePage() {
         }}
       />
 
-      <ConfirmDialog
+      <ReasonDialog
         open={Boolean(recordToArchive)}
         title={t("Archive maintenance?")}
         description={t("Archive maintenance confirmation")}
+        reasonLabel={t("Reason")}
         cancelLabel={t("Cancel")}
         confirmLabel={t("Archive")}
         variant="destructive"
         isBusy={isSaving}
         onCancel={() => setRecordToArchive(null)}
-        onConfirm={() => {
+        onConfirm={(reason) => {
           if (recordToArchive) {
-            void handleArchive(recordToArchive);
+            void handleArchiveWithReason(recordToArchive, reason);
           }
         }}
       />
     </div>
+  );
+}
+
+function MaintenanceEmptyRow({
+  colSpan,
+  hasSearch,
+  onRecordMaintenance,
+  t,
+}: {
+  colSpan: number;
+  hasSearch: boolean;
+  onRecordMaintenance: (() => void) | null;
+  t: (key: string) => string;
+}) {
+  return (
+    <tr>
+      <td className="px-4 py-12 text-center" colSpan={colSpan}>
+        <div className="mx-auto flex max-w-sm flex-col items-center gap-3">
+          <div className="font-medium text-foreground">
+            {hasSearch
+              ? t("No maintenance records match this search.")
+              : t("No maintenance records yet")}
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {hasSearch
+              ? t("Search service, plate, brand, or model")
+              : t("Use Record Maintenance to add the first service record.")}
+          </p>
+          {!hasSearch && onRecordMaintenance ? (
+            <Button type="button" onClick={onRecordMaintenance}>
+              <Plus data-icon="inline-start" />
+              {t("Record Maintenance")}
+            </Button>
+          ) : null}
+        </div>
+      </td>
+    </tr>
   );
 }
 

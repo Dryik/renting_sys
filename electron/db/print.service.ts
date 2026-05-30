@@ -1,8 +1,9 @@
 import { BrowserWindow, dialog } from "electron";
 import { eq } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import fs from "node:fs";
 import { getDatabase } from "./database";
-import { customers, payments, rentals, vehicles } from "./schema";
+import { customers, payments, rentals, users, vehicleSales, vehicles } from "./schema";
 import { getShopSettings } from "./settings.service";
 import { escapeHtml } from "../../src/shared/html";
 import { translate } from "../../src/shared/i18n";
@@ -13,7 +14,9 @@ import {
 } from "../../src/shared/language";
 import { formatMoney } from "../../src/shared/money";
 import { formatPaymentMethod, formatPaymentType } from "../../src/shared/payments";
-import { formatRentalStatus } from "../../src/shared/rentals";
+import { calculateRentalDays, formatRentalStatus } from "../../src/shared/rentals";
+import { formatVehicleType } from "../../src/shared/vehicles";
+import { getCurrentUserForService } from "./auth.service";
 
 // Helper to format dates for printable outputs
 function formatPrintDate(isoString: string, language: LanguageCode): string {
@@ -27,12 +30,44 @@ function formatPrintDate(isoString: string, language: LanguageCode): string {
   }
 }
 
+function formatPrintDateOnly(isoString: string, language: LanguageCode): string {
+  try {
+    return new Intl.DateTimeFormat(getLocaleForLanguage(language), {
+      dateStyle: "medium",
+    }).format(new Date(isoString));
+  } catch {
+    return isoString;
+  }
+}
+
 function formatPrintMoney(
   amount: number,
   currency: string,
   language: LanguageCode,
 ): string {
   return formatMoney(amount, currency, getLocaleForLanguage(language));
+}
+
+function ltrHtml(value: string | number): string {
+  return `<span class="ltr-value" dir="ltr">${escapeHtml(String(value))}</span>`;
+}
+
+function optionalLtrHtml(
+  value: string | number | null | undefined,
+  fallback: string,
+): string {
+  return value === null || value === undefined || value === ""
+    ? escapeHtml(fallback)
+    : ltrHtml(value);
+}
+
+function optionalTextHtml(
+  value: string | number | null | undefined,
+  fallback: string,
+): string {
+  return value === null || value === undefined || value === ""
+    ? escapeHtml(fallback)
+    : escapeHtml(String(value));
 }
 
 // Function to print or save HTML content via Electron
@@ -90,9 +125,13 @@ async function printHTML(
 export async function printRentalContract(
   rentalId: number,
   printToPDF: boolean,
+  languageOverride?: LanguageCode | "both",
 ): Promise<void> {
   const db = getDatabase();
   const settings = getShopSettings();
+  const activatedUser = alias(users, "activated_user");
+  const createdUser = alias(users, "created_user");
+  const returnedUser = alias(users, "returned_user");
 
   const rental = db
     .select({
@@ -101,27 +140,49 @@ export async function printRentalContract(
       status: rentals.status,
       startDatetime: rentals.startDatetime,
       expectedReturnDatetime: rentals.expectedReturnDatetime,
+      actualReturnDatetime: rentals.actualReturnDatetime,
       dailyPrice: rentals.dailyPrice,
       depositRequired: rentals.depositRequired,
       depositPaid: rentals.depositPaid,
       mileageOut: rentals.mileageOut,
+      mileageIn: rentals.mileageIn,
       fuelOut: rentals.fuelOut,
+      fuelIn: rentals.fuelIn,
       notesOut: rentals.notesOut,
+      notesIn: rentals.notesIn,
+      damageNotes: rentals.damageNotes,
+      extraCharges: rentals.extraCharges,
+      discount: rentals.discount,
       totalAmount: rentals.totalAmount,
+      paidAmount: rentals.paidAmount,
+      remainingAmount: rentals.remainingAmount,
       customerName: customers.fullName,
       customerPhone: customers.phone,
       customerNationalId: customers.nationalId,
       customerLicenseNo: customers.driverLicenseNo,
+      customerLicenseExpiryDate: customers.licenseExpiryDate,
       customerAddress: customers.address,
+      vehicleType: vehicles.type,
       vehiclePlateNumber: vehicles.plateNumber,
       vehicleBrand: vehicles.brand,
       vehicleModel: vehicles.model,
       vehicleColor: vehicles.color,
       vehicleYear: vehicles.year,
+      vehicleInsuranceExpiryDate: vehicles.insuranceExpiryDate,
+      vehicleRegistrationExpiryDate: vehicles.registrationExpiryDate,
+      vehicleTechnicalInspectionExpiryDate: vehicles.technicalInspectionExpiryDate,
+      activatedByName: activatedUser.fullName,
+      activatedByUsername: activatedUser.username,
+      createdByName: createdUser.fullName,
+      createdByUsername: createdUser.username,
+      returnedByName: returnedUser.fullName,
     })
     .from(rentals)
     .innerJoin(customers, eq(rentals.customerId, customers.id))
     .innerJoin(vehicles, eq(rentals.vehicleId, vehicles.id))
+    .leftJoin(activatedUser, eq(rentals.activatedByUserId, activatedUser.id))
+    .leftJoin(createdUser, eq(rentals.createdByUserId, createdUser.id))
+    .leftJoin(returnedUser, eq(rentals.returnedByUserId, returnedUser.id))
     .where(eq(rentals.id, rentalId))
     .get();
 
@@ -130,10 +191,96 @@ export async function printRentalContract(
   }
 
   const currency = settings.defaultCurrency;
-  const language = settings.language;
+  const language = resolvePrintLanguage(settings.language, languageOverride);
   const direction = getDirectionForLanguage(language);
   const alignEnd = direction === "rtl" ? "left" : "right";
   const tr = (key: string) => translate(language, key);
+  const fallback = tr("N/A");
+  const printedAt = new Date().toISOString();
+  const currentUser = getCurrentUserForService();
+  const estimatedDays = calculateRentalDays(
+    rental.startDatetime,
+    rental.expectedReturnDatetime,
+  );
+  const issuedByName =
+    rental.activatedByName ?? rental.createdByName ?? currentUser?.fullName;
+  const issuedByUsername =
+    rental.activatedByUsername ?? rental.createdByUsername ?? currentUser?.username;
+
+  const item = (label: string, valueHtml: string): string => `
+    <li>
+      <span class="label">${escapeHtml(tr(label))}</span>
+      <span class="value">${valueHtml}</span>
+    </li>
+  `;
+
+  const tableValue = (valueHtml: string): string => `<td>${valueHtml}</td>`;
+  const formatOptionalDate = (value: string | null): string =>
+    value ? escapeHtml(formatPrintDateOnly(value, language)) : escapeHtml(fallback);
+  const termsHtml = [
+    "The customer received the vehicle in the condition shown above and agrees to return it in the same condition, except for normal use.",
+    "The customer must return the vehicle by the expected return date and time shown in this contract.",
+    "Late return, missing fuel, cleaning, damage, missing accessories, fines, tolls, and unpaid balances may be charged to the customer.",
+    "Only the customer and authorized listed drivers or riders may operate the vehicle.",
+    "The vehicle may not be used for racing, stunts, off-road use, towing, illegal activity, paid hire, ride-share, or delivery unless the shop explicitly allows it in writing.",
+    "The customer must not operate the vehicle under the influence of alcohol, drugs, or any impairing substance.",
+    "The customer must contact the shop immediately for accident, theft, breakdown, warning light, unsafe condition, or police involvement.",
+    "The deposit may be applied to unpaid rent, late fees, damage, fuel, cleaning, missing accessories, fines, or other amounts owed under this contract.",
+    "Insurance or waiver coverage, if any, applies only according to the selected policy and local law. Unauthorized, reckless, illegal, or impaired use may void coverage.",
+  ]
+    .map((term) => `<li>${escapeHtml(tr(term))}</li>`)
+    .join("");
+
+  const motorcycleTermsHtml = [
+    "The rider must hold a valid motorcycle license or endorsement suitable for this motorcycle.",
+    "The rider and passenger must follow helmet and safety gear laws.",
+    "Racing, stunts, competitions, and off-road riding are not allowed.",
+    "The motorcycle must be locked or secured when parked.",
+    "The rider must stop riding immediately if the motorcycle feels unsafe or a warning light appears.",
+  ]
+    .map((term) => `<li>${escapeHtml(tr(term))}</li>`)
+    .join("");
+
+  const accessoryLabels = [
+    "Keys",
+    "Vehicle documents",
+    rental.vehicleType === "motorcycle" ? "Helmet" : "Spare tire / tools",
+    rental.vehicleType === "motorcycle" ? "Lock / chain" : "Other accessories",
+  ];
+  const accessoriesHtml = accessoryLabels
+    .map((label) => `<li><span class="checkmark">&#9744;</span>${escapeHtml(tr(label))}</li>`)
+    .join("");
+  const returnAcknowledgmentHtml = rental.actualReturnDatetime
+    ? `
+      <div class="section-title">${escapeHtml(tr("Return Acknowledgment"))}</div>
+      <table>
+        <tbody>
+          <tr>
+            <th>${escapeHtml(tr("Actual Return"))}</th>
+            ${tableValue(escapeHtml(formatPrintDate(rental.actualReturnDatetime, language)))}
+            <th>${escapeHtml(tr("Returned By"))}</th>
+            ${tableValue(optionalTextHtml(rental.returnedByName, fallback))}
+          </tr>
+          <tr>
+            <th>${escapeHtml(tr("Mileage In"))}</th>
+            ${tableValue(rental.mileageIn !== null ? ltrHtml(`${rental.mileageIn} ${tr("km")}`) : escapeHtml(fallback))}
+            <th>${escapeHtml(tr("Fuel In"))}</th>
+            ${tableValue(optionalTextHtml(rental.fuelIn, fallback))}
+          </tr>
+          <tr>
+            <th>${escapeHtml(tr("Extra Charges"))}</th>
+            ${tableValue(ltrHtml(formatPrintMoney(rental.extraCharges, currency, language)))}
+            <th>${escapeHtml(tr("Discount"))}</th>
+            ${tableValue(ltrHtml(formatPrintMoney(rental.discount, currency, language)))}
+          </tr>
+        </tbody>
+      </table>
+      <div class="notes-box">${optionalTextHtml(
+        [rental.damageNotes, rental.notesIn].filter(Boolean).join(" - "),
+        tr("No return notes."),
+      )}</div>
+    `
+    : "";
 
   const html = `
     <!DOCTYPE html>
@@ -145,10 +292,10 @@ export async function printRentalContract(
         body {
           font-family: Cairo, "Noto Sans Arabic", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Tahoma, Arial, sans-serif;
           color: #0F2B3D;
-          line-height: 1.5;
+          line-height: 1.45;
           margin: 0;
-          padding: 20px;
-          font-size: 14px;
+          padding: 18px;
+          font-size: 12.5px;
           direction: ${direction};
           text-align: ${direction === "rtl" ? "right" : "left"};
         }
@@ -157,12 +304,12 @@ export async function printRentalContract(
           justify-content: space-between;
           gap: 24px;
           border-bottom: 3px solid #1D97D7;
-          padding-bottom: 15px;
-          margin-bottom: 20px;
+          padding-bottom: 12px;
+          margin-bottom: 14px;
         }
         .shop-info h1 {
-          font-size: 24px;
-          margin: 0 0 5px 0;
+          font-size: 22px;
+          margin: 0 0 4px 0;
           font-weight: 700;
         }
         .shop-info p {
@@ -171,6 +318,7 @@ export async function printRentalContract(
         }
         .contract-title {
           text-align: ${alignEnd};
+          min-width: 220px;
         }
         .contract-title h2 {
           font-size: 20px;
@@ -190,13 +338,13 @@ export async function printRentalContract(
           letter-spacing: 0.05em;
           border-bottom: 1px solid #B8E6FE;
           padding-bottom: 4px;
-          margin: 20px 0 10px 0;
+          margin: 16px 0 8px 0;
           color: #0F2B3D;
         }
         .grid {
           display: grid;
           grid-template-columns: 1fr 1fr;
-          gap: 20px;
+          gap: 16px;
         }
         .data-list {
           margin: 0;
@@ -204,17 +352,46 @@ export async function printRentalContract(
           list-style: none;
         }
         .data-list li {
-          display: flex;
-          margin-bottom: 6px;
+          display: grid;
+          grid-template-columns: 142px 1fr;
+          gap: 8px;
+          margin-bottom: 5px;
         }
         .data-list .label {
-          width: 140px;
           font-weight: 600;
           color: #435b6a;
-          flex-shrink: 0;
         }
         .data-list .value {
           color: #0F2B3D;
+        }
+        .meta-strip {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 8px;
+          margin-bottom: 12px;
+        }
+        .meta-item {
+          border: 1px solid #d8eef8;
+          border-radius: 4px;
+          padding: 7px 9px;
+          background: #F5FDFF;
+        }
+        .meta-item .label {
+          color: #435b6a;
+          font-size: 10px;
+          font-weight: 700;
+          text-transform: uppercase;
+        }
+        .meta-item .value {
+          color: #0F2B3D;
+          font-weight: 700;
+          margin-top: 2px;
+        }
+        .ltr-value {
+          direction: ltr;
+          unicode-bidi: isolate;
+          display: inline-block;
+          text-align: left;
         }
         table {
           width: 100%;
@@ -223,8 +400,9 @@ export async function printRentalContract(
         }
         th, td {
           border: 1px solid #d8eef8;
-          padding: 8px 12px;
+          padding: 7px 9px;
           text-align: ${direction === "rtl" ? "right" : "left"};
+          vertical-align: top;
         }
         th {
           background-color: #F5FDFF;
@@ -240,8 +418,28 @@ export async function printRentalContract(
           min-height: 40px;
           font-style: italic;
         }
+        .terms-list {
+          margin: 0;
+          padding-${direction === "rtl" ? "right" : "left"}: 20px;
+          font-size: 11px;
+        }
+        .terms-list li {
+          margin-bottom: 4px;
+        }
+        .checklist {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 4px 16px;
+          margin: 0;
+          padding: 0;
+          list-style: none;
+        }
+        .checkmark {
+          display: inline-block;
+          margin-${direction === "rtl" ? "left" : "right"}: 6px;
+        }
         .footer-text {
-          margin-top: 30px;
+          margin-top: 16px;
           font-size: 11px;
           color: #435b6a;
           text-align: justify;
@@ -249,7 +447,7 @@ export async function printRentalContract(
           padding-top: 10px;
         }
         .signatures {
-          margin-top: 50px;
+          margin-top: 36px;
           display: grid;
           grid-template-columns: 1fr 1fr;
           gap: 40px;
@@ -273,15 +471,31 @@ export async function printRentalContract(
       <div class="header">
         <div class="shop-info">
           <h1>${escapeHtml(settings.shopName)}</h1>
-          <p>${escapeHtml(settings.shopAddress)}</p>
-          <p>${escapeHtml(tr("Phone"))}: ${escapeHtml(settings.shopPhone)}</p>
+          <p>${optionalTextHtml(settings.shopAddress, fallback)}</p>
+          <p>${escapeHtml(tr("Phone"))}: ${ltrHtml(settings.shopPhone)}</p>
         </div>
         <div class="contract-title">
           <h2>${escapeHtml(tr("RENTAL CONTRACT"))}</h2>
-          <p>${escapeHtml(rental.contractNo)}</p>
-          <p style="font-size: 12px; color: #64748b; font-weight: normal; margin-top: 5px;">
-            ${escapeHtml(tr("Status"))}: ${escapeHtml(formatRentalStatus(rental.status, language))}
-          </p>
+          <p>${ltrHtml(rental.contractNo)}</p>
+        </div>
+      </div>
+
+      <div class="meta-strip">
+        <div class="meta-item">
+          <div class="label">${escapeHtml(tr("Status"))}</div>
+          <div class="value">${escapeHtml(formatRentalStatus(rental.status, language))}</div>
+        </div>
+        <div class="meta-item">
+          <div class="label">${escapeHtml(tr("Printed At"))}</div>
+          <div class="value">${escapeHtml(formatPrintDate(printedAt, language))}</div>
+        </div>
+        <div class="meta-item">
+          <div class="label">${escapeHtml(tr("Issued By"))}</div>
+          <div class="value">${optionalTextHtml(issuedByName, fallback)}</div>
+        </div>
+        <div class="meta-item">
+          <div class="label">${escapeHtml(tr("Username"))}</div>
+          <div class="value">${optionalLtrHtml(issuedByUsername, fallback)}</div>
         </div>
       </div>
 
@@ -289,21 +503,23 @@ export async function printRentalContract(
         <div>
           <div class="section-title">${escapeHtml(tr("Customer Details"))}</div>
           <ul class="data-list">
-            <li><span class="label">${escapeHtml(tr("Full Name"))}:</span><span class="value">${escapeHtml(rental.customerName)}</span></li>
-            <li><span class="label">${escapeHtml(tr("Phone"))}:</span><span class="value">${escapeHtml(rental.customerPhone)}</span></li>
-            <li><span class="label">${escapeHtml(tr("National ID/Pass"))}:</span><span class="value">${escapeHtml(rental.customerNationalId ?? tr("N/A"))}</span></li>
-            <li><span class="label">${escapeHtml(tr("Driver License"))}:</span><span class="value">${escapeHtml(rental.customerLicenseNo ?? tr("N/A"))}</span></li>
-            <li><span class="label">${escapeHtml(tr("Address"))}:</span><span class="value">${escapeHtml(rental.customerAddress ?? tr("N/A"))}</span></li>
+            ${item("Full Name", escapeHtml(rental.customerName))}
+            ${item("Phone", optionalLtrHtml(rental.customerPhone, fallback))}
+            ${item("National ID/Pass", optionalLtrHtml(rental.customerNationalId, fallback))}
+            ${item("Driver License", optionalLtrHtml(rental.customerLicenseNo, fallback))}
+            ${item("License Expiry", formatOptionalDate(rental.customerLicenseExpiryDate))}
+            ${item("Address", optionalTextHtml(rental.customerAddress, fallback))}
           </ul>
         </div>
         <div>
           <div class="section-title">${escapeHtml(tr("Vehicle Details"))}</div>
           <ul class="data-list">
-            <li><span class="label">${escapeHtml(tr("Brand / Model"))}:</span><span class="value">${escapeHtml(`${rental.vehicleBrand} ${rental.vehicleModel}`)}</span></li>
-            <li><span class="label">${escapeHtml(tr("Plate Number"))}:</span><span class="value">${escapeHtml(rental.vehiclePlateNumber)}</span></li>
-            <li><span class="label">${escapeHtml(tr("Color / Year"))}:</span><span class="value">${escapeHtml(`${rental.vehicleColor ?? tr("N/A")} / ${rental.vehicleYear ?? tr("N/A")}`)}</span></li>
-            <li><span class="label">${escapeHtml(tr("Mileage Out"))}:</span><span class="value">${escapeHtml(rental.mileageOut !== null ? `${rental.mileageOut} ${tr("km")}` : tr("N/A"))}</span></li>
-            <li><span class="label">${escapeHtml(tr("Fuel Level Out"))}:</span><span class="value">${escapeHtml(rental.fuelOut ?? tr("N/A"))}</span></li>
+            ${item("Vehicle Type", escapeHtml(formatVehicleType(rental.vehicleType, language)))}
+            ${item("Brand / Model", escapeHtml(`${rental.vehicleBrand} ${rental.vehicleModel}`))}
+            ${item("Plate Number", ltrHtml(rental.vehiclePlateNumber))}
+            ${item("Color / Year", `${optionalTextHtml(rental.vehicleColor, fallback)} / ${optionalLtrHtml(rental.vehicleYear, fallback)}`)}
+            ${item("Mileage Out", rental.mileageOut !== null ? ltrHtml(`${rental.mileageOut} ${tr("km")}`) : escapeHtml(fallback))}
+            ${item("Fuel Level Out", optionalTextHtml(rental.fuelOut, fallback))}
           </ul>
         </div>
       </div>
@@ -314,41 +530,95 @@ export async function printRentalContract(
           <tr>
             <th>${escapeHtml(tr("Start Date & Time"))}</th>
             <th>${escapeHtml(tr("Expected Return Date & Time"))}</th>
+            <th>${escapeHtml(tr("Estimated Days"))}</th>
             <th>${escapeHtml(tr("Daily Rate"))}</th>
             <th>${escapeHtml(tr("Deposit Paid / Required"))}</th>
             <th>${escapeHtml(tr("Estimated Rental Charge"))}</th>
+            <th>${escapeHtml(tr("Remaining"))}</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td>${escapeHtml(formatPrintDate(rental.startDatetime, language))}</td>
             <td>${escapeHtml(formatPrintDate(rental.expectedReturnDatetime, language))}</td>
-            <td>${escapeHtml(formatPrintMoney(rental.dailyPrice, currency, language))}</td>
-            <td>${escapeHtml(`${formatPrintMoney(rental.depositPaid, currency, language)} / ${formatPrintMoney(rental.depositRequired, currency, language)}`)}</td>
-            <td style="font-weight: 700;">${escapeHtml(formatPrintMoney(rental.totalAmount, currency, language))}</td>
+            <td>${ltrHtml(estimatedDays)}</td>
+            <td>${ltrHtml(formatPrintMoney(rental.dailyPrice, currency, language))}</td>
+            <td>${ltrHtml(`${formatPrintMoney(rental.depositPaid, currency, language)} / ${formatPrintMoney(rental.depositRequired, currency, language)}`)}</td>
+            <td style="font-weight: 700;">${ltrHtml(formatPrintMoney(rental.totalAmount, currency, language))}</td>
+            <td style="font-weight: 700;">${ltrHtml(formatPrintMoney(rental.remainingAmount, currency, language))}</td>
           </tr>
         </tbody>
       </table>
 
+      <div class="section-title">${escapeHtml(tr("Vehicle Documents"))}</div>
+      <table>
+        <tbody>
+          <tr>
+            <th>${escapeHtml(tr("Insurance Expiry"))}</th>
+            ${tableValue(formatOptionalDate(rental.vehicleInsuranceExpiryDate))}
+            <th>${escapeHtml(tr("Registration Expiry"))}</th>
+            ${tableValue(formatOptionalDate(rental.vehicleRegistrationExpiryDate))}
+            <th>${escapeHtml(tr("Technical Inspection Expiry"))}</th>
+            ${tableValue(formatOptionalDate(rental.vehicleTechnicalInspectionExpiryDate))}
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="section-title">${escapeHtml(tr("Vehicle Condition"))}</div>
+      <table>
+        <tbody>
+          <tr>
+            <th>${escapeHtml(tr("Mileage Out"))}</th>
+            <td>${rental.mileageOut !== null ? ltrHtml(`${rental.mileageOut} ${tr("km")}`) : escapeHtml(tr("N/A"))}</td>
+            <th>${escapeHtml(tr("Mileage In"))}</th>
+            <td>${rental.mileageIn !== null ? ltrHtml(`${rental.mileageIn} ${tr("km")}`) : escapeHtml(tr("N/A"))}</td>
+          </tr>
+          <tr>
+            <th>${escapeHtml(tr("Fuel Out"))}</th>
+            <td>${escapeHtml(rental.fuelOut ?? tr("N/A"))}</td>
+            <th>${escapeHtml(tr("Fuel In"))}</th>
+            <td>${escapeHtml(rental.fuelIn ?? tr("N/A"))}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="grid">
+        <div>
+          <div class="section-title">${escapeHtml(tr("Handover Notes"))}</div>
+          <div class="notes-box">${optionalTextHtml(rental.notesOut, tr("No handover notes."))}</div>
+        </div>
+        <div>
+          <div class="section-title">${escapeHtml(tr("Accessories Checklist"))}</div>
+          <ul class="checklist">${accessoriesHtml}</ul>
+        </div>
+      </div>
+
+      <div class="section-title">${escapeHtml(tr("Key Terms"))}</div>
+      <ol class="terms-list">${termsHtml}</ol>
+
       ${
-        rental.notesOut
+        rental.vehicleType === "motorcycle"
           ? `
-        <div class="section-title">${escapeHtml(tr("Rental Notes"))}</div>
-        <div class="notes-box">${escapeHtml(rental.notesOut)}</div>
-      `
+            <div class="section-title">${escapeHtml(tr("Motorcycle Additional Terms"))}</div>
+            <ol class="terms-list">${motorcycleTermsHtml}</ol>
+          `
           : ""
       }
 
-      <div class="footer-text">
-        ${escapeHtml(settings.contractFooter)}
-      </div>
+      ${returnAcknowledgmentHtml}
+
+      ${
+        settings.contractFooter.trim()
+          ? `<div class="footer-text">${escapeHtml(settings.contractFooter)}</div>`
+          : ""
+      }
 
       <div class="signatures">
         <div>
           <div class="signature-box">${escapeHtml(tr("Customer Signature"))}</div>
         </div>
         <div>
-          <div class="signature-box">${escapeHtml(tr("Authorized Shop Representative"))}</div>
+          <div class="signature-box">${escapeHtml(tr("Authorized Shop Representative"))}: ${optionalTextHtml(issuedByName, fallback)}</div>
         </div>
       </div>
     </body>
@@ -361,6 +631,7 @@ export async function printRentalContract(
 export async function printPaymentReceipt(
   paymentId: number,
   printToPDF: boolean,
+  languageOverride?: LanguageCode | "both",
 ): Promise<void> {
   const db = getDatabase();
   const settings = getShopSettings();
@@ -368,9 +639,13 @@ export async function printPaymentReceipt(
   const paymentInfo = db
     .select({
       id: payments.id,
+      receiptNo: payments.receiptNo,
       amount: payments.amount,
       type: payments.type,
       method: payments.method,
+      status: payments.status,
+      voidedAt: payments.voidedAt,
+      voidReason: payments.voidReason,
       paymentDate: payments.paymentDate,
       notes: payments.notes,
       contractNo: rentals.contractNo,
@@ -389,11 +664,11 @@ export async function printPaymentReceipt(
   }
 
   const currency = settings.defaultCurrency;
-  const language = settings.language;
+  const language = resolvePrintLanguage(settings.language, languageOverride);
   const direction = getDirectionForLanguage(language);
   const alignEnd = direction === "rtl" ? "left" : "right";
   const tr = (key: string) => translate(language, key);
-  const receiptNo = `REC-${String(paymentInfo.id).padStart(6, "0")}`;
+  const receiptNo = paymentInfo.receiptNo ?? `REC-${String(paymentInfo.id).padStart(6, "0")}`;
 
   const html = `
     <!DOCTYPE html>
@@ -466,6 +741,12 @@ export async function printPaymentReceipt(
           color: #0F2B3D;
           text-align: ${alignEnd};
         }
+        .ltr-value {
+          direction: ltr;
+          unicode-bidi: isolate;
+          display: inline-block;
+          text-align: left;
+        }
         .amount-row {
           display: flex;
           justify-content: space-between;
@@ -507,6 +788,15 @@ export async function printPaymentReceipt(
           font-size: 12px;
           color: #435b6a;
         }
+        .void-banner {
+          margin: 16px 0;
+          border: 2px solid #c53b37;
+          color: #c53b37;
+          font-weight: 800;
+          text-align: center;
+          padding: 8px;
+          border-radius: 6px;
+        }
         @media print {
           body {
             padding: 0;
@@ -526,17 +816,23 @@ export async function printPaymentReceipt(
           <div class="shop-info">
             <h1>${escapeHtml(settings.shopName)}</h1>
             <p>${escapeHtml(settings.shopAddress)}</p>
-            <p>${escapeHtml(tr("Phone"))}: ${escapeHtml(settings.shopPhone)}</p>
+            <p>${escapeHtml(tr("Phone"))}: ${ltrHtml(settings.shopPhone)}</p>
           </div>
           <div class="receipt-title">
             <h2>${escapeHtml(tr("PAYMENT RECEIPT"))}</h2>
-            <p>${escapeHtml(receiptNo)}</p>
+            <p>${ltrHtml(receiptNo)}</p>
           </div>
         </div>
 
+        ${
+          paymentInfo.status === "voided"
+            ? `<div class="void-banner">${escapeHtml(tr("VOIDED"))}</div>`
+            : ""
+        }
+
         <div class="data-row">
           <span class="label">${escapeHtml(tr("Contract Number"))}</span>
-          <span class="value font-semibold">${escapeHtml(paymentInfo.contractNo)}</span>
+          <span class="value font-semibold">${ltrHtml(paymentInfo.contractNo)}</span>
         </div>
         <div class="data-row">
           <span class="label">${escapeHtml(tr("Customer Name"))}</span>
@@ -544,7 +840,7 @@ export async function printPaymentReceipt(
         </div>
         <div class="data-row">
           <span class="label">${escapeHtml(tr("Vehicle Plate Number"))}</span>
-          <span class="value">${escapeHtml(paymentInfo.vehiclePlateNumber)}</span>
+          <span class="value">${ltrHtml(paymentInfo.vehiclePlateNumber)}</span>
         </div>
         <div class="data-row">
           <span class="label">${escapeHtml(tr("Payment Date"))}</span>
@@ -560,9 +856,20 @@ export async function printPaymentReceipt(
         </div>
 
         <div class="amount-row">
-          <span class="label">${escapeHtml(tr("Amount Paid"))}</span>
-          <span class="value">${escapeHtml(formatPrintMoney(paymentInfo.amount, currency, language))}</span>
+          <span class="label">${escapeHtml(paymentInfo.type === "refund" ? tr("Refund") : tr("Amount Paid"))}</span>
+          <span class="value">${ltrHtml(formatPrintMoney(paymentInfo.amount, currency, language))}</span>
         </div>
+
+        ${
+          paymentInfo.status === "voided"
+            ? `
+          <div class="notes-section">
+            <div class="notes-title">${escapeHtml(tr("Void Reason"))}:</div>
+            <div class="notes-content">${escapeHtml(paymentInfo.voidReason ?? tr("N/A"))}</div>
+          </div>
+        `
+            : ""
+        }
 
         ${
           paymentInfo.notes
@@ -585,4 +892,334 @@ export async function printPaymentReceipt(
   `;
 
   await printHTML(html, `receipt_${receiptNo}.pdf`, printToPDF);
+}
+
+export async function printVehicleSaleReceipt(
+  saleId: number,
+  printToPDF: boolean,
+  languageOverride?: LanguageCode | "both",
+): Promise<void> {
+  const db = getDatabase();
+  const settings = getShopSettings();
+
+  const sale = db
+    .select({
+      id: vehicleSales.id,
+      saleNo: vehicleSales.saleNo,
+      buyerName: vehicleSales.buyerName,
+      buyerPhone: vehicleSales.buyerPhone,
+      buyerIdNumber: vehicleSales.buyerIdNumber,
+      saleDate: vehicleSales.saleDate,
+      salePrice: vehicleSales.salePrice,
+      paymentMethod: vehicleSales.paymentMethod,
+      status: vehicleSales.status,
+      voidedAt: vehicleSales.voidedAt,
+      voidReason: vehicleSales.voidReason,
+      notes: vehicleSales.notes,
+      vehicleType: vehicles.type,
+      vehiclePlateNumber: vehicles.plateNumber,
+      vehicleBrand: vehicles.brand,
+      vehicleModel: vehicles.model,
+      vehicleColor: vehicles.color,
+      vehicleYear: vehicles.year,
+      vehicleMileage: vehicles.mileage,
+    })
+    .from(vehicleSales)
+    .innerJoin(vehicles, eq(vehicleSales.vehicleId, vehicles.id))
+    .where(eq(vehicleSales.id, saleId))
+    .get();
+
+  if (!sale) {
+    throw new Error("Vehicle sale was not found.");
+  }
+
+  const currency = settings.defaultCurrency;
+  const language = resolvePrintLanguage(settings.language, languageOverride);
+  const direction = getDirectionForLanguage(language);
+  const alignEnd = direction === "rtl" ? "left" : "right";
+  const tr = (key: string) => translate(language, key);
+
+  const html = `
+    <!DOCTYPE html>
+    <html lang="${escapeHtml(language)}" dir="${escapeHtml(direction)}">
+    <head>
+      <meta charset="utf-8">
+      <title>${escapeHtml(tr("Vehicle Sale Receipt"))} - ${escapeHtml(sale.saleNo)}</title>
+      <style>
+        body {
+          font-family: Cairo, "Noto Sans Arabic", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Tahoma, Arial, sans-serif;
+          color: #0F2B3D;
+          line-height: 1.5;
+          margin: 0;
+          padding: 20px;
+          font-size: 14px;
+          direction: ${direction};
+          text-align: ${direction === "rtl" ? "right" : "left"};
+        }
+        .receipt-card {
+          max-width: 720px;
+          margin: 0 auto;
+          border: 1px solid #B8E6FE;
+          border-radius: 8px;
+          padding: 30px;
+          box-shadow: 0 1px 3px rgba(15,43,61,0.08);
+        }
+        .header {
+          display: flex;
+          justify-content: space-between;
+          gap: 24px;
+          border-bottom: 3px solid #1D97D7;
+          padding-bottom: 15px;
+          margin-bottom: 20px;
+        }
+        .shop-info h1 {
+          font-size: 20px;
+          margin: 0 0 5px 0;
+          font-weight: 700;
+        }
+        .shop-info p {
+          margin: 2px 0;
+          color: #435b6a;
+          font-size: 12px;
+        }
+        .receipt-title {
+          text-align: ${alignEnd};
+        }
+        .receipt-title h2 {
+          font-size: 18px;
+          margin: 0 0 5px 0;
+          color: #0F2B3D;
+        }
+        .receipt-title p {
+          margin: 2px 0;
+          font-size: 14px;
+          font-weight: 600;
+          color: #1D97D7;
+        }
+        .section-title {
+          margin-top: 18px;
+          border-bottom: 1px solid #E8F8FF;
+          padding-bottom: 6px;
+          font-size: 13px;
+          font-weight: 800;
+          color: #435b6a;
+          text-transform: uppercase;
+        }
+        .data-row {
+          display: flex;
+          justify-content: space-between;
+          gap: 24px;
+          border-bottom: 1px solid #E8F8FF;
+          padding: 10px 0;
+        }
+        .data-row .label {
+          font-weight: 600;
+          color: #435b6a;
+        }
+        .data-row .value {
+          color: #0F2B3D;
+          text-align: ${alignEnd};
+        }
+        .ltr-value {
+          direction: ltr;
+          unicode-bidi: isolate;
+          display: inline-block;
+          text-align: left;
+        }
+        .amount-row {
+          display: flex;
+          justify-content: space-between;
+          background-color: #F5FDFF;
+          border: 1px solid #B8E6FE;
+          padding: 12px 15px;
+          border-radius: 6px;
+          margin-top: 15px;
+        }
+        .amount-row .label {
+          font-weight: 700;
+          color: #0F2B3D;
+          font-size: 16px;
+        }
+        .amount-row .value {
+          font-weight: 800;
+          color: #1D97D7;
+          font-size: 18px;
+        }
+        .notice {
+          margin-top: 18px;
+          border: 1px solid #d8eef8;
+          border-radius: 6px;
+          background: #F5FDFF;
+          color: #435b6a;
+          padding: 10px 12px;
+          font-size: 12px;
+        }
+        .notes-section {
+          margin-top: 16px;
+        }
+        .notes-title {
+          font-weight: 600;
+          color: #435b6a;
+          margin-bottom: 5px;
+        }
+        .notes-content {
+          font-style: italic;
+          background-color: #F5FDFF;
+          border: 1px solid #d8eef8;
+          padding: 8px 12px;
+          border-radius: 4px;
+          font-size: 12px;
+        }
+        .void-banner {
+          margin: 16px 0;
+          border: 2px solid #c53b37;
+          color: #c53b37;
+          font-weight: 800;
+          text-align: center;
+          padding: 8px;
+          border-radius: 6px;
+        }
+        .signatures {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 24px;
+          margin-top: 40px;
+        }
+        .signature-box {
+          min-height: 58px;
+          border-top: 1px solid #94a3b8;
+          padding-top: 8px;
+          color: #435b6a;
+          font-size: 12px;
+        }
+        @media print {
+          body {
+            padding: 0;
+          }
+          .receipt-card {
+            border: none;
+            box-shadow: none;
+            padding: 0;
+            max-width: 100%;
+          }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="receipt-card">
+        <div class="header">
+          <div class="shop-info">
+            <h1>${escapeHtml(settings.shopName)}</h1>
+            <p>${escapeHtml(settings.shopAddress)}</p>
+            <p>${escapeHtml(tr("Phone"))}: ${ltrHtml(settings.shopPhone)}</p>
+          </div>
+          <div class="receipt-title">
+            <h2>${escapeHtml(tr("VEHICLE SALE RECEIPT"))}</h2>
+            <p>${ltrHtml(sale.saleNo)}</p>
+          </div>
+        </div>
+
+        ${
+          sale.status === "voided"
+            ? `<div class="void-banner">${escapeHtml(tr("VOIDED"))}</div>`
+            : ""
+        }
+
+        <div class="section-title">${escapeHtml(tr("Buyer Details"))}</div>
+        <div class="data-row">
+          <span class="label">${escapeHtml(tr("Buyer Name"))}</span>
+          <span class="value">${escapeHtml(sale.buyerName)}</span>
+        </div>
+        <div class="data-row">
+          <span class="label">${escapeHtml(tr("Buyer Phone"))}</span>
+          <span class="value">${optionalLtrHtml(sale.buyerPhone, tr("N/A"))}</span>
+        </div>
+        <div class="data-row">
+          <span class="label">${escapeHtml(tr("Buyer ID Number"))}</span>
+          <span class="value">${optionalLtrHtml(sale.buyerIdNumber, tr("N/A"))}</span>
+        </div>
+
+        <div class="section-title">${escapeHtml(tr("Vehicle Details"))}</div>
+        <div class="data-row">
+          <span class="label">${escapeHtml(tr("Vehicle Plate Number"))}</span>
+          <span class="value">${ltrHtml(sale.vehiclePlateNumber)}</span>
+        </div>
+        <div class="data-row">
+          <span class="label">${escapeHtml(tr("Vehicle"))}</span>
+          <span class="value">${escapeHtml(`${sale.vehicleBrand} ${sale.vehicleModel}`)}</span>
+        </div>
+        <div class="data-row">
+          <span class="label">${escapeHtml(tr("Type"))}</span>
+          <span class="value">${escapeHtml(formatVehicleType(sale.vehicleType, language))}</span>
+        </div>
+        <div class="data-row">
+          <span class="label">${escapeHtml(tr("Color / Year"))}</span>
+          <span class="value">${escapeHtml([sale.vehicleColor, sale.vehicleYear].filter(Boolean).join(" / ") || tr("N/A"))}</span>
+        </div>
+        <div class="data-row">
+          <span class="label">${escapeHtml(tr("Mileage"))}</span>
+          <span class="value">${optionalLtrHtml(sale.vehicleMileage, tr("N/A"))}</span>
+        </div>
+
+        <div class="section-title">${escapeHtml(tr("Sale Details"))}</div>
+        <div class="data-row">
+          <span class="label">${escapeHtml(tr("Sale Date"))}</span>
+          <span class="value">${escapeHtml(formatPrintDate(sale.saleDate, language))}</span>
+        </div>
+        <div class="data-row">
+          <span class="label">${escapeHtml(tr("Payment Method"))}</span>
+          <span class="value">${escapeHtml(formatPaymentMethod(sale.paymentMethod, language))}</span>
+        </div>
+        <div class="amount-row">
+          <span class="label">${escapeHtml(tr("Sale Price"))}</span>
+          <span class="value">${ltrHtml(formatPrintMoney(sale.salePrice, currency, language))}</span>
+        </div>
+
+        ${
+          sale.status === "voided"
+            ? `
+          <div class="notes-section">
+            <div class="notes-title">${escapeHtml(tr("Void Reason"))}:</div>
+            <div class="notes-content">${escapeHtml(sale.voidReason ?? tr("N/A"))}</div>
+          </div>
+        `
+            : ""
+        }
+
+        ${
+          sale.notes
+            ? `
+          <div class="notes-section">
+            <div class="notes-title">${escapeHtml(tr("Notes"))}:</div>
+            <div class="notes-content">${escapeHtml(sale.notes)}</div>
+          </div>
+        `
+            : ""
+        }
+
+        <div class="notice">
+          ${escapeHtml(tr("This receipt records a local vehicle sale only. Official ownership transfer and registration paperwork must be completed separately."))}
+        </div>
+
+        <div class="signatures">
+          <div class="signature-box">${escapeHtml(tr("Buyer Signature"))}</div>
+          <div class="signature-box">${escapeHtml(tr("Authorized Shop Representative"))}</div>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  await printHTML(html, `vehicle_sale_${sale.saleNo}.pdf`, printToPDF);
+}
+
+function resolvePrintLanguage(
+  settingsLanguage: LanguageCode,
+  languageOverride?: LanguageCode | "both",
+): LanguageCode {
+  if (languageOverride === "ar" || languageOverride === "en") {
+    return languageOverride;
+  }
+
+  return settingsLanguage;
 }

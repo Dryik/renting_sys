@@ -4,12 +4,14 @@ import { Badge } from "@/components/ui/badge";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
+import { MoneyText } from "@/components/ui/money-text";
 import { PaginationControls } from "@/components/ui/pagination-controls";
 import { useI18n } from "@/hooks/useI18n";
 import { cn } from "@/lib/utils";
 import type { CustomerRecord } from "@/shared/customers";
 import type { PageResult } from "@/shared/pagination";
-import { formatRentalStatus, type RentalListRecord } from "@/shared/rentals";
+import type { RentalListRecord } from "@/shared/rentals";
+import { RentalStatusBadge } from "@/features/rentals/RentalStatusBadge";
 
 const emptyCustomerPage: PageResult<CustomerRecord> = {
   rows: [],
@@ -28,7 +30,7 @@ const emptyRentalPage: PageResult<RentalListRecord> = {
 };
 
 export function CustomerRentalHistoryReport() {
-  const { formatCurrency, formatDate, language, t } = useI18n();
+  const { formatCurrency, formatDate, t } = useI18n();
   const [customerSearch, setCustomerSearch] = useState("");
   const [customerPage, setCustomerPage] = useState(emptyCustomerPage);
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerRecord | null>(null);
@@ -136,7 +138,7 @@ export function CustomerRentalHistoryReport() {
         </div>
       </div>
 
-      <DataTable className="min-w-[720px]">
+      <DataTable className="min-w-full">
         <thead>
           <tr>
             <Th>{t("Contract No")}</Th>
@@ -147,7 +149,7 @@ export function CustomerRentalHistoryReport() {
         </thead>
         <tbody>
           {loadingRentals ? (
-            <EmptyTableRow colSpan={4} message={t("Loading...")} />
+            <EmptyTableRow colSpan={4} message={t("Loading...")} state="loading" />
           ) : !selectedCustomer ? (
             <EmptyTableRow colSpan={4} message={t("Select a customer to see rental history.")} />
           ) : rentalPage.rows.length === 0 ? (
@@ -158,7 +160,7 @@ export function CustomerRentalHistoryReport() {
                 <Td>
                   <div className="font-medium"><BidiValue value={rental.contractNo} /></div>
                   <div className="text-xs text-muted-foreground">
-                    {formatDate(rental.startDatetime)}
+                    <BidiValue value={formatDate(rental.startDatetime)} />
                   </div>
                 </Td>
                 <Td>
@@ -170,14 +172,19 @@ export function CustomerRentalHistoryReport() {
                   </div>
                 </Td>
                 <Td>
-                  <Badge variant="outline">{formatRentalStatus(rental.status, language)}</Badge>
+                  <RentalStatusBadge status={rental.status} />
                 </Td>
                 <Td className="text-end">
                   <div className="font-medium">
                     <BidiValue value={formatCurrency(rental.totalAmount)} />
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {t("Remaining")} <BidiValue value={formatCurrency(rental.remainingAmount)} />
+                    {rental.remainingAmount < 0 ? t("Credit") : t("Remaining")}{" "}
+                    <MoneyText
+                      amount={rental.remainingAmount}
+                      className="text-xs"
+                      formatCurrency={formatCurrency}
+                    />
                   </div>
                 </Td>
               </tr>

@@ -1,4 +1,6 @@
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
+import { useId } from "react";
+import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -25,15 +27,24 @@ export function ConfirmDialog({
   title,
   variant = "default",
 }: ConfirmDialogProps) {
+  const titleId = useId();
+  const descriptionId = useId();
+
   if (!open) {
     return null;
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/25 px-4">
+  const dialog = (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 px-4 backdrop-blur-[1px]"
+      data-motion="overlay"
+    >
       <div
+        aria-describedby={descriptionId}
+        aria-labelledby={titleId}
         aria-modal="true"
-        className="w-full max-w-md rounded-lg border bg-card p-5 text-card-foreground shadow-lg"
+        className="w-full max-w-md rounded-lg border border-border bg-card p-5 text-card-foreground shadow-xl"
+        data-motion="dialog"
         role="alertdialog"
       >
         <div className="flex items-start gap-3">
@@ -48,15 +59,25 @@ export function ConfirmDialog({
             <AlertTriangle data-icon="inline-start" />
           </div>
           <div className="min-w-0">
-            <h2 className="text-base font-semibold">{title}</h2>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            <h2 className="text-base font-semibold" id={titleId}>
+              {title}
+            </h2>
+            <p
+              className="mt-2 text-sm leading-6 text-muted-foreground"
+              id={descriptionId}
+            >
               {description}
             </p>
           </div>
         </div>
 
         <div className="mt-5 flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={onCancel} disabled={isBusy}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onCancel}
+            disabled={isBusy}
+          >
             {cancelLabel}
           </Button>
           <Button
@@ -65,10 +86,17 @@ export function ConfirmDialog({
             onClick={onConfirm}
             disabled={isBusy}
           >
+            {isBusy ? <Loader2 data-icon="inline-start" /> : null}
             {confirmLabel}
           </Button>
         </div>
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") {
+    return dialog;
+  }
+
+  return createPortal(dialog, document.body);
 }

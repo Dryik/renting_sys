@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { Badge } from "@/components/ui/badge";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
+import { MoneyText } from "@/components/ui/money-text";
 import { Input } from "@/components/ui/input";
 import { PaginationControls } from "@/components/ui/pagination-controls";
 import { useI18n } from "@/hooks/useI18n";
 import type { PageResult } from "@/shared/pagination";
-import { formatRentalStatus, type RentalListRecord } from "@/shared/rentals";
+import type { RentalListRecord } from "@/shared/rentals";
+import { RentalStatusBadge } from "@/features/rentals/RentalStatusBadge";
+import { ReportExportButtons } from "./ReportExportButtons";
 
 const emptyReturnedPage: PageResult<RentalListRecord> = {
   rows: [],
@@ -17,7 +19,7 @@ const emptyReturnedPage: PageResult<RentalListRecord> = {
 };
 
 export function ReturnedRentalsReport() {
-  const { formatCurrency, formatDate, language, t } = useI18n();
+  const { formatCurrency, formatDate, t } = useI18n();
   const today = new Date();
   const [dateFrom, setDateFrom] = useState(
     toDateInputValue(new Date(today.getFullYear(), today.getMonth(), 1)),
@@ -64,30 +66,33 @@ export function ReturnedRentalsReport() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <label htmlFor="returnedFrom" className="text-sm font-medium">
-          {t("From")}
-        </label>
-        <Input
-          id="returnedFrom"
-          type="date"
-          value={dateFrom}
-          onChange={(event) => handleDateFromChange(event.target.value)}
-          className="w-40"
-        />
-        <label htmlFor="returnedTo" className="text-sm font-medium">
-          {t("To")}
-        </label>
-        <Input
-          id="returnedTo"
-          type="date"
-          value={dateTo}
-          onChange={(event) => handleDateToChange(event.target.value)}
-          className="w-40"
-        />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <label htmlFor="returnedFrom" className="text-sm font-medium">
+            {t("From")}
+          </label>
+          <Input
+            id="returnedFrom"
+            type="date"
+            value={dateFrom}
+            onChange={(event) => handleDateFromChange(event.target.value)}
+            className="w-40"
+          />
+          <label htmlFor="returnedTo" className="text-sm font-medium">
+            {t("To")}
+          </label>
+          <Input
+            id="returnedTo"
+            type="date"
+            value={dateTo}
+            onChange={(event) => handleDateToChange(event.target.value)}
+            className="w-40"
+          />
+        </div>
+        <ReportExportButtons type="returnedRentals" startDate={dateFrom} endDate={dateTo} />
       </div>
 
-      <DataTable className="min-w-[760px]">
+      <DataTable className="min-w-full">
         <thead>
           <tr>
             <Th>{t("Contract No")}</Th>
@@ -98,7 +103,7 @@ export function ReturnedRentalsReport() {
         </thead>
         <tbody>
           {loading ? (
-            <EmptyTableRow colSpan={4} message={t("Loading...")} />
+            <EmptyTableRow colSpan={4} message={t("Loading...")} state="loading" />
           ) : rentalPage.rows.length === 0 ? (
             <EmptyTableRow colSpan={4} message={t("No returned rentals yet.")} />
           ) : (
@@ -106,9 +111,9 @@ export function ReturnedRentalsReport() {
               <tr key={rental.id} className="border-t">
                 <Td>
                   <BidiValue className="font-medium" value={rental.contractNo} />
-                  <Badge variant="secondary" className="mt-1">
-                    {formatRentalStatus(rental.status, language)}
-                  </Badge>
+                  <div className="mt-1">
+                    <RentalStatusBadge status={rental.status} />
+                  </div>
                 </Td>
                 <Td>
                   <div className="truncate font-medium">{rental.customerName}</div>
@@ -126,7 +131,12 @@ export function ReturnedRentalsReport() {
                     <BidiValue value={formatCurrency(rental.totalAmount)} />
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {t("Remaining")} <BidiValue value={formatCurrency(rental.remainingAmount)} />
+                    {rental.remainingAmount < 0 ? t("Credit") : t("Remaining")}{" "}
+                    <MoneyText
+                      amount={rental.remainingAmount}
+                      className="text-xs"
+                      formatCurrency={formatCurrency}
+                    />
                   </div>
                 </Td>
               </tr>

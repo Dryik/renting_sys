@@ -8,18 +8,19 @@ export type MetricItem = {
 };
 
 type MetricStripProps = {
+  align?: "center" | "start";
   columns?: 3 | 4 | 5;
   items: MetricItem[];
 };
 
 const toneClass: Record<NonNullable<MetricItem["tone"]>, string> = {
-  default: "border-border bg-card",
-  good: "border-border border-t-emerald-500 bg-card",
-  warning: "border-border border-t-amber-500 bg-card",
-  danger: "border-border border-t-destructive bg-card",
+  default: "border-border/80 bg-card text-foreground",
+  good: "border-success/20 bg-success/5 text-success",
+  warning: "border-warning/25 bg-warning/5 text-warning",
+  danger: "border-destructive/25 bg-destructive/5 text-destructive",
 };
 
-export function MetricStrip({ columns = 4, items }: MetricStripProps) {
+export function MetricStrip({ align = "start", columns = 4, items }: MetricStripProps) {
   return (
     <div
       className={cn(
@@ -33,12 +34,16 @@ export function MetricStrip({ columns = 4, items }: MetricStripProps) {
         <div
           key={item.label}
           className={cn(
-            "rounded-md border px-4 py-3 shadow-xs",
+            "min-h-28 rounded-lg border px-5 py-4 shadow-xs transition-[border-color,box-shadow] duration-150",
+            "rounded-2xl",
+            align === "center" && "text-center",
             toneClass[item.tone ?? "default"],
           )}
         >
-          <p className="text-sm text-muted-foreground">{item.label}</p>
-          <div className="mt-1 text-2xl font-semibold leading-none">{item.value}</div>
+          <p className="text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">{item.label}</p>
+          <div className="mt-4 min-h-8 text-3xl font-bold leading-none tracking-normal">
+            {item.value}
+          </div>
         </div>
       ))}
     </div>

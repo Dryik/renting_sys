@@ -20,6 +20,7 @@ import {
 } from "@/shared/vehicles";
 
 type VehicleFormProps = {
+  canChangeStatus: boolean;
   vehicle: VehicleRecord | null;
   error: string | null;
   isSaving: boolean;
@@ -28,6 +29,7 @@ type VehicleFormProps = {
 };
 
 export function VehicleForm({
+  canChangeStatus,
   vehicle,
   error,
   isSaving,
@@ -125,19 +127,28 @@ export function VehicleForm({
           <input type="hidden" {...register("depositAmount")} defaultValue="0" />
         )}
 
-        <Field label="Status" error={errors.status?.message}>
-          <select
-            className="h-10 w-full rounded-md border bg-background px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
-            aria-invalid={Boolean(errors.status)}
-            {...register("status")}
-          >
-            {vehicleStatusValues.map((status) => (
-              <option key={status} value={status}>
-                {formatVehicleStatus(status, language)}
-              </option>
-            ))}
-          </select>
-        </Field>
+        {canChangeStatus ? (
+          <Field label="Status" error={errors.status?.message}>
+            <select
+              className="h-10 w-full rounded-md border bg-background px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+              aria-invalid={Boolean(errors.status)}
+              {...register("status")}
+            >
+              {vehicleStatusValues.map((status) => (
+                <option key={status} value={status}>
+                  {formatVehicleStatus(status, language)}
+                </option>
+              ))}
+            </select>
+          </Field>
+        ) : (
+          <Field label="Status" error={errors.status?.message}>
+            <input type="hidden" {...register("status")} />
+            <div className="flex h-10 items-center rounded-md border bg-muted/45 px-3 text-sm text-muted-foreground">
+              {formatVehicleStatus(vehicle?.status ?? "available", language)}
+            </div>
+          </Field>
+        )}
 
         <Field label="Color" error={errors.color?.message}>
           <Input placeholder={t("Color example")} {...register("color")} />
@@ -151,15 +162,35 @@ export function VehicleForm({
           <Input data-ltr="true" inputMode="numeric" placeholder="25000" {...register("mileage")} />
         </Field>
 
-        <Field label="Insurance Expiry" error={errors.insuranceExpiryDate?.message}>
+        <Field label="Mandatory Insurance Expiry" error={errors.insuranceExpiryDate?.message}>
           <Input data-ltr="true" type="date" {...register("insuranceExpiryDate")} />
         </Field>
 
         <Field
-          label="Registration Expiry"
+          label="Vehicle License Expiry"
           error={errors.registrationExpiryDate?.message}
         >
           <Input data-ltr="true" type="date" {...register("registrationExpiryDate")} />
+        </Field>
+
+        <Field
+          label="Technical Inspection Expiry"
+          error={errors.technicalInspectionExpiryDate?.message}
+        >
+          <Input data-ltr="true" type="date" {...register("technicalInspectionExpiryDate")} />
+        </Field>
+
+        <Field label="Last Oil Change Date" error={errors.lastOilChangeDate?.message}>
+          <Input data-ltr="true" type="date" {...register("lastOilChangeDate")} />
+        </Field>
+
+        <Field label="Oil Change Mileage" error={errors.lastOilChangeMileage?.message}>
+          <Input
+            data-ltr="true"
+            inputMode="numeric"
+            placeholder="25000"
+            {...register("lastOilChangeMileage")}
+          />
         </Field>
       </div>
 

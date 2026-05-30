@@ -1,9 +1,9 @@
-const currencySymbolMap: Record<string, string> = {
-  EUR: "€",
-  GBP: "£",
-  JPY: "¥",
-  LYD: "LYD",
-  USD: "$",
+const currencyDisplayMap: Record<string, { symbol: string; position: "prefix" | "suffix" }> = {
+  EUR: { symbol: "€", position: "prefix" },
+  GBP: { symbol: "£", position: "prefix" },
+  JPY: { symbol: "¥", position: "prefix" },
+  LYD: { symbol: "د.ل", position: "prefix" },
+  USD: { symbol: "$", position: "prefix" },
 };
 
 export function formatMoney(
@@ -18,8 +18,13 @@ export function formatMoney(
   const upperCurrency = normalizedCurrency.toUpperCase();
 
   if (/^[A-Z]{3}$/.test(upperCurrency)) {
-    const displayCurrency = currencySymbolMap[upperCurrency] ?? upperCurrency;
-    return `${formatNumber(amount)} ${displayCurrency}`;
+    const displayCurrency = currencyDisplayMap[upperCurrency];
+
+    if (displayCurrency) {
+      return formatCurrencyWithPosition(amount, displayCurrency);
+    }
+
+    return `${formatNumber(amount)} ${upperCurrency}`;
   }
 
   if (normalizedCurrency.length > 0) {
@@ -31,6 +36,19 @@ export function formatMoney(
   }
 
   return formatNumber(amount);
+}
+
+function formatCurrencyWithPosition(
+  value: number,
+  display: { symbol: string; position: "prefix" | "suffix" },
+): string {
+  const amount = formatNumber(value);
+
+  if (display.position === "prefix") {
+    return `${display.symbol} ${amount}`;
+  }
+
+  return `${amount} ${display.symbol}`;
 }
 
 function formatNumber(value: number): string {

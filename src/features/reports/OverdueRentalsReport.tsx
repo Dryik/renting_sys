@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
-import { Badge } from "@/components/ui/badge";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
+import { MoneyText } from "@/components/ui/money-text";
 import { useI18n } from "@/hooks/useI18n";
-import { formatRentalStatus, type RentalListRecord } from "@/shared/rentals";
+import type { RentalListRecord } from "@/shared/rentals";
+import { RentalStatusBadge } from "@/features/rentals/RentalStatusBadge";
+import { ReportExportButtons } from "./ReportExportButtons";
 
 export function OverdueRentalsReport() {
-  const { formatCurrency, formatDate, language, t } = useI18n();
+  const { formatCurrency, formatDate, t } = useI18n();
   const [rentals, setRentals] = useState<RentalListRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -28,7 +30,11 @@ export function OverdueRentalsReport() {
   }
 
   return (
-    <DataTable className="min-w-[760px]">
+    <div className="flex flex-col gap-4">
+      <div className="flex justify-end">
+        <ReportExportButtons type="overdueRentals" />
+      </div>
+      <DataTable className="min-w-full">
       <thead>
         <tr>
           <Th>{t("Contract No")}</Th>
@@ -48,9 +54,9 @@ export function OverdueRentalsReport() {
             >
               <Td>
                 <BidiValue className="font-medium" value={rental.contractNo} />
-                <Badge variant="destructive" className="mt-1">
-                  {formatRentalStatus(rental.status, language)}
-                </Badge>
+                <div className="mt-1">
+                  <RentalStatusBadge status={rental.status} />
+                </div>
               </Td>
               <Td>
                 <div className="truncate font-medium">{rental.customerName}</div>
@@ -59,9 +65,13 @@ export function OverdueRentalsReport() {
                 </div>
               </Td>
               <Td>
-                <div className="truncate">{t("Out: {{value}}", { value: formatDate(rental.startDatetime) })}</div>
-                <div className="truncate text-red-600 font-medium">
-                  {t("Exp: {{value}}", { value: formatDate(rental.expectedReturnDatetime) })}
+                <div className="flex flex-wrap items-center gap-x-1">
+                  <span>{t("Out:")}</span>
+                  <BidiValue value={formatDate(rental.startDatetime)} />
+                </div>
+                <div className="flex flex-wrap items-center gap-x-1 font-medium text-destructive">
+                  <span>{t("Exp:")}</span>
+                  <BidiValue value={formatDate(rental.expectedReturnDatetime)} />
                 </div>
               </Td>
               <Td className="text-end">
@@ -69,7 +79,12 @@ export function OverdueRentalsReport() {
                   <BidiValue value={formatCurrency(rental.totalAmount)} />
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {t("Remaining")} <BidiValue value={formatCurrency(rental.remainingAmount)} />
+                  {rental.remainingAmount < 0 ? t("Credit") : t("Remaining")}{" "}
+                  <MoneyText
+                    amount={rental.remainingAmount}
+                    className="text-xs"
+                    formatCurrency={formatCurrency}
+                  />
                 </div>
               </Td>
             </tr>
@@ -77,6 +92,7 @@ export function OverdueRentalsReport() {
         </>
       )}
       </tbody>
-    </DataTable>
+      </DataTable>
+    </div>
   );
 }

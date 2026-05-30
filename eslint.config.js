@@ -34,4 +34,16 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    files: ["scripts/generate-license*.{mjs,cjs}", "scripts/perf-stress.cjs"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      globals: {
+        ...globals.node,
+      },
+    },
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
 );

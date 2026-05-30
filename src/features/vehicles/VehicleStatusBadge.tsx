@@ -2,21 +2,22 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { useI18n } from "@/hooks/useI18n";
 import {
   formatVehicleStatus,
-  type VehicleRecord,
+  type VehicleDisplayStatus,
 } from "@/shared/vehicles";
 
 type VehicleStatusBadgeProps = {
-  status: VehicleRecord["status"];
+  status: VehicleDisplayStatus;
 };
 
 const statusTone: Record<
-  VehicleRecord["status"],
+  VehicleDisplayStatus,
   "success" | "warning" | "neutral" | "default"
 > = {
   available: "success",
   rented: "default",
   maintenance: "warning",
   inactive: "neutral",
+  sold: "neutral",
 };
 
 export function VehicleStatusBadge({ status }: VehicleStatusBadgeProps) {

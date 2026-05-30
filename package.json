@@ -13,9 +13,13 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
+    "license:app": "electron scripts/generate-license-app.mjs",
+    "capture:visual-qa": "node scripts/capture-visual-qa.mjs",
+    "perf:stress": "electron scripts/perf-stress.cjs",
+    "clean:release": "node scripts/clean-release.mjs",
     "build": "npm run typecheck && electron-vite build",
     "rebuild:native": "electron-builder install-app-deps",
-    "dist": "npm run build && electron-builder"
+    "dist": "npm run clean:release && npm run build && electron-builder"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -25,6 +29,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.1",
+    "exceljs": "^4.4.0",
     "lucide-react": "^0.554.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
@@ -70,6 +75,12 @@
       "target": "nsis",
       "icon": "build/icon.ico"
     },
+    "nsis": {
+      "license": "build/license.txt"
+    },
     "artifactName": "ARAK Rental Desk Setup ${version}.${ext}"
+  },
+  "overrides": {
+    "uuid": "11.1.1"
   }
 }

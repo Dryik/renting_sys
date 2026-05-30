@@ -1,17 +1,22 @@
-import { Edit, Plus, Search } from "lucide-react";
+import { Edit, Eye, Plus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { Badge } from "@/components/ui/badge";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { CustomerPhotoAvatar } from "@/components/ui/customer-photo-avatar";
 import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
-import { Input } from "@/components/ui/input";
+import { ListToolbar } from "@/components/ui/list-toolbar";
 import { PaginationControls } from "@/components/ui/pagination-controls";
+import { SearchInput } from "@/components/ui/search-input";
+import { SectionPanel } from "@/components/ui/section-panel";
 import { SidePanel } from "@/components/ui/side-panel";
+import { DocumentPhotoSection } from "@/components/ui/document-photo-section";
+import { ReasonDialog } from "@/components/ui/reason-dialog";
+import { useAuth } from "@/hooks/useAuth";
 import { useI18n } from "@/hooks/useI18n";
 import type { CustomerInput, CustomerRecord } from "@/shared/customers";
 import type { PageResult } from "@/shared/pagination";
 import { CustomerForm } from "./CustomerForm";
+import { CustomerDetailsPanel } from "./CustomerDetailsPanel";
 
 type FormState =
   | {
@@ -32,7 +37,11 @@ const emptyCustomerPage: PageResult<CustomerRecord> = {
   totalPages: 1,
 };
 
+const rowClassName =
+  "group transition-colors hover:bg-muted/35 focus-within:bg-muted/40";
+
 export function CustomersPage() {
+  const { can } = useAuth();
   const { formatDate, t } = useI18n();
   const [customerPage, setCustomerPage] = useState(emptyCustomerPage);
   const [search, setSearch] = useState("");
@@ -42,6 +51,7 @@ export function CustomersPage() {
   const [listError, setListError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [formState, setFormState] = useState<FormState>(null);
+  const [detailsCustomer, setDetailsCustomer] = useState<CustomerRecord | null>(null);
   const [customerToDeactivate, setCustomerToDeactivate] = useState<CustomerRecord | null>(null);
 
   const loadCustomers = useCallback(async (nextPage = page) => {
@@ -76,11 +86,12 @@ export function CustomersPage() {
     try {
       if (formState?.mode === "edit") {
         await window.rentalApp.customers.update(formState.customer.id, input);
+        setFormState(null);
       } else {
-        await window.rentalApp.customers.create(input);
+        const createdCustomer = await window.rentalApp.customers.create(input);
+        setFormState({ mode: "edit", customer: createdCustomer });
       }
 
-      setFormState(null);
       await loadCustomers(page);
     } catch (error) {
       setFormError(getErrorMessage(error, t("Customer could not be saved.")));
@@ -89,12 +100,12 @@ export function CustomersPage() {
     }
   }
 
-  async function handleDeactivate(id: number) {
+  async function handleDeactivate(id: number, reason: string) {
     setIsSaving(true);
     setFormError(null);
 
     try {
-      await window.rentalApp.customers.deactivate(id);
+      await window.rentalApp.customers.deactivate({ customerId: id, reason });
       setFormState(null);
       await loadCustomers(page);
     } catch (error) {
@@ -115,27 +126,29 @@ export function CustomersPage() {
     setFormState({ mode: "edit", customer });
   }
 
+  function openDetails(customer: CustomerRecord) {
+    setDetailsCustomer(customer);
+  }
+
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="relative w-full max-w-md">
-          <Search className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            className="ps-10"
-            placeholder={t("Search name, phone, ID, or license")}
-            value={search}
-            onChange={(event) => {
-              setSearch(event.target.value);
-              setPage(1);
-            }}
-          />
-        </div>
-
-        <Button onClick={openCreateForm}>
-          <Plus data-icon="inline-start" />
-          {t("Add Customer")}
-        </Button>
-      </div>
+      <ListToolbar
+        actions={can("customers.create") ? (
+          <Button className="w-full sm:w-auto" size="lg" onClick={openCreateForm}>
+            <Plus data-icon="inline-start" />
+            {t("Add Customer")}
+          </Button>
+        ) : null}
+      >
+        <SearchInput
+          placeholder={t("Search name, phone, ID, or license")}
+          value={search}
+          onChange={(event) => {
+            setSearch(event.target.value);
+            setPage(1);
+          }}
+        />
+      </ListToolbar>
 
       <SidePanel
         open={Boolean(formState)}
@@ -151,31 +164,45 @@ export function CustomersPage() {
           onCancel={() => setFormState(null)}
           onSave={handleSave}
           onDeactivate={
-            formState?.mode === "edit"
+            formState?.mode === "edit" && can("customers.deactivate")
               ? () => setCustomerToDeactivate(formState.customer)
               : undefined
           }
         />
+        {formState ? (
+          formState.mode === "edit" ? (
+            <DocumentPhotoSection entityType="customer" entityId={formState.customer.id} />
+          ) : (
+            <div className="mt-5 rounded-lg border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+              {t("Save the customer first, then add documents and photos here.")}
+            </div>
+          )
+        ) : null}
       </SidePanel>
 
-      <section className="rounded-md border bg-card p-5 shadow-xs">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h3 className="font-semibold">{t("Customer List")}</h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {t("Search by name, phone, ID number, or driver license.")}
-            </p>
-          </div>
-          <Badge variant="secondary">{t("{{count}} shown", { count: customerPage.total })}</Badge>
-        </div>
+      <SidePanel
+        open={Boolean(detailsCustomer)}
+        title={t("Customer Details")}
+        description={t("Customer identity and contact details.")}
+        width="lg"
+        onClose={() => setDetailsCustomer(null)}
+      >
+        {detailsCustomer ? <CustomerDetailsPanel customer={detailsCustomer} /> : null}
+      </SidePanel>
+
+      <SectionPanel
+        title={t("Customers")}
+        description={t("Search by name, phone, ID number, or driver license.")}
+        badge={t("{{count}} shown", { count: customerPage.total })}
+      >
         {listError ? (
           <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {listError}
+            {t(listError)}
           </div>
         ) : null}
 
-        <DataTable className="min-w-[760px]">
-          <thead className="bg-muted text-muted-foreground">
+        <DataTable className="min-w-[760px]" containerClassName="min-h-[22rem]">
+          <thead className="bg-muted/70 text-muted-foreground">
             <tr>
               <Th>{t("Customer")}</Th>
               <Th>{t("Phone")}</Th>
@@ -186,25 +213,38 @@ export function CustomersPage() {
           </thead>
           <tbody>
             {isLoading ? (
-              <EmptyTableRow colSpan={5} message={t("Loading customers...")} />
+              <EmptyTableRow colSpan={5} message={t("Loading customers...")} state="loading" />
             ) : customerPage.rows.length === 0 ? (
               <EmptyTableRow
                 colSpan={5}
-                message={
+                message={search.trim() ? t("No customers match this search.") : t("No customers yet")}
+                description={
                   search.trim()
-                    ? t("No customers match this search.")
-                    : t("No customers yet. Use Add Customer to create the first one.")
+                    ? t("Search by name, phone, ID number, or driver license.")
+                    : t("Use Add Customer to create the first customer record.")
+                }
+                action={
+                  !search.trim() && can("customers.create")
+                    ? { label: t("Add Customer"), onClick: openCreateForm }
+                    : undefined
                 }
               />
             ) : (
               customerPage.rows.map((customer) => (
-                <tr key={customer.id} className="border-t hover:bg-muted/25">
+                <tr key={customer.id} className={rowClassName}>
                   <Td>
-                    <div className="flex flex-col gap-1">
-                      <span className="font-semibold">{customer.fullName}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {t("Added")} <BidiValue value={formatDate(customer.createdAt)} />
-                      </span>
+                    <div className="flex items-center gap-3">
+                      <CustomerPhotoAvatar
+                        alt={customer.fullName}
+                        className="size-10 border"
+                        customerId={customer.id}
+                      />
+                      <div className="min-w-0">
+                        <span className="block truncate font-semibold">{customer.fullName}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {t("Added")} <BidiValue value={formatDate(customer.createdAt)} />
+                        </span>
+                      </div>
                     </div>
                   </Td>
                   <Td>
@@ -218,14 +258,26 @@ export function CustomersPage() {
                   <Td>{customer.nationalId ? <BidiValue value={customer.nationalId} /> : t("No ID")}</Td>
                   <Td>{customer.driverLicenseNo ? <BidiValue value={customer.driverLicenseNo} /> : t("No license")}</Td>
                   <Td className="text-end">
+                    <div className="flex justify-end gap-2">
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => openEditForm(customer)}
+                      onClick={() => openDetails(customer)}
                     >
-                      <Edit data-icon="inline-start" />
-                      {t("Edit")}
+                      <Eye data-icon="inline-start" />
+                      {t("Details")}
                     </Button>
+                    {can("customers.edit") ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openEditForm(customer)}
+                      >
+                        <Edit data-icon="inline-start" />
+                        {t("Edit")}
+                      </Button>
+                    ) : null}
+                    </div>
                   </Td>
                 </tr>
               ))
@@ -233,20 +285,21 @@ export function CustomersPage() {
           </tbody>
         </DataTable>
         <PaginationControls page={customerPage} t={t} onPageChange={setPage} />
-      </section>
+      </SectionPanel>
 
-      <ConfirmDialog
+      <ReasonDialog
         open={Boolean(customerToDeactivate)}
         title={t("Deactivate customer?")}
         description={t("Deactivate customer confirmation")}
+        reasonLabel={t("Reason")}
         cancelLabel={t("Cancel")}
         confirmLabel={t("Deactivate")}
         variant="destructive"
         isBusy={isSaving}
         onCancel={() => setCustomerToDeactivate(null)}
-        onConfirm={() => {
+        onConfirm={(reason) => {
           if (customerToDeactivate) {
-            void handleDeactivate(customerToDeactivate.id);
+            void handleDeactivate(customerToDeactivate.id, reason);
           }
         }}
       />

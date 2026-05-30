@@ -1,0 +1,718 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ARAK Rental Desk Offline Licensing Release Guide</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f8fb;
+      --paper: #ffffff;
+      --text: #162033;
+      --muted: #5d697c;
+      --line: #d9e1ec;
+      --soft: #eef3f8;
+      --blue: #1d4ed8;
+      --blue-soft: #eff6ff;
+      --red: #b42318;
+      --red-soft: #fff1f0;
+      --green: #047857;
+      --green-soft: #ecfdf5;
+      --code: #101828;
+      --radius: 8px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+    }
+
+    main {
+      max-width: 1060px;
+      margin: 0 auto;
+      padding: 40px 24px 64px;
+    }
+
+    article {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 34px;
+      box-shadow: 0 18px 50px rgba(15, 23, 42, 0.08);
+    }
+
+    h1,
+    h2,
+    h3 {
+      line-height: 1.25;
+      margin: 0;
+      color: #0f172a;
+    }
+
+    h1 {
+      font-size: 34px;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin-top: 34px;
+      padding-top: 24px;
+      border-top: 1px solid var(--line);
+      font-size: 24px;
+    }
+
+    h3 {
+      margin-top: 24px;
+      font-size: 18px;
+    }
+
+    p {
+      margin: 12px 0;
+    }
+
+    a {
+      color: var(--blue);
+    }
+
+    ul,
+    ol {
+      margin: 12px 0;
+      padding-left: 26px;
+    }
+
+    li {
+      margin: 7px 0;
+    }
+
+    code {
+      border-radius: 4px;
+      background: var(--soft);
+      padding: 2px 5px;
+      font-family: Consolas, Monaco, "Courier New", monospace;
+      font-size: 0.95em;
+    }
+
+    pre {
+      margin: 14px 0;
+      padding: 16px;
+      overflow-x: auto;
+      border-radius: var(--radius);
+      background: var(--code);
+      color: #f8fafc;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    pre code {
+      padding: 0;
+      background: transparent;
+      color: inherit;
+      font-size: inherit;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+    }
+
+    th,
+    td {
+      border: 1px solid var(--line);
+      padding: 11px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--soft);
+      font-weight: 700;
+    }
+
+    .subtitle {
+      margin-top: 10px;
+      max-width: 780px;
+      color: var(--muted);
+      font-size: 17px;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      padding: 5px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--soft);
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .notice,
+    .warning,
+    .success {
+      margin: 18px 0;
+      padding: 14px 16px;
+      border-radius: var(--radius);
+      border: 1px solid;
+    }
+
+    .notice {
+      border-color: #bfdbfe;
+      background: var(--blue-soft);
+      color: #1e3a8a;
+    }
+
+    .warning {
+      border-color: #fecaca;
+      background: var(--red-soft);
+      color: var(--red);
+    }
+
+    .success {
+      border-color: #a7f3d0;
+      background: var(--green-soft);
+      color: var(--green);
+    }
+
+    .step-result {
+      margin-top: 10px;
+      padding: 12px 14px;
+      border-radius: var(--radius);
+      background: #f8fafc;
+      border: 1px solid var(--line);
+    }
+
+    .checklist {
+      display: grid;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .checklist label {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fbfdff;
+    }
+
+    .checklist input {
+      margin-top: 4px;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media print {
+      body {
+        background: #ffffff;
+      }
+
+      main {
+        max-width: none;
+        padding: 0;
+      }
+
+      article {
+        border: 0;
+        box-shadow: none;
+        padding: 0;
+      }
+
+      pre {
+        white-space: pre-wrap;
+      }
+
+      .checklist label {
+        break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <article>
+      <header>
+        <h1>ARAK Rental Desk Offline Licensing Release Guide</h1>
+        <p class="subtitle">
+          A step-by-step production checklist for license key generation, installer build,
+          Windows PC validation, offline activation, machine-binding checks, read-only mode,
+          and backup behavior.
+        </p>
+        <div class="meta">
+          <span class="pill">Target: Windows desktop app</span>
+          <span class="pill">Model: Offline license + 15-day trial</span>
+          <span class="pill">Scope: Anti-casual-copying</span>
+        </div>
+      </header>
+
+      <section class="notice">
+        <strong>Intended behavior:</strong>
+        valid paid license gives full access, active 15-day trial gives full access,
+        expired/missing/invalid license and trial files place the app in read-only mode.
+        Read-only mode still allows login, viewing data, reports, print/export, backup export,
+        license request export, and license import.
+      </section>
+
+      <section class="warning">
+        <strong>Important:</strong>
+        this system is not strong DRM. Do not add online activation, remote revocation,
+        cloud checks, extra hardware fingerprinting, or aggressive anti-tamper logic.
+      </section>
+
+      <h2>1. Prepare A Clean Release Workspace</h2>
+      <ol>
+        <li>Use a clean release branch or a clean copy of the repo.</li>
+        <li>Make sure no production private keys are inside the repo.</li>
+        <li>Make sure no generated customer license files are inside the repo.</li>
+        <li>Make sure no client business data, uploaded files, screenshots, or request files are inside the repo.</li>
+        <li>Install dependencies and run the verification commands.</li>
+      </ol>
+
+      <pre><code>npm ci
+npm run typecheck
+npm run lint
+npm test
+npm run build</code></pre>
+
+      <div class="step-result">
+        <strong>Expected result:</strong> all commands pass before you create an installer.
+      </div>
+
+      <h2>2. Generate The Real Production License Keypair</h2>
+      <p>
+        Generate the production signing keypair on your own secure machine.
+        Do not generate it on a client PC.
+      </p>
+
+      <pre><code>node scripts/generate-license-keypair.mjs `
+  --out-dir C:\secure\arak-license-keys `
+  --key-id arak-license-key-2026-01</code></pre>
+
+      <p>Expected output files:</p>
+
+      <pre><code>C:\secure\arak-license-keys\arak-license-key-2026-01.private.pem
+C:\secure\arak-license-keys\arak-license-key-2026-01.public.pem</code></pre>
+
+      <table>
+        <thead>
+          <tr>
+            <th>File</th>
+            <th>Purpose</th>
+            <th>Where It Belongs</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>arak-license-key-2026-01.private.pem</code></td>
+            <td>Signs customer license files.</td>
+            <td>Secure private ARAK licensing machine only.</td>
+          </tr>
+          <tr>
+            <td><code>arak-license-key-2026-01.public.pem</code></td>
+            <td>Lets the app verify license files.</td>
+            <td>Embedded in the app before building the installer.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>3. Store The Private Key Outside The Repo And App Bundle</h2>
+      <p>Keep the private key in a secure location such as:</p>
+
+      <pre><code>C:\secure\arak-license-keys\arak-license-key-2026-01.private.pem</code></pre>
+
+      <p>The private key must never be placed in:</p>
+      <ul>
+        <li>the Git repo</li>
+        <li><code>electron\</code></li>
+        <li><code>src\</code></li>
+        <li><code>scripts\</code> as a generated key file</li>
+        <li><code>out\</code></li>
+        <li><code>release\</code></li>
+        <li>the installer</li>
+        <li>client machines</li>
+        <li>normal business backups</li>
+        <li>source maps</li>
+        <li>screenshots or public support tickets</li>
+      </ul>
+
+      <div class="notice">
+        Recommended: keep one encrypted backup of the private key on an external drive
+        or in a trusted password manager vault. If the private key is lost, future licenses
+        for that key ID cannot be issued.
+      </div>
+
+      <h2>4. Replace The Embedded Public Key With The Production Public Key</h2>
+      <p>Open this file in the repo:</p>
+
+      <pre><code>C:\prototypes\renting_sys\electron\licensing\public-keys.ts</code></pre>
+
+      <p>Replace the existing public key with the content of:</p>
+
+      <pre><code>C:\secure\arak-license-keys\arak-license-key-2026-01.public.pem</code></pre>
+
+      <p>The file should look like this:</p>
+
+      <pre><code>export const licensePublicKeys: Record&lt;string, string&gt; = {
+  "arak-license-key-2026-01": `-----BEGIN PUBLIC KEY-----
+PASTE_PRODUCTION_PUBLIC_KEY_HERE
+-----END PUBLIC KEY-----`,
+};</code></pre>
+
+      <section class="warning">
+        <strong>Do not paste the private key here.</strong>
+        The app should embed only the public verification key.
+      </section>
+
+      <h2>5. Build A Clean Production Installer</h2>
+      <p>Remove old build outputs before creating the installer:</p>
+
+      <pre><code>Remove-Item -Recurse -Force out, release -ErrorAction SilentlyContinue</code></pre>
+
+      <p>Run the full release build:</p>
+
+      <pre><code>npm run typecheck
+npm run lint
+npm test
+npm run build
+npm run dist</code></pre>
+
+      <p>Expected installer output folder:</p>
+
+      <pre><code>C:\prototypes\renting_sys\release\</code></pre>
+
+      <h3>Scan Release Output</h3>
+      <p>Run this before sending the installer to anyone:</p>
+
+      <pre><code>Get-ChildItem -Recurse release,out | Where-Object {
+  $_.Name -match '\.map$|private|secret|\.key$|\.p8$|\.p12$|\.pfx$'
+}</code></pre>
+
+      <div class="step-result">
+        <strong>Expected result:</strong> no private key, secret, or source-map files are found.
+      </div>
+
+      <h2>6. Install On Windows PC #1</h2>
+      <ol>
+        <li>Install the generated setup file on Windows PC #1.</li>
+        <li>Launch the app.</li>
+        <li>Confirm the app opens normally.</li>
+        <li>Confirm the first launch starts the local trial.</li>
+        <li>Confirm write access is enabled during the trial.</li>
+      </ol>
+
+      <p>The app data folder is usually under:</p>
+
+      <pre><code>%APPDATA%\ARAK Rental Desk</code></pre>
+
+      <p>Confirm these exist in app data:</p>
+
+      <pre><code>trial.json
+trial-issued.json
+rental_app.db
+uploads\</code></pre>
+
+      <div class="step-result">
+        <strong>Expected result:</strong>
+        <code>trial.json</code> and <code>trial-issued.json</code> are created outside SQLite
+        and outside <code>uploads\</code>.
+      </div>
+
+      <h2>7. Confirm Trial Duration And Machine Binding</h2>
+      <p>Open <code>trial.json</code> and confirm:</p>
+      <ul>
+        <li><code>schemaVersion</code> is present.</li>
+        <li><code>productId</code> is <code>arak-rental-windows</code>.</li>
+        <li><code>machineCode</code> is a hashed value, not raw Windows MachineGuid.</li>
+        <li><code>startedAt</code> and <code>expiresAt</code> are 15 x 24 hours apart.</li>
+        <li><code>integrity</code> is present.</li>
+      </ul>
+
+      <p>Open <code>trial-issued.json</code> and confirm:</p>
+      <ul>
+        <li><code>productId</code> is <code>arak-rental-windows</code>.</li>
+        <li><code>machineCode</code> matches the hashed machine code from <code>trial.json</code>.</li>
+        <li><code>markerId</code> or marker identity matches the issued trial.</li>
+        <li><code>integrity</code> is present.</li>
+      </ul>
+
+      <section class="warning">
+        Do not ask clients to send raw Windows MachineGuid values.
+        The app should show and export only the hashed machine code.
+      </section>
+
+      <h2>8. Export License Request From PC #1</h2>
+      <p>Inside the app, go to:</p>
+
+      <pre><code>App License &gt; Export License Request</code></pre>
+
+      <p>Save the request file somewhere easy to find, for example:</p>
+
+      <pre><code>C:\Users\Client\Desktop\arak_license_request_XXXX.json</code></pre>
+
+      <p>The request should contain only:</p>
+
+      <pre><code>{
+  "productId": "arak-rental-windows",
+  "appVersion": "...",
+  "machineCode": "...",
+  "requestedAt": "..."
+}</code></pre>
+
+      <div class="step-result">
+        <strong>Expected result:</strong>
+        request contains hashed <code>machineCode</code>, not raw MachineGuid,
+        and no unnecessary personal or customer data.
+      </div>
+
+      <h2>9. Generate A Valid License For PC #1</h2>
+      <p>Move the request file to your secure licensing machine.</p>
+
+      <pre><code>node scripts/generate-license.mjs `
+  --request C:\path\to\arak_license_request_XXXX.json `
+  --private-key C:\secure\arak-license-keys\arak-license-key-2026-01.private.pem `
+  --key-id arak-license-key-2026-01 `
+  --license-id LIC-001 `
+  --customer "Customer Name" `
+  --out C:\secure\issued-licenses\LIC-001.json</code></pre>
+
+      <p>For an expiring license, add:</p>
+
+      <pre><code>--expires-at 2027-05-24T00:00:00.000Z</code></pre>
+
+      <p>For a permanent license, omit <code>--expires-at</code>.</p>
+
+      <h2>10. Import License On PC #1 And Confirm Full Access</h2>
+      <ol>
+        <li>Copy only the generated license file to PC #1.</li>
+        <li>Open the app.</li>
+        <li>Go to <code>App License &gt; Import License File</code>.</li>
+        <li>Select the license file.</li>
+      </ol>
+
+      <p>Expected result:</p>
+      <ul>
+        <li>license import succeeds</li>
+        <li>status changes to licensed</li>
+        <li>customer name is shown if licensed</li>
+        <li>license ID is shown if licensed</li>
+        <li>full write access is enabled</li>
+        <li>license survives app restart</li>
+      </ul>
+
+      <p>Restart the app and confirm it still shows licensed.</p>
+
+      <h2>11. Copy License And Trial Files From PC #1 To Windows PC #2</h2>
+      <p>From PC #1 app data, copy these files:</p>
+
+      <pre><code>license.json
+trial.json
+trial-issued.json</code></pre>
+
+      <p>On PC #2:</p>
+      <ol>
+        <li>Install the same app.</li>
+        <li>Launch once if needed, then close it.</li>
+        <li>Open PC #2 app-data directory.</li>
+        <li>Place the copied files into that directory.</li>
+        <li>Launch the app again.</li>
+      </ol>
+
+      <p>Expected result:</p>
+      <ul>
+        <li>PC #2 rejects the copied paid license.</li>
+        <li>PC #2 rejects the copied trial files.</li>
+        <li>The app remains read-only or reports wrong-machine/invalid state.</li>
+        <li>The copied license does not unlock PC #2.</li>
+      </ul>
+
+      <div class="success">
+        Passing this check confirms that license and trial files are bound to the hashed Windows MachineGuid.
+      </div>
+
+      <h2>12. Confirm Backup Export Works In Read-Only Mode</h2>
+      <p>On a read-only PC or read-only state, open:</p>
+
+      <pre><code>Backup &gt; Create Backup</code></pre>
+
+      <p>Expected result:</p>
+      <ul>
+        <li>backup export is allowed</li>
+        <li>a ZIP file is created</li>
+        <li>the user can still protect and export their own business data</li>
+      </ul>
+
+      <h2>13. Confirm Backup Restore Is Blocked In Read-Only Mode</h2>
+      <p>Still in read-only mode, attempt:</p>
+
+      <pre><code>Backup &gt; Restore Backup</code></pre>
+
+      <p>Expected result:</p>
+      <ul>
+        <li>restore is blocked</li>
+        <li>no database files are replaced</li>
+        <li>no uploaded files are replaced</li>
+        <li>the app shows a clear license/read-only error</li>
+      </ul>
+
+      <section class="notice">
+        Backup restore must be blocked by Electron main-process IPC enforcement.
+        It is not enough for the React UI to hide or disable the button.
+      </section>
+
+      <h2>14. Confirm Normal Backup ZIP Excludes License Files</h2>
+      <p>Open the generated backup ZIP.</p>
+
+      <p>Allowed top-level contents:</p>
+
+      <pre><code>metadata.json
+rental_app.db
+uploads\...</code></pre>
+
+      <p>These must not appear anywhere in the ZIP:</p>
+
+      <pre><code>license.json
+trial.json
+trial-issued.json
+*.private.pem
+*.private.key
+*.key
+*.p8
+*.p12
+*.pfx
+*.map</code></pre>
+
+      <p>Also confirm nested upload paths do not include sensitive files like:</p>
+
+      <pre><code>uploads/license.json
+uploads/trial.json
+uploads/trial-issued.json
+uploads/client.private.pem
+uploads/file.map
+uploads/private-key/anything
+uploads/license-key/anything
+uploads/secret/anything
+uploads/signing-key/anything</code></pre>
+
+      <h2>15. Confirm Installer Or Update Does Not Delete Existing License</h2>
+      <p>On PC #1 with a valid imported license:</p>
+
+      <ol>
+        <li>Close the app.</li>
+        <li>Install the same version or a newer test installer over it.</li>
+        <li>Launch the app again.</li>
+      </ol>
+
+      <p>Expected result:</p>
+      <ul>
+        <li>existing <code>license.json</code> remains in app data</li>
+        <li>app still shows licensed</li>
+        <li><code>trial.json</code> is not deleted</li>
+        <li><code>trial-issued.json</code> is not deleted</li>
+        <li><code>rental_app.db</code> remains intact</li>
+        <li><code>uploads\</code> remains intact</li>
+      </ul>
+
+      <p>
+        The installer should update application files only.
+        It must not wipe user data in the app-data directory.
+      </p>
+
+      <h2>16. Recommended Final Verification Commands</h2>
+      <p>Before client delivery, run:</p>
+
+      <pre><code>npm run typecheck
+npm run lint
+npm test
+npm run build</code></pre>
+
+      <p>Then run a smoke startup with temporary app data:</p>
+
+      <pre><code>$tempDir = Join-Path $env:TEMP ('rental-release-smoke-' + [guid]::NewGuid().ToString())
+New-Item -ItemType Directory -Path $tempDir | Out-Null
+$env:RENTAL_APP_SMOKE_TEST='1'
+$env:RENTAL_APP_USER_DATA_DIR=$tempDir
+npm run start
+Get-ChildItem -Force -LiteralPath $tempDir
+Remove-Item -LiteralPath $tempDir -Recurse -Force</code></pre>
+
+      <p>Expected temporary app-data files:</p>
+
+      <pre><code>uploads\
+rental_app.db
+trial.json
+trial-issued.json</code></pre>
+
+      <h2>17. Final Acceptance Checklist</h2>
+      <div class="checklist">
+        <label><input type="checkbox" /> Production private key generated on secure ARAK machine</label>
+        <label><input type="checkbox" /> Production private key stored outside repo, app bundle, installer, and client machines</label>
+        <label><input type="checkbox" /> Production public key embedded in <code>electron\licensing\public-keys.ts</code></label>
+        <label><input type="checkbox" /> Clean installer built from fresh <code>out\</code> and <code>release\</code></label>
+        <label><input type="checkbox" /> Build output contains no private keys, source maps, or secret files</label>
+        <label><input type="checkbox" /> Windows PC #1 fresh install creates <code>trial.json</code></label>
+        <label><input type="checkbox" /> Windows PC #1 fresh install creates <code>trial-issued.json</code></label>
+        <label><input type="checkbox" /> Trial gives full write access during the 15-day period</label>
+        <label><input type="checkbox" /> License request exports hashed <code>machineCode</code> only</label>
+        <label><input type="checkbox" /> Valid license imports on PC #1</label>
+        <label><input type="checkbox" /> PC #1 shows licensed status after restart</label>
+        <label><input type="checkbox" /> Copied license/trial files fail on PC #2</label>
+        <label><input type="checkbox" /> Backup export works in read-only mode</label>
+        <label><input type="checkbox" /> Backup restore is blocked in read-only mode</label>
+        <label><input type="checkbox" /> Backup ZIP excludes <code>license.json</code></label>
+        <label><input type="checkbox" /> Backup ZIP excludes <code>trial.json</code></label>
+        <label><input type="checkbox" /> Backup ZIP excludes <code>trial-issued.json</code></label>
+        <label><input type="checkbox" /> Backup ZIP excludes private key files and source maps recursively</label>
+        <label><input type="checkbox" /> Installer/update preserves existing license and business data</label>
+      </div>
+
+      <h2>18. Private Support Records To Keep</h2>
+      <p>For each client, keep a private support record with:</p>
+
+      <ul>
+        <li>customer name</li>
+        <li>license ID</li>
+        <li>issue date</li>
+        <li>expiry date, if any</li>
+        <li>license request file</li>
+        <li>hashed machine code from the request</li>
+        <li>license file issued</li>
+        <li>reissue notes</li>
+        <li>installer version delivered</li>
+      </ul>
+
+      <section class="warning">
+        Do not keep production private keys together with client request files or issued licenses.
+        The private key should remain isolated on the secure licensing machine.
+      </section>
+
+      <p class="small">End of guide.</p>
+    </article>
+  </main>
+</body>
+</html>

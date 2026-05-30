@@ -11,6 +11,8 @@ import type { PageResult } from "../../src/shared/pagination";
 import { getDatabase } from "./database";
 import { createPageResult, normalizePageRequest, toLikeTerm } from "./listing";
 import { maintenanceRecords, vehicles } from "./schema";
+import { getCurrentUserForService, requirePermissionForCurrentSession } from "./auth.service";
+import { logAuditEvent } from "./audit.service";
 
 export function listMaintenance(
   request?: MaintenanceListRequest | string,
@@ -79,8 +81,10 @@ export function listMaintenance(
 }
 
 export function createMaintenance(input: MaintenanceInput): MaintenanceRecord {
+  requirePermissionForCurrentSession("maintenance.create");
   const values = parseMaintenanceInput(input);
   const now = new Date().toISOString();
+  const actor = getCurrentUserForService();
 
   try {
     return getDatabase().transaction((tx) => {
@@ -106,6 +110,8 @@ export function createMaintenance(input: MaintenanceInput): MaintenanceRecord {
         .values({
           ...values,
           isArchived: false,
+          createdByUserId: actor?.id ?? null,
+          lastUpdatedByUserId: actor?.id ?? null,
           createdAt: now,
           updatedAt: now,
         })
@@ -113,6 +119,15 @@ export function createMaintenance(input: MaintenanceInput): MaintenanceRecord {
         .get();
 
       syncVehicleMaintenanceStatus(tx, values.vehicleId, now);
+      logAuditEvent(tx, {
+        action: "maintenance.created",
+        entityType: "maintenance",
+        entityId: record.id,
+        entityLabel: record.title,
+        summaryAr: `تم تسجيل صيانة ${record.title}`,
+        summaryEn: `Maintenance ${record.title} was created.`,
+        after: record,
+      });
 
       return record;
     });
@@ -128,6 +143,7 @@ export function updateMaintenance(
   const maintenanceId = parseMaintenanceId(id);
   const values = parseMaintenanceInput(input);
   const now = new Date().toISOString();
+  const actor = getCurrentUserForService();
 
   try {
     return getDatabase().transaction((tx) => {
@@ -144,6 +160,12 @@ export function updateMaintenance(
 
       if (!existing) {
         throw new Error("Maintenance record was not found.");
+      }
+
+      if (!existing.endDate && values.endDate) {
+        requirePermissionForCurrentSession("maintenance.complete");
+      } else {
+        requirePermissionForCurrentSession("maintenance.edit");
       }
 
       if (existing.vehicleId !== values.vehicleId) {
@@ -171,6 +193,9 @@ export function updateMaintenance(
         .update(maintenanceRecords)
         .set({
           ...values,
+          completedByUserId:
+            !existing.endDate && values.endDate ? actor?.id ?? null : existing.completedByUserId,
+          lastUpdatedByUserId: actor?.id ?? null,
           updatedAt: now,
         })
         .where(eq(maintenanceRecords.id, maintenanceId))
@@ -178,6 +203,25 @@ export function updateMaintenance(
         .get();
 
       syncVehicleMaintenanceStatus(tx, values.vehicleId, now);
+      logAuditEvent(tx, {
+        action:
+          !existing.endDate && values.endDate
+            ? "maintenance.completed"
+            : "maintenance.updated",
+        entityType: "maintenance",
+        entityId: updated.id,
+        entityLabel: updated.title,
+        summaryAr:
+          !existing.endDate && values.endDate
+            ? `تم إكمال صيانة ${updated.title}`
+            : `تم تحديث صيانة ${updated.title}`,
+        summaryEn:
+          !existing.endDate && values.endDate
+            ? `Maintenance ${updated.title} was completed.`
+            : `Maintenance ${updated.title} was updated.`,
+        before: existing,
+        after: updated,
+      });
 
       return updated;
     });
@@ -186,9 +230,25 @@ export function updateMaintenance(
   }
 }
 
-export function archiveMaintenance(id: number): void {
-  const maintenanceId = parseMaintenanceId(id);
+export function archiveMaintenance(id: unknown): void {
+  requirePermissionForCurrentSession("maintenance.archive");
+  const maintenanceId =
+    typeof id === "object" && id !== null
+      ? parseMaintenanceId((id as { maintenanceId?: unknown }).maintenanceId)
+      : parseMaintenanceId(id);
+  const reason =
+    typeof id === "object" &&
+    id !== null &&
+    typeof (id as { reason?: unknown }).reason === "string"
+      ? (id as { reason: string }).reason.trim()
+      : "";
+
+  if (!reason) {
+    throw new Error("Reason is required.");
+  }
+
   const now = new Date().toISOString();
+  const actor = getCurrentUserForService();
 
   try {
     getDatabase().transaction((tx) => {
@@ -210,12 +270,25 @@ export function archiveMaintenance(id: number): void {
       tx.update(maintenanceRecords)
         .set({
           isArchived: true,
+          archivedByUserId: actor?.id ?? null,
+          lastUpdatedByUserId: actor?.id ?? null,
           updatedAt: now,
         })
         .where(eq(maintenanceRecords.id, maintenanceId))
         .run();
 
       syncVehicleMaintenanceStatus(tx, existing.vehicleId, now);
+      logAuditEvent(tx, {
+        action: "maintenance.archived",
+        entityType: "maintenance",
+        entityId: maintenanceId,
+        entityLabel: existing.title,
+        summaryAr: `تمت أرشفة صيانة ${existing.title}`,
+        summaryEn: `Maintenance ${existing.title} was archived.`,
+        before: existing,
+        after: { ...existing, isArchived: true },
+        reason,
+      });
     });
   } catch (error) {
     throw normalizeMaintenanceServiceError(error);

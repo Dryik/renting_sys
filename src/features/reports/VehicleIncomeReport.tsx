@@ -4,6 +4,7 @@ import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
 import { useI18n } from "@/hooks/useI18n";
 import type { VehicleIncomeRecord } from "@/shared/reports";
+import { ReportExportButtons } from "./ReportExportButtons";
 
 export function VehicleIncomeReport() {
   const { formatCurrency, locale, t } = useI18n();
@@ -58,34 +59,37 @@ export function VehicleIncomeReport() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-4">
-        <div className="flex items-center gap-2">
-          <label htmlFor="startDate" className="text-sm font-medium">
-            {t("From")}
-          </label>
-          <Input
-            id="startDate"
-            type="date"
-            value={startDate}
-            onChange={(event) => handleStartDateChange(event.target.value)}
-            className="w-40"
-          />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2">
+            <label htmlFor="startDate" className="text-sm font-medium">
+              {t("From")}
+            </label>
+            <Input
+              id="startDate"
+              type="date"
+              value={startDate}
+              onChange={(event) => handleStartDateChange(event.target.value)}
+              className="w-40"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <label htmlFor="endDate" className="text-sm font-medium">
+              {t("To")}
+            </label>
+            <Input
+              id="endDate"
+              type="date"
+              value={endDate}
+              onChange={(event) => handleEndDateChange(event.target.value)}
+              className="w-40"
+            />
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <label htmlFor="endDate" className="text-sm font-medium">
-            {t("To")}
-          </label>
-          <Input
-            id="endDate"
-            type="date"
-            value={endDate}
-            onChange={(event) => handleEndDateChange(event.target.value)}
-            className="w-40"
-          />
-        </div>
+        <ReportExportButtons type="vehicleIncome" startDate={startDate} endDate={endDate} />
       </div>
 
-      <DataTable className="min-w-[620px]">
+      <DataTable className="min-w-full">
         <thead>
           <tr>
             <Th>{t("Vehicle")}</Th>
@@ -95,7 +99,7 @@ export function VehicleIncomeReport() {
         </thead>
         <tbody>
         {loading ? (
-          <EmptyTableRow colSpan={3} message={t("Loading...")} />
+          <EmptyTableRow colSpan={3} message={t("Loading...")} state="loading" />
         ) : incomeRecords.length === 0 ? (
           <EmptyTableRow colSpan={3} message={t("No income recorded for this period.")} />
         ) : (

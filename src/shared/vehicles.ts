@@ -11,6 +11,9 @@ export const vehicleStatusValues = [
   "inactive",
 ] as const;
 
+export type VehicleStatus = (typeof vehicleStatusValues)[number];
+export type VehicleDisplayStatus = VehicleStatus | "sold";
+
 export const vehicleInputSchema = z.object({
   type: z.enum(vehicleTypeValues),
   brand: z.string().trim().min(1, "Brand is required.").max(80),
@@ -44,13 +47,21 @@ export const vehicleInputSchema = z.object({
     .nullable(),
   insuranceExpiryDate: z.string().trim().max(20).nullable(),
   registrationExpiryDate: z.string().trim().max(20).nullable(),
+  technicalInspectionExpiryDate: z.string().trim().max(20).nullable().default(null),
+  lastOilChangeDate: z.string().trim().max(20).nullable().default(null),
+  lastOilChangeMileage: z
+    .number()
+    .int("Oil change mileage must be a whole number.")
+    .min(0, "Oil change mileage cannot be negative.")
+    .nullable()
+    .default(null),
   notes: z.string().trim().max(500).nullable(),
 });
 
 export type VehicleInput = z.infer<typeof vehicleInputSchema>;
 
 export type VehicleTypeFilter = "all" | (typeof vehicleTypeValues)[number];
-export type VehicleStatusFilter = "all" | (typeof vehicleStatusValues)[number];
+export type VehicleStatusFilter = "all" | VehicleDisplayStatus;
 
 export type VehicleListRequest = PageRequest & {
   type?: VehicleTypeFilter;
@@ -59,6 +70,10 @@ export type VehicleListRequest = PageRequest & {
 
 export type VehicleRecord = VehicleInput & {
   id: number;
+  displayStatus: VehicleDisplayStatus;
+  activeSaleId: number | null;
+  activeSaleNo: string | null;
+  soldAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -76,6 +91,9 @@ export type VehicleFormValues = {
   mileage: string;
   insuranceExpiryDate: string;
   registrationExpiryDate: string;
+  technicalInspectionExpiryDate: string;
+  lastOilChangeDate: string;
+  lastOilChangeMileage: string;
   notes: string;
 };
 
@@ -143,12 +161,15 @@ export const vehicleFormSchema = z
     mileage: optionalIntegerField("Mileage"),
     insuranceExpiryDate: optionalTextField(20),
     registrationExpiryDate: optionalTextField(20),
+    technicalInspectionExpiryDate: optionalTextField(20),
+    lastOilChangeDate: optionalTextField(20),
+    lastOilChangeMileage: optionalIntegerField("Oil change mileage"),
     notes: optionalTextField(500),
   })
   .transform((values) => vehicleInputSchema.parse(values));
 
 export const emptyVehicleFormValues: VehicleFormValues = {
-  type: "car",
+  type: "motorcycle",
   brand: "",
   model: "",
   plateNumber: "",
@@ -160,6 +181,9 @@ export const emptyVehicleFormValues: VehicleFormValues = {
   mileage: "",
   insuranceExpiryDate: "",
   registrationExpiryDate: "",
+  technicalInspectionExpiryDate: "",
+  lastOilChangeDate: "",
+  lastOilChangeMileage: "",
   notes: "",
 };
 
@@ -177,6 +201,10 @@ export function vehicleToFormValues(vehicle: VehicleRecord): VehicleFormValues {
     mileage: vehicle.mileage === null ? "" : String(vehicle.mileage),
     insuranceExpiryDate: vehicle.insuranceExpiryDate ?? "",
     registrationExpiryDate: vehicle.registrationExpiryDate ?? "",
+    technicalInspectionExpiryDate: vehicle.technicalInspectionExpiryDate ?? "",
+    lastOilChangeDate: vehicle.lastOilChangeDate ?? "",
+    lastOilChangeMileage:
+      vehicle.lastOilChangeMileage === null ? "" : String(vehicle.lastOilChangeMileage),
     notes: vehicle.notes ?? "",
   };
 }
@@ -189,14 +217,15 @@ export function formatVehicleType(
 }
 
 export function formatVehicleStatus(
-  status: VehicleRecord["status"],
+  status: VehicleDisplayStatus,
   language: LanguageCode = "en",
 ): string {
-  const labels: Record<VehicleRecord["status"], string> = {
+  const labels: Record<VehicleDisplayStatus, string> = {
     available: "Available",
     rented: "Rented",
     maintenance: "Maintenance",
     inactive: "Inactive",
+    sold: "Sold",
   };
 
   return translate(language, labels[status]);

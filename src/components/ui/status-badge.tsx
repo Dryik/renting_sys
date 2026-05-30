@@ -1,11 +1,33 @@
+import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+
+export type StatusBadgeTone =
+  | "default"
+  | "success"
+  | "warning"
+  | "danger"
+  | "neutral";
 
 type StatusBadgeProps = {
-  children: string;
-  tone?: "default" | "success" | "warning" | "danger" | "neutral";
+  children: ReactNode;
+  className?: string;
+  tone?: StatusBadgeTone;
 };
 
-export function StatusBadge({ children, tone = "neutral" }: StatusBadgeProps) {
+const toneClass: Record<StatusBadgeTone, string> = {
+  default: "before:bg-current",
+  success: "before:bg-current",
+  warning: "before:bg-current",
+  danger: "before:bg-current",
+  neutral: "before:bg-current",
+};
+
+export function StatusBadge({
+  children,
+  className,
+  tone = "neutral",
+}: StatusBadgeProps) {
   const variant =
     tone === "danger"
       ? "destructive"
@@ -17,5 +39,17 @@ export function StatusBadge({ children, tone = "neutral" }: StatusBadgeProps) {
             ? "default"
             : "secondary";
 
-  return <Badge variant={variant}>{children}</Badge>;
+  return (
+    <Badge
+      data-status-tone={tone}
+      variant={variant}
+      className={cn(
+        "gap-1.5 before:inline-block before:size-1.5 before:rounded-full before:content-['']",
+        toneClass[tone],
+        className,
+      )}
+    >
+      {children}
+    </Badge>
+  );
 }

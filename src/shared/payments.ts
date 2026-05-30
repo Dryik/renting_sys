@@ -2,6 +2,7 @@ import { z } from "zod";
 import { translate } from "./i18n";
 import type { LanguageCode } from "./language";
 import type { PageRequest } from "./pagination";
+import { approvalTokenSchema } from "./security";
 
 export const paymentTypeValues = [
   "rent",
@@ -88,7 +89,13 @@ export type PaymentInput = z.infer<typeof paymentInputSchema>;
 
 export type PaymentRecord = PaymentInput & {
   id: number;
+  receiptNo: string | null;
+  status: "posted" | "voided";
+  voidedAt: string | null;
+  voidReason: string | null;
+  correctedByPaymentId: number | null;
   createdAt: string;
+  updatedAt: string;
 };
 
 export type PaymentListRecord = {
@@ -99,9 +106,13 @@ export type PaymentListRecord = {
   vehiclePlateNumber: string;
   type: PaymentType;
   method: PaymentMethod;
+  receiptNo: string | null;
+  status: "posted" | "voided";
   amount: number;
   paymentDate: string;
   notes: string | null;
+  voidedAt: string | null;
+  voidReason: string | null;
 };
 
 export type PaymentFormValues = {
@@ -124,6 +135,23 @@ export const paymentFormSchema = z
 
 export type PaymentFormInput = z.infer<typeof paymentFormSchema>;
 
+export const paymentVoidInputSchema = z.object({
+  paymentId: z.number().int().positive("Payment is required."),
+  reason: z.string().trim().min(1, "Void reason is required.").max(500),
+  approvalToken: approvalTokenSchema.optional(),
+});
+
+export type PaymentVoidInput = z.infer<typeof paymentVoidInputSchema>;
+
+export const paymentCorrectionInputSchema = z.object({
+  paymentId: z.number().int().positive("Payment is required."),
+  reason: z.string().trim().min(1, "Correction reason is required.").max(500),
+  replacement: paymentInputSchema,
+  approvalToken: approvalTokenSchema.optional(),
+});
+
+export type PaymentCorrectionInput = z.infer<typeof paymentCorrectionInputSchema>;
+
 export function getDefaultPaymentFormValues(): PaymentFormValues {
   return {
     type: "rent",
@@ -135,10 +163,15 @@ export function getDefaultPaymentFormValues(): PaymentFormValues {
 }
 
 export function calculatePaidAmount(
-  payments: Pick<PaymentRecord, "type" | "amount">[],
+  payments: (Pick<PaymentRecord, "type" | "amount"> &
+    Partial<Pick<PaymentRecord, "status">>)[],
 ): number {
   return roundMoney(
     payments.reduce((total, payment) => {
+      if (payment.status === "voided") {
+        return total;
+      }
+
       if (payment.type === "refund") {
         return total - payment.amount;
       }

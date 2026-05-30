@@ -9,6 +9,8 @@ import type { PageResult } from "../../src/shared/pagination";
 import { customers } from "./schema";
 import { getDatabase } from "./database";
 import { createPageResult, normalizePageRequest, toLikeTerm } from "./listing";
+import { requirePermissionForCurrentSession } from "./auth.service";
+import { logAuditEvent } from "./audit.service";
 
 export function listCustomers(request?: CustomerListRequest | string): PageResult<CustomerRecord> {
   const db = getDatabase();
@@ -49,38 +51,75 @@ export function listCustomers(request?: CustomerListRequest | string): PageResul
 }
 
 export function createCustomer(input: unknown): CustomerRecord {
+  requirePermissionForCurrentSession("customers.create");
   const values = customerInputSchema.parse(input);
   const now = new Date().toISOString();
 
   try {
-    return getDatabase()
-      .insert(customers)
-      .values({
-        ...values,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get();
+    return getDatabase().transaction((tx) => {
+      const customer = tx
+        .insert(customers)
+        .values({
+          ...values,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning()
+        .get();
+
+      logAuditEvent(tx, {
+        action: "customer.created",
+        entityType: "customer",
+        entityId: customer.id,
+        entityLabel: customer.fullName,
+        summaryAr: `تمت إضافة عميل ${customer.fullName}`,
+        summaryEn: `Customer ${customer.fullName} was created.`,
+        after: customer,
+      });
+
+      return customer;
+    });
   } catch (error) {
     throw normalizeCustomerServiceError(error);
   }
 }
 
 export function updateCustomer(id: unknown, input: unknown): CustomerRecord {
+  requirePermissionForCurrentSession("customers.edit");
   const customerId = parseCustomerId(id);
   const values = customerInputSchema.parse(input);
 
   try {
-    const updatedCustomer = getDatabase()
-      .update(customers)
-      .set({
-        ...values,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(customers.id, customerId))
-      .returning()
-      .get();
+    const updatedCustomer = getDatabase().transaction((tx) => {
+      const existing = tx.select().from(customers).where(eq(customers.id, customerId)).get();
+
+      if (!existing) {
+        throw new Error("Customer was not found.");
+      }
+
+      const updated = tx
+        .update(customers)
+        .set({
+          ...values,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(customers.id, customerId))
+        .returning()
+        .get();
+
+      logAuditEvent(tx, {
+        action: "customer.updated",
+        entityType: "customer",
+        entityId: updated.id,
+        entityLabel: updated.fullName,
+        summaryAr: `تم تحديث عميل ${updated.fullName}`,
+        summaryEn: `Customer ${updated.fullName} was updated.`,
+        before: existing,
+        after: updated,
+      });
+
+      return updated;
+    });
 
     if (!updatedCustomer) {
       throw new Error("Customer was not found.");
@@ -93,18 +132,55 @@ export function updateCustomer(id: unknown, input: unknown): CustomerRecord {
 }
 
 export function deactivateCustomer(id: unknown): void {
-  const customerId = parseCustomerId(id);
+  requirePermissionForCurrentSession("customers.deactivate");
+  const customerId =
+    typeof id === "object" && id !== null
+      ? parseCustomerId((id as { customerId?: unknown }).customerId)
+      : parseCustomerId(id);
+  const reason =
+    typeof id === "object" &&
+    id !== null &&
+    typeof (id as { reason?: unknown }).reason === "string"
+      ? (id as { reason: string }).reason.trim()
+      : "";
+
+  if (!reason) {
+    throw new Error("Reason is required.");
+  }
 
   try {
-    getDatabase()
-      .update(customers)
-      .set({
-        isActive: false,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(customers.id, customerId))
-      .run();
-  } catch {
+    getDatabase().transaction((tx) => {
+      const existing = tx.select().from(customers).where(eq(customers.id, customerId)).get();
+
+      if (!existing) {
+        throw new Error("Customer was not found.");
+      }
+
+      tx.update(customers)
+        .set({
+          isActive: false,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(customers.id, customerId))
+        .run();
+
+      logAuditEvent(tx, {
+        action: "customer.deactivated",
+        entityType: "customer",
+        entityId: customerId,
+        entityLabel: existing.fullName,
+        summaryAr: `تم تعطيل عميل ${existing.fullName}`,
+        summaryEn: `Customer ${existing.fullName} was deactivated.`,
+        before: existing,
+        after: { ...existing, isActive: false },
+        reason,
+      });
+    });
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+
     throw new Error("Customer could not be deactivated.");
   }
 }

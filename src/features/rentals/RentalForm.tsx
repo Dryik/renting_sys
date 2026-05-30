@@ -6,6 +6,10 @@ import { useForm, useWatch } from "react-hook-form";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  SearchableSelect,
+  type SearchableSelectOption,
+} from "@/components/ui/searchable-select";
 import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/hooks/useI18n";
 import {
@@ -23,6 +27,7 @@ type RentalFormProps = {
   options: RentalFormOptions;
   onCancel: () => void;
   onSave: (input: RentalActivationInput) => Promise<void>;
+  onSaveDraft?: (input: RentalActivationInput) => Promise<void>;
 };
 
 export function RentalForm({
@@ -31,6 +36,7 @@ export function RentalForm({
   options,
   onCancel,
   onSave,
+  onSaveDraft,
 }: RentalFormProps) {
   const { formatCurrency, locale, settings, t } = useI18n();
   const {
@@ -47,6 +53,7 @@ export function RentalForm({
   });
 
   const selectedVehicleId = useWatch({ control, name: "vehicleId" });
+  const selectedCustomerId = useWatch({ control, name: "customerId" });
   const startDatetime = useWatch({ control, name: "startDatetime" });
   const expectedReturnDatetime = useWatch({
     control,
@@ -59,6 +66,28 @@ export function RentalForm({
 
     return options.vehicles.find((vehicle) => vehicle.id === id) ?? null;
   }, [options.vehicles, selectedVehicleId]);
+
+  const customerSelectOptions = useMemo<SearchableSelectOption[]>(
+    () =>
+      options.customers.map((customer) => ({
+        description: customer.phone,
+        label: customer.fullName,
+        searchText: `${customer.fullName} ${customer.phone}`,
+        value: String(customer.id),
+      })),
+    [options.customers],
+  );
+
+  const vehicleSelectOptions = useMemo<SearchableSelectOption[]>(
+    () =>
+      options.vehicles.map((vehicle) => ({
+        description: `${vehicle.brand} ${vehicle.model}`,
+        label: vehicle.plateNumber,
+        searchText: `${vehicle.plateNumber} ${vehicle.brand} ${vehicle.model}`,
+        value: String(vehicle.id),
+      })),
+    [options.vehicles],
+  );
 
   useEffect(() => {
     if (!selectedVehicle) {
@@ -111,144 +140,198 @@ export function RentalForm({
         </div>
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-4 md:grid-cols-2">
-        <Field label="Customer" required error={errors.customerId?.message}>
-          <select
-            className="h-10 w-full rounded-md border bg-background px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
-            aria-invalid={Boolean(errors.customerId)}
-            {...register("customerId")}
-          >
-            <option value="">{t("Select customer")}</option>
-            {options.customers.map((customer) => (
-              <option key={customer.id} value={customer.id}>
-                {customer.fullName} - {customer.phone}
-              </option>
-            ))}
-          </select>
-        </Field>
+      <WorkflowSteps
+        steps={[
+          t("Customer"),
+          t("Vehicle"),
+          t("Rental Period"),
+          t("Amounts"),
+        ]}
+      />
 
-        <Field label="Available Vehicle" required error={errors.vehicleId?.message}>
-          <select
-            className="h-10 w-full rounded-md border bg-background px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
-            aria-invalid={Boolean(errors.vehicleId)}
-            {...register("vehicleId")}
-          >
-            <option value="">{t("Select vehicle")}</option>
-            {options.vehicles.map((vehicle) => (
-              <option key={vehicle.id} value={vehicle.id}>
-                {vehicle.plateNumber} - {vehicle.brand} {vehicle.model}
-              </option>
-            ))}
-          </select>
-        </Field>
+      <input type="hidden" {...register("customerId")} />
+      <input type="hidden" {...register("vehicleId")} />
 
-        <Field
-          label="Start Date and Time"
-          required
-          error={errors.startDatetime?.message}
-        >
-          <Input
-            aria-invalid={Boolean(errors.startDatetime)}
-            data-ltr="true"
-            type="datetime-local"
-            {...register("startDatetime")}
-          />
-        </Field>
+      <WorkflowSection
+        title={t("Customer & Vehicle")}
+        description={t("Choose a customer, choose an available vehicle, then activate the rental.")}
+      >
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="Customer" required error={errors.customerId?.message}>
+            <SearchableSelect
+              ariaLabel={t("Customer")}
+              disabled={options.customers.length === 0}
+              emptyMessage={t("No customers found.")}
+              invalid={Boolean(errors.customerId)}
+              moreResultsMessage={(count) =>
+                t("{{count}} more matches. Keep typing to narrow.", { count })
+              }
+              options={customerSelectOptions}
+              placeholder={t("Search customer name or phone")}
+              value={selectedCustomerId ?? ""}
+              onValueChange={(value) =>
+                setValue("customerId", value, {
+                  shouldDirty: true,
+                  shouldValidate: true,
+                })
+              }
+            />
+          </Field>
 
-        <Field
-          label="Expected Return"
-          required
-          error={errors.expectedReturnDatetime?.message}
-        >
-          <Input
-            aria-invalid={Boolean(errors.expectedReturnDatetime)}
-            data-ltr="true"
-            type="datetime-local"
-            {...register("expectedReturnDatetime")}
-          />
-        </Field>
-
-        <Field label="Daily Price" required error={errors.dailyPrice?.message}>
-          <Input
-            aria-invalid={Boolean(errors.dailyPrice)}
-            data-ltr="true"
-            inputMode="decimal"
-            placeholder="50"
-            {...register("dailyPrice")}
-          />
-        </Field>
-
-        {settings.enableClientDeposit ? (
-          <>
-            <Field label="Deposit" required error={errors.depositRequired?.message}>
-              <Input
-                aria-invalid={Boolean(errors.depositRequired)}
-                data-ltr="true"
-                inputMode="decimal"
-                placeholder="100"
-                {...register("depositRequired")}
-              />
-            </Field>
-
-            <Field label="Deposit Paid" required error={errors.depositPaid?.message}>
-              <Input
-                aria-invalid={Boolean(errors.depositPaid)}
-                data-ltr="true"
-                inputMode="decimal"
-                placeholder="0"
-                {...register("depositPaid")}
-              />
-            </Field>
-          </>
-        ) : (
-          <>
-            <input type="hidden" {...register("depositRequired")} defaultValue="0" />
-            <input type="hidden" {...register("depositPaid")} defaultValue="0" />
-          </>
-        )}
-
-        <Field label="Mileage Out" error={errors.mileageOut?.message}>
-          <Input
-            inputMode="numeric"
-            data-ltr="true"
-            placeholder={t("Vehicle mileage")}
-            {...register("mileageOut")}
-          />
-        </Field>
-
-        <Field label="Fuel Out" error={errors.fuelOut?.message}>
-          <Input placeholder={t("Full, half, empty")} {...register("fuelOut")} />
-        </Field>
-
-        <div className="lg:col-span-3 md:col-span-2">
-          <Field label="Notes" error={errors.notesOut?.message}>
-            <Textarea
-              placeholder={t("Condition or notes before the vehicle leaves")}
-              {...register("notesOut")}
+          <Field label="Available Vehicle" required error={errors.vehicleId?.message}>
+            <SearchableSelect
+              ariaLabel={t("Available Vehicle")}
+              disabled={options.vehicles.length === 0}
+              emptyMessage={t("No vehicles found.")}
+              invalid={Boolean(errors.vehicleId)}
+              moreResultsMessage={(count) =>
+                t("{{count}} more matches. Keep typing to narrow.", { count })
+              }
+              options={vehicleSelectOptions}
+              placeholder={t("Search plate, brand, or model")}
+              value={selectedVehicleId ?? ""}
+              onValueChange={(value) =>
+                setValue("vehicleId", value, {
+                  shouldDirty: true,
+                  shouldValidate: true,
+                })
+              }
             />
           </Field>
         </div>
-      </div>
+      </WorkflowSection>
 
-      <div className="grid gap-3 rounded-md border bg-muted/40 p-4 md:grid-cols-3">
-        <SummaryValue
-          label={t("Rental Days")}
-          value={<BidiValue value={new Intl.NumberFormat(locale).format(summary.days)} />}
-        />
-        <SummaryValue
-          label={t("Daily Price")}
-          value={<BidiValue value={formatCurrency(Number(dailyPriceValue) || 0)} />}
-        />
-        <SummaryValue
-          label={t("Rent Total")}
-          value={<BidiValue value={formatCurrency(summary.totalAmount)} />}
-        />
-      </div>
+      <WorkflowSection title={t("Rental Period")}>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field
+            label="Start Date and Time"
+            required
+            error={errors.startDatetime?.message}
+          >
+            <Input
+              aria-invalid={Boolean(errors.startDatetime)}
+              data-ltr="true"
+              type="datetime-local"
+              {...register("startDatetime")}
+            />
+          </Field>
 
-      <div className="flex justify-end gap-3 border-t pt-4">
+          <Field
+            label="Expected Return"
+            required
+            error={errors.expectedReturnDatetime?.message}
+          >
+            <Input
+              aria-invalid={Boolean(errors.expectedReturnDatetime)}
+              data-ltr="true"
+              type="datetime-local"
+              {...register("expectedReturnDatetime")}
+            />
+          </Field>
+
+          <Field label="Daily Price" required error={errors.dailyPrice?.message}>
+            <Input
+              aria-invalid={Boolean(errors.dailyPrice)}
+              data-ltr="true"
+              inputMode="decimal"
+              placeholder="50"
+              {...register("dailyPrice")}
+            />
+          </Field>
+
+          {settings.enableClientDeposit ? (
+            <>
+              <Field label="Deposit" required error={errors.depositRequired?.message}>
+                <Input
+                  aria-invalid={Boolean(errors.depositRequired)}
+                  data-ltr="true"
+                  inputMode="decimal"
+                  placeholder="100"
+                  {...register("depositRequired")}
+                />
+              </Field>
+
+              <Field label="Deposit Paid" required error={errors.depositPaid?.message}>
+                <Input
+                  aria-invalid={Boolean(errors.depositPaid)}
+                  data-ltr="true"
+                  inputMode="decimal"
+                  placeholder="0"
+                  {...register("depositPaid")}
+                />
+              </Field>
+            </>
+          ) : (
+            <>
+              <input type="hidden" {...register("depositRequired")} defaultValue="0" />
+              <input type="hidden" {...register("depositPaid")} defaultValue="0" />
+            </>
+          )}
+        </div>
+      </WorkflowSection>
+
+      <WorkflowSection title={t("Vehicle Details")}>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="Mileage Out" error={errors.mileageOut?.message}>
+            <Input
+              inputMode="numeric"
+              data-ltr="true"
+              placeholder={t("Vehicle mileage")}
+              {...register("mileageOut")}
+            />
+          </Field>
+
+          <Field label="Fuel Out" error={errors.fuelOut?.message}>
+            <Input placeholder={t("Full, half, empty")} {...register("fuelOut")} />
+          </Field>
+
+          <div className="md:col-span-2">
+            <Field label="Notes" error={errors.notesOut?.message}>
+              <Textarea
+                placeholder={t("Condition or notes before the vehicle leaves")}
+                {...register("notesOut")}
+              />
+            </Field>
+          </div>
+        </div>
+      </WorkflowSection>
+
+      <WorkflowSection title={t("Amounts")}>
+        <div className="grid gap-3 md:grid-cols-3">
+          <SummaryValue
+            label={t("Rental Days")}
+            value={<BidiValue value={new Intl.NumberFormat(locale).format(summary.days)} />}
+          />
+          <SummaryValue
+            label={t("Daily Price")}
+            value={<BidiValue value={formatCurrency(Number(dailyPriceValue) || 0)} />}
+          />
+          <SummaryValue
+            label={t("Rent Total")}
+            value={<BidiValue value={formatCurrency(summary.totalAmount)} />}
+          />
+        </div>
+      </WorkflowSection>
+
+      <div className="sticky bottom-0 -mx-5 -mb-5 flex justify-end gap-3 border-t bg-card px-5 py-4">
         <Button type="button" variant="outline" onClick={onCancel}>
           {t("Cancel")}
         </Button>
+        {onSaveDraft ? (
+          <Button
+            type="button"
+            variant="outline"
+            disabled={
+              isSaving ||
+              options.customers.length === 0 ||
+              options.vehicles.length === 0
+            }
+            onClick={() => void handleSubmit((values) => onSaveDraft(values))()}
+          >
+            {isSaving ? <Loader2 className="size-4 animate-spin" /> : null}
+            {t("Save Draft")}
+          </Button>
+        ) : null}
         <Button
           type="submit"
           disabled={
@@ -257,11 +340,51 @@ export function RentalForm({
             options.vehicles.length === 0
           }
         >
-          {isSaving ? <Loader2 data-icon="inline-start" /> : null}
+          {isSaving ? <Loader2 className="size-4 animate-spin" /> : null}
           {t("Activate Rental")}
         </Button>
       </div>
     </form>
+  );
+}
+
+function WorkflowSection({
+  children,
+  description,
+  title,
+}: {
+  children: ReactNode;
+  description?: string;
+  title: string;
+}) {
+  return (
+    <section className="rounded-lg border bg-card shadow-xs">
+      <div className="border-b bg-muted/35 px-4 py-3">
+        <h3 className="text-base font-bold">{title}</h3>
+        {description ? (
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">{description}</p>
+        ) : null}
+      </div>
+      <div className="p-4">{children}</div>
+    </section>
+  );
+}
+
+function WorkflowSteps({ steps }: { steps: string[] }) {
+  return (
+    <div className="grid gap-3 md:grid-cols-4">
+      {steps.map((step, index) => (
+        <div
+          key={step}
+          className="border-b-4 border-border pb-2 first:border-primary"
+        >
+          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+            {String(index + 1).padStart(2, "0")}
+          </p>
+          <p className="mt-1 text-sm font-bold text-foreground">{step}</p>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -294,9 +417,9 @@ function Field({
 
 function SummaryValue({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div>
-      <p className="text-sm text-muted-foreground">{label}</p>
-      <p className="mt-1 text-xl font-semibold">{value}</p>
+    <div className="rounded-md border bg-muted/25 p-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">{label}</p>
+      <p className="mt-2 text-2xl font-bold">{value}</p>
     </div>
   );
 }

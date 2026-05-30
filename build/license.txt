@@ -1,0 +1,36 @@
+ARAK Rental Desk
+Software License and Usage Agreement
+
+Please read this agreement before installing or using ARAK Rental Desk.
+By choosing "I Agree" in the installer, the customer accepts these terms.
+If the customer does not accept these terms, they must cancel installation and must not use the software.
+
+1. License
+ARAK Communication & IT Services grants the customer a limited, non-exclusive, non-transferable license to install and use ARAK Rental Desk for the customer's internal rental shop operations only.
+
+2. Local Data
+ARAK Rental Desk is designed as a local desktop application. Customer business data, rental records, customer records, vehicle records, documents, backups, and license files are stored on the customer's computer unless the customer exports or moves them.
+
+3. Customer Responsibility
+The customer is responsible for entering accurate data, keeping access credentials secure, making regular backups, and protecting the computer where the software and data are stored.
+
+4. Restrictions
+The customer may not resell, rent, sublicense, copy for third parties, reverse engineer, bypass licensing controls, or use the software as part of a cloud, SaaS, multi-tenant, or online booking service without written permission from ARAK Communication & IT Services.
+
+5. Accounting Notice
+The accounting features are simple cashbook and cash-control tools. They are not double-entry accounting software and are not a replacement for professional accounting, tax, or legal advice.
+
+6. Warranty Disclaimer
+The software is provided as-is to the maximum extent permitted by law. ARAK Communication & IT Services does not guarantee that the software will be error-free or uninterrupted.
+
+7. Limitation of Liability
+To the maximum extent permitted by law, ARAK Communication & IT Services is not liable for indirect, incidental, special, consequential, or business-loss damages, including loss of data, lost profit, or loss caused by missing backups.
+
+8. Support and Updates
+Support, activation, maintenance, and updates are provided only under the customer's active commercial agreement with ARAK Communication & IT Services.
+
+9. Termination
+The license may be terminated if the customer violates this agreement. After termination, the customer must stop using the software.
+
+10. Governing Terms
+Any written commercial agreement, invoice, or support contract signed with ARAK Communication & IT Services may add to these terms. If there is a conflict, the signed written agreement controls.

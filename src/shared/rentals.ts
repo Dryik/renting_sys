@@ -2,6 +2,8 @@ import { z } from "zod";
 import { translate } from "./i18n";
 import type { LanguageCode } from "./language";
 import type { PageRequest } from "./pagination";
+import { paymentInputSchema, type PaymentInput } from "./payments";
+import { approvalTokenSchema } from "./security";
 
 export const rentalStatusValues = [
   "draft",
@@ -54,10 +56,10 @@ const optionalIntegerField = (label: string) =>
 
       const numberValue = Number(value);
 
-      if (!Number.isInteger(numberValue)) {
+      if (!Number.isInteger(numberValue) || numberValue < 0) {
         context.addIssue({
           code: "custom",
-          message: `${label} must be a whole number.`,
+          message: `${label} must be zero or more.`,
         });
 
         return z.NEVER;
@@ -191,6 +193,8 @@ export const rentalReturnInputSchema = z
     damageNotes: z.string().trim().max(500).nullable(),
     notesIn: z.string().trim().max(500).nullable(),
     vehicleStatus: z.enum(returnVehicleStatusValues),
+    maintenanceTitle: z.string().trim().max(100).nullable().optional(),
+    maintenanceDescription: z.string().trim().max(1000).nullable().optional(),
   })
   .superRefine((values, context) => {
     if (new Date(values.actualReturnDatetime).getTime() > Date.now()) {
@@ -198,6 +202,17 @@ export const rentalReturnInputSchema = z
         code: "custom",
         message: "Actual return cannot be in the future.",
         path: ["actualReturnDatetime"],
+      });
+    }
+
+    if (
+      values.vehicleStatus === "maintenance" &&
+      !values.maintenanceTitle?.trim()
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Maintenance reason is required.",
+        path: ["maintenanceTitle"],
       });
     }
   });
@@ -214,6 +229,8 @@ export type RentalReturnFormValues = {
   damageNotes: string;
   notesIn: string;
   vehicleStatus: ReturnVehicleStatus;
+  maintenanceTitle: string;
+  maintenanceDescription: string;
 };
 
 export const rentalReturnFormSchema = z
@@ -227,6 +244,8 @@ export const rentalReturnFormSchema = z
     damageNotes: optionalTextField(500),
     notesIn: optionalTextField(500),
     vehicleStatus: z.enum(returnVehicleStatusValues),
+    maintenanceTitle: optionalTextField(100),
+    maintenanceDescription: optionalTextField(1000),
   })
   .superRefine((values, context) => {
     if (new Date(values.actualReturnDatetime).getTime() > Date.now()) {
@@ -234,6 +253,17 @@ export const rentalReturnFormSchema = z
         code: "custom",
         message: "Actual return cannot be in the future.",
         path: ["actualReturnDatetime"],
+      });
+    }
+
+    if (
+      values.vehicleStatus === "maintenance" &&
+      !values.maintenanceTitle?.trim()
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Maintenance reason is required.",
+        path: ["maintenanceTitle"],
       });
     }
   })
@@ -255,6 +285,39 @@ export const rentalFormSchema = z
     notesOut: optionalTextField(500),
   })
   .transform((values) => rentalActivationInputSchema.parse(values));
+
+export const rentalActiveUpdateInputSchema = z
+  .object({
+    rentalId: z.number().int().positive("Rental is required."),
+    expectedReturnDatetime: z.string().datetime(),
+    dailyPrice: z.number().finite().min(0, "Daily price cannot be negative."),
+    depositRequired: z.number().finite().min(0, "Deposit cannot be negative."),
+    mileageOut: z.number().int().min(0).nullable(),
+    fuelOut: z.string().trim().max(40).nullable(),
+    notesOut: z.string().trim().max(500).nullable(),
+  });
+
+export type RentalActiveUpdateInput = z.infer<
+  typeof rentalActiveUpdateInputSchema
+>;
+
+export const rentalCancelInputSchema = z.object({
+  rentalId: z.number().int().positive("Rental is required."),
+  reason: z.string().trim().min(1, "Cancel reason is required.").max(500),
+  approvalToken: approvalTokenSchema.optional(),
+});
+
+export type RentalCancelInput = z.infer<typeof rentalCancelInputSchema>;
+
+export const rentalReturnWithPaymentInputSchema = z.object({
+  returnInput: rentalReturnInputSchema,
+  paymentInput: paymentInputSchema.nullable(),
+});
+
+export type RentalReturnWithPaymentInput = {
+  returnInput: RentalReturnInput;
+  paymentInput: PaymentInput | null;
+};
 
 export type RentalListRecord = {
   id: number;
@@ -285,6 +348,8 @@ export type RentalListRecord = {
   totalAmount: number;
   paidAmount: number;
   remainingAmount: number;
+  cancelledAt: string | null;
+  cancelReason: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -344,6 +409,8 @@ export function getDefaultRentalReturnFormValues(
     damageNotes: "",
     notesIn: "",
     vehicleStatus: "available",
+    maintenanceTitle: "General inspection",
+    maintenanceDescription: rental.damageNotes ?? "",
   };
 }
 
@@ -465,6 +532,47 @@ export function calculateReturnSummary(input: ReturnSummaryInput): ReturnSummary
     finalAmount,
     remainingAmount,
   };
+}
+
+export type MileageProgressionInput = {
+  mileageIn: number | null;
+  mileageOut: number | null;
+  currentVehicleMileage: number | null;
+};
+
+export function validateMileageProgression(
+  input: MileageProgressionInput,
+): string | null {
+  if (input.mileageIn === null) {
+    return null;
+  }
+
+  if (!Number.isInteger(input.mileageIn) || input.mileageIn < 0) {
+    return "Mileage in must be zero or more.";
+  }
+
+  if (input.mileageOut !== null && input.mileageIn < input.mileageOut) {
+    return "Mileage in cannot be less than mileage out.";
+  }
+
+  if (
+    input.mileageOut === null &&
+    input.currentVehicleMileage !== null &&
+    input.mileageIn < input.currentVehicleMileage
+  ) {
+    return "Mileage in cannot be less than current vehicle mileage.";
+  }
+
+  return null;
+}
+
+export function getOpenRentalStatusForExpectedReturn(
+  expectedReturnDatetime: string | Date,
+  now: string | Date = new Date(),
+): Extract<RentalStatus, "active" | "overdue"> {
+  return new Date(expectedReturnDatetime).getTime() < new Date(now).getTime()
+    ? "overdue"
+    : "active";
 }
 
 export function formatRentalStatus(

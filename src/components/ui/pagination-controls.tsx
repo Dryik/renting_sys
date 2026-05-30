@@ -19,7 +19,7 @@ export function PaginationControls({
   const canGoNext = page.page < page.totalPages;
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 text-sm">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 px-4 py-3 text-sm">
       <div className="text-muted-foreground">
         {page.total === 0 ? (
           t("Showing 0 of 0")
@@ -38,7 +38,7 @@ export function PaginationControls({
           disabled={!canGoBack}
           onClick={() => onPageChange(page.page - 1)}
         >
-          <ChevronLeft data-icon="inline-start" />
+          <ChevronLeft data-icon="inline-start" data-rtl-flip="true" />
           {t("Previous")}
         </Button>
         <BidiValue
@@ -53,7 +53,7 @@ export function PaginationControls({
           onClick={() => onPageChange(page.page + 1)}
         >
           {t("Next")}
-          <ChevronRight data-icon="inline-end" />
+          <ChevronRight data-icon="inline-end" data-rtl-flip="true" />
         </Button>
       </div>
     </div>
