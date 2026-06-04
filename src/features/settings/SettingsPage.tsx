@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -36,6 +36,13 @@ import { useAuth } from "@/hooks/useAuth";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { useI18n } from "@/hooks/useI18n";
 import { notifyShopSettingsUpdated } from "@/hooks/useShopSettings";
+import {
+  accessoryFormSchema,
+  emptyAccessoryFormValues,
+  type AccessoryInput,
+  type AccessoryFormValues,
+  type AccessoryRecord,
+} from "@/shared/accessories";
 import { languageValues } from "@/shared/language";
 import { normalizeDigits } from "@/shared/numerals";
 import type { ShopSettings } from "@/shared/settings";
@@ -93,6 +100,8 @@ export function SettingsPage({
   }>({ type: null, message: null });
   const [pendingSettings, setPendingSettings] = useState<Partial<ShopSettings> | null>(null);
   const [pendingLogoAction, setPendingLogoAction] = useState<"clear" | "select" | null>(null);
+  const [pendingSignatureAction, setPendingSignatureAction] =
+    useState<"clear" | "select" | null>(null);
   const [pendingOwnerPinAction, setPendingOwnerPinAction] =
     useState<"clear" | "set" | null>(null);
   const [ownerPin, setOwnerPin] = useState("");
@@ -274,6 +283,57 @@ export function SettingsPage({
     } finally {
       setIsSaving(false);
       setPendingLogoAction(null);
+    }
+  }
+
+  async function handleSelectOwnerSignature() {
+    setPendingSignatureAction("select");
+  }
+
+  async function handleClearOwnerSignature() {
+    setPendingSignatureAction("clear");
+  }
+
+  async function performSignatureAction(values: { approvalToken?: string }) {
+    if (!pendingSignatureAction) {
+      return;
+    }
+
+    setIsSaving(true);
+    setStatus({ type: null, message: null });
+
+    try {
+      const updated =
+        pendingSignatureAction === "select"
+          ? await window.rentalApp.settings.selectOwnerSignature({
+              approvalToken: values.approvalToken,
+            })
+          : await window.rentalApp.settings.clearOwnerSignature({
+              approvalToken: values.approvalToken,
+            });
+      setCurrentSettings(updated);
+      resetSettingsForm(updated);
+      notifyShopSettingsUpdated(updated);
+      setStatus({
+        type: "success",
+        message:
+          pendingSignatureAction === "select"
+            ? t("Owner signature updated successfully.")
+            : t("Owner signature removed."),
+      });
+    } catch (err) {
+      setStatus({
+        type: "error",
+        message:
+          err instanceof Error
+            ? t(err.message)
+            : pendingSignatureAction === "select"
+              ? t("Owner signature could not be updated.")
+              : t("Owner signature could not be removed."),
+      });
+    } finally {
+      setIsSaving(false);
+      setPendingSignatureAction(null);
     }
   }
 
@@ -507,6 +567,52 @@ export function SettingsPage({
                     >
                       <Trash2 data-icon="inline-start" />
                       {t("Remove Logo")}
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-border/80 bg-muted p-4">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex h-16 w-28 shrink-0 items-center justify-center overflow-hidden rounded-xl border bg-card text-muted-foreground shadow-xs">
+                    {currentSettings?.ownerSignatureDataUrl ? (
+                      <img
+                        alt={t("Owner Signature")}
+                        className="max-h-14 max-w-24 object-contain"
+                        src={currentSettings.ownerSignatureDataUrl}
+                      />
+                    ) : (
+                      <Image className="size-5" />
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold">{t("Owner Signature")}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {t("Printed above the employee finalizer line on rental contracts.")}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={isSaving || !can("settings.edit")}
+                    onClick={() => void handleSelectOwnerSignature()}
+                  >
+                    <Upload data-icon="inline-start" />
+                    {t("Choose Signature")}
+                  </Button>
+                  {currentSettings?.ownerSignatureDataUrl ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      disabled={isSaving || !can("settings.edit")}
+                      onClick={() => void handleClearOwnerSignature()}
+                    >
+                      <Trash2 data-icon="inline-start" />
+                      {t("Remove Signature")}
                     </Button>
                   ) : null}
                 </div>
@@ -795,6 +901,9 @@ export function SettingsPage({
             />
           </CardContent>
         </Card>
+        {can("accessories.view") ? (
+          <AccessoryManager canEdit={can("accessories.create") || can("accessories.edit")} />
+        ) : null}
         <Card className="h-fit overflow-hidden">
           <CardHeader className="border-b border-border/70 bg-muted">
             <div className="flex items-center gap-3">
@@ -857,6 +966,19 @@ export function SettingsPage({
         isBusy={isSaving}
         onCancel={() => setPendingLogoAction(null)}
         onConfirm={(values) => void performLogoAction(values)}
+      />
+      <SensitiveActionDialog
+        action="settings.edit"
+        open={Boolean(pendingSignatureAction)}
+        title={t(pendingSignatureAction === "clear" ? "Remove Signature" : "Choose Signature")}
+        description={t("Enter owner PIN to continue.")}
+        ownerPinRequired={currentSettings?.ownerPinEnabled ?? false}
+        reasonRequired={false}
+        cancelLabel={t("Cancel")}
+        confirmLabel={t(pendingSignatureAction === "clear" ? "Remove Signature" : "Choose Signature")}
+        isBusy={isSaving}
+        onCancel={() => setPendingSignatureAction(null)}
+        onConfirm={(values) => void performSignatureAction(values)}
       />
       <SensitiveActionDialog
         action="ownerPin.change"
@@ -959,6 +1081,186 @@ function AdminShortcut({
         </span>
       </span>
     </Button>
+  );
+}
+
+function AccessoryManager({ canEdit }: { canEdit: boolean }) {
+  const { formatCurrency, t } = useI18n();
+  const [accessories, setAccessories] = useState<AccessoryRecord[]>([]);
+  const [editing, setEditing] = useState<AccessoryRecord | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const {
+    formState: { errors },
+    handleSubmit,
+    register,
+    reset,
+  } = useForm<AccessoryFormValues, undefined, AccessoryInput>({
+    resolver: zodResolver(accessoryFormSchema),
+    defaultValues: emptyAccessoryFormValues,
+  });
+
+  const loadAccessories = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const result = await window.rentalApp.accessories.list({ pageSize: 100 });
+      setAccessories(result.rows);
+    } catch (err) {
+      setError(err instanceof Error ? t(err.message) : t("Accessories could not be loaded."));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void loadAccessories();
+    }, 0);
+
+    return () => window.clearTimeout(timeout);
+  }, [loadAccessories]);
+
+  async function saveAccessory(input: AccessoryInput) {
+    setIsSaving(true);
+    setError(null);
+
+    try {
+      if (editing) {
+        await window.rentalApp.accessories.update(editing.id, input);
+      } else {
+        await window.rentalApp.accessories.create(input);
+      }
+      setEditing(null);
+      reset(emptyAccessoryFormValues);
+      await loadAccessories();
+    } catch (err) {
+      setError(err instanceof Error ? t(err.message) : t("Accessory could not be saved."));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <Card className="h-fit overflow-hidden">
+      <CardHeader className="border-b border-border/70 bg-muted">
+        <div className="flex items-center gap-3">
+          <div className="flex size-10 items-center justify-center rounded-xl bg-accent text-primary">
+            <ReceiptText className="size-5" />
+          </div>
+          <div>
+            <CardTitle>{t("Accessories")}</CardTitle>
+            <CardDescription>
+              {t("Owned quantity and default charge for rental accessories.")}
+            </CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {error ? (
+          <p className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {error}
+          </p>
+        ) : null}
+
+        {canEdit ? (
+          <form className="grid gap-3" onSubmit={handleSubmit(saveAccessory)}>
+            <label className="flex flex-col gap-1 text-sm font-medium">
+              <span>{t("Name")}</span>
+              <Input {...register("name")} />
+              {errors.name ? (
+                <span className="text-xs text-destructive">{t(errors.name.message ?? "")}</span>
+              ) : null}
+            </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-sm font-medium">
+                <span>{t("Owned")}</span>
+                <Input data-ltr="true" inputMode="numeric" {...register("quantityOwned")} />
+              </label>
+              <label className="flex flex-col gap-1 text-sm font-medium">
+                <span>{t("Default Charge")}</span>
+                <Input data-ltr="true" inputMode="decimal" {...register("defaultCharge")} />
+              </label>
+            </div>
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-1 size-4 accent-primary"
+                {...register("isActive")}
+              />
+              <span>{t("Active")}</span>
+            </label>
+            <label className="flex flex-col gap-1 text-sm font-medium">
+              <span>{t("Notes")}</span>
+              <Textarea rows={2} {...register("notes")} />
+            </label>
+            <div className="flex justify-end gap-2">
+              {editing ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setEditing(null);
+                    reset(emptyAccessoryFormValues);
+                  }}
+                >
+                  {t("Cancel")}
+                </Button>
+              ) : null}
+              <Button type="submit" disabled={isSaving}>
+                {isSaving ? <Loader2 className="size-4 animate-spin" /> : null}
+                {editing ? t("Update") : t("Add")}
+              </Button>
+            </div>
+          </form>
+        ) : null}
+
+        <div className="divide-y rounded-md border">
+          {isLoading ? (
+            <p className="p-3 text-sm text-muted-foreground">{t("Loading...")}</p>
+          ) : accessories.length === 0 ? (
+            <p className="p-3 text-sm text-muted-foreground">{t("No accessories yet.")}</p>
+          ) : (
+            accessories.map((accessory) => (
+              <div key={accessory.id} className="p-3 text-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold">{accessory.name}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t("Available")}: {accessory.quantityAvailable} / {accessory.quantityOwned}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t("Default Charge")}: {formatCurrency(accessory.defaultCharge)}
+                    </p>
+                  </div>
+                  {canEdit ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setEditing(accessory);
+                        reset({
+                          name: accessory.name,
+                          quantityOwned: String(accessory.quantityOwned),
+                          defaultCharge: String(accessory.defaultCharge),
+                          isActive: accessory.isActive,
+                          notes: accessory.notes ?? "",
+                        });
+                      }}
+                    >
+                      {t("Edit")}
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

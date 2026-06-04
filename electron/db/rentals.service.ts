@@ -1,6 +1,13 @@
 import { and, asc, count, desc, eq, gte, inArray, isNull, like, lt, or, sql, type SQL } from "drizzle-orm";
 import { ZodError } from "zod";
 import {
+  calculateAccessoryChargeTotal,
+  type AccessoryRecord,
+  type RentalAccessoryInput,
+  type RentalAccessoryRecord,
+  type RentalAccessoryReturnInput,
+} from "../../src/shared/accessories";
+import {
   calculateCancelledRentalBalance,
   calculateInitialRentalBalance,
   calculateReturnSummary,
@@ -9,6 +16,9 @@ import {
   validateMileageProgression,
   type RentalActivationInput,
   type RentalActiveUpdateInput,
+  type RentalCollateralInput,
+  type RentalCollateralRecord,
+  type RentalCollateralReturnInput,
   type RentalFormOptions,
   type RentalListRequest,
   type RentalListRecord,
@@ -24,8 +34,19 @@ import {
 } from "../../src/shared/rentals";
 import { paymentInputSchema, type PaymentRecord } from "../../src/shared/payments";
 import type { PageResult } from "../../src/shared/pagination";
-import { customers, maintenanceRecords, payments, rentals, vehicleMileageEvents, vehicleSales, vehicles } from "./schema";
-import { getDatabase } from "./database";
+import {
+  accessories,
+  customers,
+  maintenanceRecords,
+  payments,
+  rentalAccessories,
+  rentalCollateralItems,
+  rentals,
+  vehicleMileageEvents,
+  vehicleSales,
+  vehicles,
+} from "./schema";
+import { getDatabase, getSqliteDatabase } from "./database";
 import { createPageResult, normalizePageRequest, toLikeTerm } from "./listing";
 import { getShopSettings } from "./settings.service";
 import { getNextSequenceValue } from "./numbering.service";
@@ -68,6 +89,7 @@ function getRentalListFields(nowIso: string) {
     notesIn: rentals.notesIn,
     damageNotes: rentals.damageNotes,
     extraCharges: rentals.extraCharges,
+    accessoryCharges: rentals.accessoryCharges,
     discount: rentals.discount,
     totalAmount: rentals.totalAmount,
     paidAmount: rentals.paidAmount,
@@ -174,7 +196,7 @@ export function listRentals(
     .offset(pageRequest.offset)
     .all();
 
-  return createPageResult(rows, total, pageRequest, {
+  return createPageResult(hydrateRentalRecords(rows), total, pageRequest, {
     total: summaryRow?.total ?? 0,
     active: summaryRow?.active ?? 0,
     overdue: summaryRow?.overdue ?? 0,
@@ -215,6 +237,7 @@ export function getRentalFormOptions(): RentalFormOptions {
       .where(and(eq(vehicles.status, "available"), isNull(vehicleSales.id)))
       .orderBy(asc(vehicles.plateNumber))
       .all(),
+    accessories: loadRentalFormAccessories(),
   };
 }
 
@@ -230,10 +253,12 @@ export function activateRental(input: unknown): RentalListRecord {
         depositPaid: 0,
       };
   const now = new Date().toISOString();
+  const accessoryCharges = calculateAccessoryChargeTotal(values.accessories);
   const { totalAmount } = calculateRentalSummary(
     values.startDatetime,
     values.expectedReturnDatetime,
     values.dailyPrice,
+    accessoryCharges,
   );
   const initialBalance = calculateInitialRentalBalance(
     totalAmount,
@@ -272,6 +297,7 @@ export function activateRental(input: unknown): RentalListRecord {
       }
 
       assertVehicleHasNoPostedSale(tx, values.vehicleId);
+      assertRentalAccessoriesAvailable(tx, values.accessories);
 
       const existingActiveRental = tx
         .select({ id: rentals.id })
@@ -300,13 +326,24 @@ export function activateRental(input: unknown): RentalListRecord {
       const insertedRental = tx
         .insert(rentals)
         .values({
-          ...toRentalInsert(values, now, contractNo, "active", totalAmount, initialBalance),
+          ...toRentalInsert(
+            values,
+            now,
+            contractNo,
+            "active",
+            totalAmount,
+            accessoryCharges,
+            initialBalance,
+          ),
           createdByUserId: actor?.id ?? null,
           activatedByUserId: actor?.id ?? null,
           lastUpdatedByUserId: actor?.id ?? null,
         })
         .returning({ id: rentals.id })
         .get();
+
+      insertRentalAccessories(tx, insertedRental.id, values.accessories, now);
+      insertRentalCollateralItems(tx, insertedRental.id, values.collateralItems, now);
 
       if (values.depositPaid > 0) {
         const receiptNo = getNextSequenceValue(tx, "receipt", "RCP");
@@ -378,7 +415,7 @@ export function activateRental(input: unknown): RentalListRecord {
         entityLabel: contractNo,
         summaryAr: `تم تفعيل عقد ${contractNo}`,
         summaryEn: `Rental ${contractNo} was activated.`,
-        after: { ...values, contractNo, totalAmount },
+        after: { ...values, contractNo, totalAmount, accessoryCharges },
         metadata: { vehicleId: values.vehicleId, customerId: values.customerId },
       });
 
@@ -409,10 +446,12 @@ export function createDraftRental(input: unknown): RentalListRecord {
         depositPaid: 0,
       };
   const now = new Date().toISOString();
+  const accessoryCharges = calculateAccessoryChargeTotal(values.accessories);
   const { totalAmount } = calculateRentalSummary(
     values.startDatetime,
     values.expectedReturnDatetime,
     values.dailyPrice,
+    accessoryCharges,
   );
   const initialBalance = calculateInitialRentalBalance(totalAmount, 0);
   const actor = getCurrentUserForService();
@@ -439,16 +478,29 @@ export function createDraftRental(input: unknown): RentalListRecord {
         throw new Error("Vehicle was not found.");
       }
 
+      assertRentalAccessoriesKnown(tx, values.accessories);
+
       const contractNo = getNextSequenceValue(tx, "contract", "ARAK");
       const insertedRental = tx
         .insert(rentals)
         .values({
-          ...toRentalInsert(values, now, contractNo, "draft", totalAmount, initialBalance),
+          ...toRentalInsert(
+            values,
+            now,
+            contractNo,
+            "draft",
+            totalAmount,
+            accessoryCharges,
+            initialBalance,
+          ),
           createdByUserId: actor?.id ?? null,
           lastUpdatedByUserId: actor?.id ?? null,
         })
         .returning({ id: rentals.id })
         .get();
+
+      insertRentalAccessories(tx, insertedRental.id, values.accessories, now);
+      insertRentalCollateralItems(tx, insertedRental.id, values.collateralItems, now);
 
       recordAppEvent(tx, {
         eventType: "rental_draft_created",
@@ -463,7 +515,7 @@ export function createDraftRental(input: unknown): RentalListRecord {
         entityLabel: contractNo,
         summaryAr: `تم إنشاء مسودة عقد ${contractNo}`,
         summaryEn: `Draft rental ${contractNo} was created.`,
-        after: { ...values, contractNo, totalAmount },
+        after: { ...values, contractNo, totalAmount, accessoryCharges },
       });
 
       return insertedRental.id;
@@ -486,10 +538,12 @@ export function updateDraftRental(id: unknown, input: unknown): RentalListRecord
   const rentalId = parseRentalId(id);
   const values = rentalActivationInputSchema.parse(input);
   const now = new Date().toISOString();
+  const accessoryCharges = calculateAccessoryChargeTotal(values.accessories);
   const { totalAmount } = calculateRentalSummary(
     values.startDatetime,
     values.expectedReturnDatetime,
     values.dailyPrice,
+    accessoryCharges,
   );
   const actor = getCurrentUserForService();
 
@@ -509,6 +563,8 @@ export function updateDraftRental(id: unknown, input: unknown): RentalListRecord
         throw new Error("Only draft rentals can be updated here.");
       }
 
+      assertRentalAccessoriesKnown(tx, values.accessories);
+
       tx.update(rentals)
         .set({
           customerId: values.customerId,
@@ -521,6 +577,7 @@ export function updateDraftRental(id: unknown, input: unknown): RentalListRecord
           mileageOut: values.mileageOut,
           fuelOut: values.fuelOut,
           notesOut: values.notesOut,
+          accessoryCharges,
           totalAmount,
           paidAmount: 0,
           remainingAmount: totalAmount,
@@ -529,6 +586,9 @@ export function updateDraftRental(id: unknown, input: unknown): RentalListRecord
         })
         .where(eq(rentals.id, rentalId))
         .run();
+
+      replaceRentalAccessories(tx, rentalId, values.accessories, now);
+      replaceRentalCollateralItems(tx, rentalId, values.collateralItems, now);
 
       recordAppEvent(tx, {
         eventType: "rental_draft_updated",
@@ -543,7 +603,7 @@ export function updateDraftRental(id: unknown, input: unknown): RentalListRecord
         summaryAr: "تم تحديث مسودة عقد",
         summaryEn: "Draft rental was updated.",
         before: rental,
-        after: { ...values, totalAmount },
+        after: { ...values, totalAmount, accessoryCharges },
       });
 
       return rentalId;
@@ -632,6 +692,11 @@ export function activateDraftRental(id: unknown): RentalListRecord {
         throw new Error("Mileage out cannot be less than current vehicle mileage.");
       }
 
+      assertRentalAccessoriesAvailable(
+        tx,
+        loadRentalAccessoryInputsForRental(tx, rentalId),
+      );
+
       tx.update(rentals)
         .set({
           status: "active",
@@ -711,6 +776,7 @@ export function updateActiveRental(input: unknown): RentalListRecord {
           id: rentals.id,
           status: rentals.status,
           startDatetime: rentals.startDatetime,
+          accessoryCharges: rentals.accessoryCharges,
           paidAmount: rentals.paidAmount,
         })
         .from(rentals)
@@ -736,6 +802,7 @@ export function updateActiveRental(input: unknown): RentalListRecord {
         rental.startDatetime,
         values.expectedReturnDatetime,
         values.dailyPrice,
+        rental.accessoryCharges,
       );
       const status = getOpenRentalStatusForExpectedReturn(
         values.expectedReturnDatetime,
@@ -1023,23 +1090,454 @@ export function findOpenRentalByPlate(plateNumber: unknown): RentalListRecord {
     throw new Error("No active rental was found for this plate number.");
   }
 
-  return rental;
+  return hydrateRentalRecord(rental);
 }
 
 function getRentalById(id: number): RentalListRecord | undefined {
   const now = new Date().toISOString();
 
-  return getDatabase()
+  const rental = getDatabase()
     .select(getRentalListFields(now))
     .from(rentals)
     .innerJoin(customers, eq(rentals.customerId, customers.id))
     .innerJoin(vehicles, eq(rentals.vehicleId, vehicles.id))
     .where(eq(rentals.id, id))
     .get();
+
+  return rental ? hydrateRentalRecord(rental) : undefined;
 }
 
 function getPaymentById(id: number): PaymentRecord | undefined {
   return getDatabase().select().from(payments).where(eq(payments.id, id)).get();
+}
+
+function hydrateRentalRecord(rental: RentalListRecord): RentalListRecord {
+  return hydrateRentalRecords([rental])[0] ?? rental;
+}
+
+function hydrateRentalRecords(rows: RentalListRecord[]): RentalListRecord[] {
+  if (rows.length === 0) {
+    return rows;
+  }
+
+  const rentalIds = rows.map((rental) => rental.id);
+  const accessoriesByRental = loadRentalAccessoriesForRentals(rentalIds);
+  const collateralByRental = loadRentalCollateralForRentals(rentalIds);
+
+  return rows.map((rental) => ({
+    ...rental,
+    accessories: accessoriesByRental.get(rental.id) ?? [],
+    collateralItems: collateralByRental.get(rental.id) ?? [],
+  }));
+}
+
+function loadRentalAccessoriesForRentals(
+  rentalIds: number[],
+): Map<number, RentalAccessoryRecord[]> {
+  const map = new Map<number, RentalAccessoryRecord[]>();
+
+  if (rentalIds.length === 0) {
+    return map;
+  }
+
+  const rows = getDatabase()
+    .select({
+      id: rentalAccessories.id,
+      rentalId: rentalAccessories.rentalId,
+      accessoryId: rentalAccessories.accessoryId,
+      accessoryName: accessories.name,
+      quantity: rentalAccessories.quantity,
+      unitCharge: rentalAccessories.unitCharge,
+      returnedQuantity: rentalAccessories.returnedQuantity,
+      missingQuantity: rentalAccessories.missingQuantity,
+      notes: rentalAccessories.notes,
+    })
+    .from(rentalAccessories)
+    .innerJoin(accessories, eq(rentalAccessories.accessoryId, accessories.id))
+    .where(inArray(rentalAccessories.rentalId, rentalIds))
+    .orderBy(asc(accessories.name))
+    .all();
+
+  for (const row of rows) {
+    const list = map.get(row.rentalId) ?? [];
+    list.push(row);
+    map.set(row.rentalId, list);
+  }
+
+  return map;
+}
+
+function loadRentalCollateralForRentals(
+  rentalIds: number[],
+): Map<number, RentalCollateralRecord[]> {
+  const map = new Map<number, RentalCollateralRecord[]>();
+
+  if (rentalIds.length === 0) {
+    return map;
+  }
+
+  const rows = getDatabase()
+    .select({
+      id: rentalCollateralItems.id,
+      rentalId: rentalCollateralItems.rentalId,
+      type: rentalCollateralItems.type,
+      description: rentalCollateralItems.description,
+      referenceNumber: rentalCollateralItems.referenceNumber,
+      estimatedValue: rentalCollateralItems.estimatedValue,
+      currency: rentalCollateralItems.currency,
+      status: rentalCollateralItems.status,
+      receivedAt: rentalCollateralItems.receivedAt,
+      returnedAt: rentalCollateralItems.returnedAt,
+      notes: rentalCollateralItems.notes,
+    })
+    .from(rentalCollateralItems)
+    .where(inArray(rentalCollateralItems.rentalId, rentalIds))
+    .orderBy(asc(rentalCollateralItems.id))
+    .all();
+
+  for (const row of rows) {
+    const list = map.get(row.rentalId) ?? [];
+    list.push(row);
+    map.set(row.rentalId, list);
+  }
+
+  return map;
+}
+
+function loadRentalFormAccessories(): AccessoryRecord[] {
+  return getSqliteDatabase()
+    .prepare(
+      `
+        select
+          accessories.id,
+          accessories.name,
+          accessories.quantity_owned as quantityOwned,
+          accessories.default_charge as defaultCharge,
+          accessories.is_active as isActive,
+          accessories.notes,
+          accessories.created_at as createdAt,
+          accessories.updated_at as updatedAt,
+          coalesce(assigned.quantity_assigned, 0) as quantityAssigned,
+          max(0, accessories.quantity_owned - coalesce(assigned.quantity_assigned, 0)) as quantityAvailable
+        from accessories
+        left join (
+          select
+            rental_accessories.accessory_id,
+            coalesce(sum(max(0, rental_accessories.quantity - rental_accessories.returned_quantity - rental_accessories.missing_quantity)), 0) as quantity_assigned
+          from rental_accessories
+          inner join rentals on rental_accessories.rental_id = rentals.id
+          where rentals.status in ('active', 'overdue')
+          group by rental_accessories.accessory_id
+        ) assigned on assigned.accessory_id = accessories.id
+        where accessories.is_active = 1
+        order by accessories.name asc
+      `,
+    )
+    .all()
+    .map((row) => {
+      const value = row as {
+        createdAt: string;
+        defaultCharge: number;
+        id: number;
+        isActive: boolean | number;
+        name: string;
+        notes: string | null;
+        quantityAssigned: number;
+        quantityAvailable: number;
+        quantityOwned: number;
+        updatedAt: string;
+      };
+
+      return {
+        id: Number(value.id),
+        name: value.name,
+        quantityOwned: Number(value.quantityOwned),
+        defaultCharge: Number(value.defaultCharge),
+        isActive: Boolean(value.isActive),
+        notes: value.notes,
+        quantityAssigned: Number(value.quantityAssigned),
+        quantityAvailable: Number(value.quantityAvailable),
+        createdAt: value.createdAt,
+        updatedAt: value.updatedAt,
+      };
+    });
+}
+
+function assertRentalAccessoriesKnown(
+  tx: RentalTx,
+  rentalAccessoryInputs: RentalAccessoryInput[],
+): void {
+  assertNoDuplicateRentalAccessories(rentalAccessoryInputs);
+
+  for (const rentalAccessory of rentalAccessoryInputs) {
+    const accessory = getAccessoryAvailability(tx, rentalAccessory.accessoryId);
+
+    if (!accessory) {
+      throw new Error("Accessory was not found.");
+    }
+
+    if (!accessory.isActive) {
+      throw new Error(`${accessory.name} is inactive.`);
+    }
+  }
+}
+
+function assertRentalAccessoriesAvailable(
+  tx: RentalTx,
+  rentalAccessoryInputs: RentalAccessoryInput[],
+): void {
+  assertNoDuplicateRentalAccessories(rentalAccessoryInputs);
+
+  for (const rentalAccessory of rentalAccessoryInputs) {
+    const accessory = getAccessoryAvailability(tx, rentalAccessory.accessoryId);
+
+    if (!accessory) {
+      throw new Error("Accessory was not found.");
+    }
+
+    if (!accessory.isActive) {
+      throw new Error(`${accessory.name} is inactive.`);
+    }
+
+    if (rentalAccessory.quantity > accessory.quantityAvailable) {
+      throw new Error(
+        `${accessory.name} has only ${accessory.quantityAvailable} available.`,
+      );
+    }
+  }
+}
+
+function getAccessoryAvailability(
+  _tx: RentalTx,
+  accessoryId: number,
+):
+  | {
+      id: number;
+      isActive: boolean;
+      name: string;
+      quantityAvailable: number;
+      quantityOwned: number;
+    }
+  | undefined {
+  const row = getSqliteDatabase()
+    .prepare(
+      `
+        select
+          accessories.id,
+          accessories.name,
+          accessories.quantity_owned as quantityOwned,
+          accessories.is_active as isActive,
+          coalesce(assigned.quantity_assigned, 0) as quantityAssigned
+        from accessories
+        left join (
+          select
+            rental_accessories.accessory_id,
+            coalesce(sum(max(0, rental_accessories.quantity - rental_accessories.returned_quantity - rental_accessories.missing_quantity)), 0) as quantity_assigned
+          from rental_accessories
+          inner join rentals on rental_accessories.rental_id = rentals.id
+          where rentals.status in ('active', 'overdue')
+          group by rental_accessories.accessory_id
+        ) assigned on assigned.accessory_id = accessories.id
+        where accessories.id = ?
+      `,
+    )
+    .get(accessoryId) as
+    | {
+        id: number;
+        isActive: boolean | number;
+        name: string;
+        quantityAssigned: number;
+        quantityOwned: number;
+      }
+    | undefined;
+
+  if (!row) {
+    return undefined;
+  }
+
+  return {
+    id: row.id,
+    name: row.name,
+    quantityOwned: row.quantityOwned,
+    isActive: Boolean(row.isActive),
+    quantityAvailable: Math.max(0, row.quantityOwned - row.quantityAssigned),
+  };
+}
+
+function loadRentalAccessoryInputsForRental(
+  tx: RentalTx,
+  rentalId: number,
+): RentalAccessoryInput[] {
+  return tx
+    .select({
+      accessoryId: rentalAccessories.accessoryId,
+      quantity: rentalAccessories.quantity,
+      unitCharge: rentalAccessories.unitCharge,
+      notes: rentalAccessories.notes,
+    })
+    .from(rentalAccessories)
+    .where(eq(rentalAccessories.rentalId, rentalId))
+    .all();
+}
+
+function insertRentalAccessories(
+  tx: RentalTx,
+  rentalId: number,
+  rentalAccessoryInputs: RentalAccessoryInput[],
+  now: string,
+): void {
+  if (rentalAccessoryInputs.length === 0) {
+    return;
+  }
+
+  tx.insert(rentalAccessories)
+    .values(
+      rentalAccessoryInputs.map((rentalAccessory) => ({
+        rentalId,
+        accessoryId: rentalAccessory.accessoryId,
+        quantity: rentalAccessory.quantity,
+        unitCharge: rentalAccessory.unitCharge,
+        returnedQuantity: 0,
+        missingQuantity: 0,
+        notes: rentalAccessory.notes,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    )
+    .run();
+}
+
+function insertRentalCollateralItems(
+  tx: RentalTx,
+  rentalId: number,
+  collateralInputs: RentalCollateralInput[],
+  now: string,
+): void {
+  if (collateralInputs.length === 0) {
+    return;
+  }
+
+  tx.insert(rentalCollateralItems)
+    .values(
+      collateralInputs.map((item) => ({
+        rentalId,
+        type: item.type,
+        description: item.description,
+        referenceNumber: item.referenceNumber,
+        estimatedValue: item.estimatedValue,
+        currency: item.currency,
+        status: "held" as const,
+        receivedAt: now,
+        returnedAt: null,
+        notes: item.notes,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    )
+    .run();
+}
+
+function replaceRentalAccessories(
+  tx: RentalTx,
+  rentalId: number,
+  rentalAccessoryInputs: RentalAccessoryInput[],
+  now: string,
+): void {
+  tx.delete(rentalAccessories)
+    .where(eq(rentalAccessories.rentalId, rentalId))
+    .run();
+  insertRentalAccessories(tx, rentalId, rentalAccessoryInputs, now);
+}
+
+function replaceRentalCollateralItems(
+  tx: RentalTx,
+  rentalId: number,
+  collateralInputs: RentalCollateralInput[],
+  now: string,
+): void {
+  tx.delete(rentalCollateralItems)
+    .where(eq(rentalCollateralItems.rentalId, rentalId))
+    .run();
+  insertRentalCollateralItems(tx, rentalId, collateralInputs, now);
+}
+
+function applyRentalAccessoryReturns(
+  tx: RentalTx,
+  rentalId: number,
+  accessoryReturns: RentalAccessoryReturnInput[],
+  now: string,
+): void {
+  for (const accessoryReturn of accessoryReturns) {
+    const existing = tx
+      .select()
+      .from(rentalAccessories)
+      .where(eq(rentalAccessories.id, accessoryReturn.rentalAccessoryId))
+      .get();
+
+    if (!existing || existing.rentalId !== rentalId) {
+      throw new Error("Returned accessory does not belong to this rental.");
+    }
+
+    if (
+      accessoryReturn.returnedQuantity + accessoryReturn.missingQuantity >
+      existing.quantity
+    ) {
+      throw new Error("Returned and missing accessory quantities exceed assigned quantity.");
+    }
+
+    tx.update(rentalAccessories)
+      .set({
+        returnedQuantity: accessoryReturn.returnedQuantity,
+        missingQuantity: accessoryReturn.missingQuantity,
+        notes: accessoryReturn.notes,
+        updatedAt: now,
+      })
+      .where(eq(rentalAccessories.id, accessoryReturn.rentalAccessoryId))
+      .run();
+  }
+}
+
+function applyRentalCollateralReturns(
+  tx: RentalTx,
+  rentalId: number,
+  collateralReturns: RentalCollateralReturnInput[],
+  now: string,
+): void {
+  for (const collateralReturn of collateralReturns) {
+    const existing = tx
+      .select()
+      .from(rentalCollateralItems)
+      .where(eq(rentalCollateralItems.id, collateralReturn.collateralId))
+      .get();
+
+    if (!existing || existing.rentalId !== rentalId) {
+      throw new Error("Amanat item does not belong to this rental.");
+    }
+
+    tx.update(rentalCollateralItems)
+      .set({
+        status: collateralReturn.status,
+        returnedAt: collateralReturn.status === "returned" ? now : null,
+        notes: collateralReturn.notes,
+        updatedAt: now,
+      })
+      .where(eq(rentalCollateralItems.id, collateralReturn.collateralId))
+      .run();
+  }
+}
+
+function assertNoDuplicateRentalAccessories(
+  rentalAccessoryInputs: RentalAccessoryInput[],
+): void {
+  const seen = new Set<number>();
+
+  for (const rentalAccessory of rentalAccessoryInputs) {
+    if (seen.has(rentalAccessory.accessoryId)) {
+      throw new Error("Add each accessory only once.");
+    }
+
+    seen.add(rentalAccessory.accessoryId);
+  }
 }
 
 function returnRentalInTransaction(
@@ -1114,6 +1612,9 @@ function returnRentalInTransaction(
   if (summary.finalAmount < 0) {
     throw new Error("Discount cannot be more than the total charges.");
   }
+
+  applyRentalAccessoryReturns(tx, rental.id, values.accessoryReturns, now);
+  applyRentalCollateralReturns(tx, rental.id, values.collateralReturns, now);
 
   tx.update(rentals)
     .set({
@@ -1301,6 +1802,7 @@ function toRentalInsert(
   contractNo: string,
   status: "draft" | "active",
   totalAmount: number,
+  accessoryCharges: number,
   initialBalance: { paidAmount: number; remainingAmount: number },
 ) {
   return {
@@ -1322,6 +1824,7 @@ function toRentalInsert(
     notesIn: null,
     damageNotes: null,
     extraCharges: 0,
+    accessoryCharges,
     discount: 0,
     totalAmount,
     paidAmount: initialBalance.paidAmount,

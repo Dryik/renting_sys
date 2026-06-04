@@ -41,7 +41,7 @@ export function initializeDatabase(): DatabaseState {
   db = drizzle(sqlite, { schema });
   db.run(
     `insert into app_settings (key, value)
-     values ('schema_version', '8')
+     values ('schema_version', '9')
      on conflict(key) do nothing`,
   );
 
@@ -189,6 +189,7 @@ function runInitialSchema(database: Database.Database): void {
       notes_in text,
       damage_notes text,
       extra_charges real not null default 0,
+      accessory_charges real not null default 0,
       discount real not null default 0,
       total_amount real not null default 0,
       paid_amount real not null default 0,
@@ -200,6 +201,46 @@ function runInitialSchema(database: Database.Database): void {
       returned_by_user_id integer references users(id),
       cancelled_by_user_id integer references users(id),
       last_updated_by_user_id integer references users(id),
+      created_at text not null,
+      updated_at text not null
+    );
+
+    create table if not exists accessories (
+      id integer primary key autoincrement,
+      name text not null unique,
+      quantity_owned integer not null default 0,
+      default_charge real not null default 0,
+      is_active integer not null default 1,
+      notes text,
+      created_at text not null,
+      updated_at text not null
+    );
+
+    create table if not exists rental_accessories (
+      id integer primary key autoincrement,
+      rental_id integer not null references rentals(id),
+      accessory_id integer not null references accessories(id),
+      quantity integer not null,
+      unit_charge real not null default 0,
+      returned_quantity integer not null default 0,
+      missing_quantity integer not null default 0,
+      notes text,
+      created_at text not null,
+      updated_at text not null
+    );
+
+    create table if not exists rental_collateral_items (
+      id integer primary key autoincrement,
+      rental_id integer not null references rentals(id),
+      type text not null check (type in ('passport', 'id_card', 'driver_license', 'cash', 'other_document', 'other_item')),
+      description text not null,
+      reference_number text,
+      estimated_value real,
+      currency text,
+      status text not null default 'held' check (status in ('held', 'returned')),
+      received_at text not null,
+      returned_at text,
+      notes text,
       created_at text not null,
       updated_at text not null
     );
@@ -263,6 +304,38 @@ function runInitialSchema(database: Database.Database): void {
       voided_at text,
       voided_by_user_id integer references users(id),
       void_reason text,
+      created_by_user_id integer references users(id),
+      created_at text not null,
+      updated_at text not null
+    );
+
+    create table if not exists employee_loans (
+      id integer primary key autoincrement,
+      loan_no text not null unique,
+      employee_user_id integer not null references users(id),
+      amount real not null,
+      issued_at text not null,
+      source_location text not null check (source_location in ('cash_drawer', 'shop_safe', 'bank')),
+      remaining_amount real not null,
+      status text not null default 'open' check (status in ('open', 'paid', 'voided')),
+      notes text,
+      voided_at text,
+      voided_by_user_id integer references users(id),
+      void_reason text,
+      created_by_user_id integer references users(id),
+      created_at text not null,
+      updated_at text not null
+    );
+
+    create table if not exists employee_loan_payments (
+      id integer primary key autoincrement,
+      loan_id integer not null references employee_loans(id),
+      amount real not null,
+      payment_date text not null,
+      method text not null check (method in ('cash', 'card', 'bank_transfer', 'other')),
+      location text not null check (location in ('cash_drawer', 'shop_safe', 'bank')),
+      status text not null default 'posted' check (status in ('posted', 'voided')),
+      notes text,
       created_by_user_id integer references users(id),
       created_at text not null,
       updated_at text not null
@@ -449,12 +522,23 @@ function runInitialSchema(database: Database.Database): void {
     create index if not exists rentals_status_remaining_amount_idx on rentals(status, remaining_amount);
     create index if not exists rentals_customer_id_idx on rentals(customer_id);
     create index if not exists rentals_vehicle_id_idx on rentals(vehicle_id);
+    create index if not exists accessories_is_active_idx on accessories(is_active);
+    create index if not exists rental_accessories_rental_id_idx on rental_accessories(rental_id);
+    create index if not exists rental_accessories_accessory_id_idx on rental_accessories(accessory_id);
+    create index if not exists rental_collateral_items_rental_id_idx on rental_collateral_items(rental_id);
+    create index if not exists rental_collateral_items_status_idx on rental_collateral_items(status);
 
     create index if not exists payments_payment_date_idx on payments(payment_date);
     create index if not exists payments_type_idx on payments(type);
     create index if not exists payments_rental_id_idx on payments(rental_id);
     create index if not exists payments_status_type_rental_id_idx on payments(status, type, rental_id);
     create index if not exists payments_status_type_rental_amount_idx on payments(status, type, rental_id, amount);
+    create index if not exists employee_loans_employee_user_id_idx on employee_loans(employee_user_id);
+    create index if not exists employee_loans_status_idx on employee_loans(status);
+    create index if not exists employee_loans_issued_at_idx on employee_loans(issued_at);
+    create index if not exists employee_loan_payments_loan_id_idx on employee_loan_payments(loan_id);
+    create index if not exists employee_loan_payments_payment_date_idx on employee_loan_payments(payment_date);
+    create index if not exists employee_loan_payments_status_idx on employee_loan_payments(status);
 
     create index if not exists maintenance_start_date_idx on maintenance_records(start_date);
     create index if not exists maintenance_vehicle_id_idx on maintenance_records(vehicle_id);
@@ -599,6 +683,23 @@ function runMigrations(database: Database.Database): void {
     })();
   }
 
+  if (schemaVersion < 9) {
+    database.transaction(() => {
+      createEmployeeLoanTables(database);
+      createAccessoryRentalTables(database);
+      addColumnIfMissing(
+        database,
+        "rentals",
+        "accessory_charges",
+        "real not null default 0",
+      );
+      seedNumberSequences(database, now);
+      database
+        .prepare("update app_settings set value = '9' where key = 'schema_version'")
+        .run();
+    })();
+  }
+
   seedSystemRoles(database, now);
   seedNumberSequences(database, now);
   seedMoneyLocations(database, now);
@@ -627,6 +728,11 @@ function createPostMigrationIndexes(database: Database.Database): void {
     create index if not exists rentals_status_expected_return_idx on rentals(status, expected_return_datetime);
     create index if not exists rentals_status_actual_return_idx on rentals(status, actual_return_datetime, created_at);
     create index if not exists rentals_status_remaining_amount_idx on rentals(status, remaining_amount);
+    create index if not exists accessories_is_active_idx on accessories(is_active);
+    create index if not exists rental_accessories_rental_id_idx on rental_accessories(rental_id);
+    create index if not exists rental_accessories_accessory_id_idx on rental_accessories(accessory_id);
+    create index if not exists rental_collateral_items_rental_id_idx on rental_collateral_items(rental_id);
+    create index if not exists rental_collateral_items_status_idx on rental_collateral_items(status);
     create unique index if not exists rentals_one_open_vehicle_idx
       on rentals(vehicle_id)
       where status in ('active', 'overdue');
@@ -634,6 +740,13 @@ function createPostMigrationIndexes(database: Database.Database): void {
     create index if not exists payments_status_idx on payments(status);
     create index if not exists payments_status_type_rental_id_idx on payments(status, type, rental_id);
     create index if not exists payments_status_type_rental_amount_idx on payments(status, type, rental_id, amount);
+    create unique index if not exists employee_loans_loan_no_idx on employee_loans(loan_no);
+    create index if not exists employee_loans_employee_user_id_idx on employee_loans(employee_user_id);
+    create index if not exists employee_loans_status_idx on employee_loans(status);
+    create index if not exists employee_loans_issued_at_idx on employee_loans(issued_at);
+    create index if not exists employee_loan_payments_loan_id_idx on employee_loan_payments(loan_id);
+    create index if not exists employee_loan_payments_payment_date_idx on employee_loan_payments(payment_date);
+    create index if not exists employee_loan_payments_status_idx on employee_loan_payments(status);
     create index if not exists expenses_expense_date_idx on expenses(expense_date);
     create index if not exists expenses_status_idx on expenses(status);
     create index if not exists expenses_location_idx on expenses(location);
@@ -857,6 +970,86 @@ function createAccountingAdjustmentTable(database: Database.Database): void {
   `);
 }
 
+function createEmployeeLoanTables(database: Database.Database): void {
+  database.exec(`
+    create table if not exists employee_loans (
+      id integer primary key autoincrement,
+      loan_no text not null unique,
+      employee_user_id integer not null references users(id),
+      amount real not null,
+      issued_at text not null,
+      source_location text not null check (source_location in ('cash_drawer', 'shop_safe', 'bank')),
+      remaining_amount real not null,
+      status text not null default 'open' check (status in ('open', 'paid', 'voided')),
+      notes text,
+      voided_at text,
+      voided_by_user_id integer references users(id),
+      void_reason text,
+      created_by_user_id integer references users(id),
+      created_at text not null,
+      updated_at text not null
+    );
+
+    create table if not exists employee_loan_payments (
+      id integer primary key autoincrement,
+      loan_id integer not null references employee_loans(id),
+      amount real not null,
+      payment_date text not null,
+      method text not null check (method in ('cash', 'card', 'bank_transfer', 'other')),
+      location text not null check (location in ('cash_drawer', 'shop_safe', 'bank')),
+      status text not null default 'posted' check (status in ('posted', 'voided')),
+      notes text,
+      created_by_user_id integer references users(id),
+      created_at text not null,
+      updated_at text not null
+    );
+  `);
+}
+
+function createAccessoryRentalTables(database: Database.Database): void {
+  database.exec(`
+    create table if not exists accessories (
+      id integer primary key autoincrement,
+      name text not null unique,
+      quantity_owned integer not null default 0,
+      default_charge real not null default 0,
+      is_active integer not null default 1,
+      notes text,
+      created_at text not null,
+      updated_at text not null
+    );
+
+    create table if not exists rental_accessories (
+      id integer primary key autoincrement,
+      rental_id integer not null references rentals(id),
+      accessory_id integer not null references accessories(id),
+      quantity integer not null,
+      unit_charge real not null default 0,
+      returned_quantity integer not null default 0,
+      missing_quantity integer not null default 0,
+      notes text,
+      created_at text not null,
+      updated_at text not null
+    );
+
+    create table if not exists rental_collateral_items (
+      id integer primary key autoincrement,
+      rental_id integer not null references rentals(id),
+      type text not null check (type in ('passport', 'id_card', 'driver_license', 'cash', 'other_document', 'other_item')),
+      description text not null,
+      reference_number text,
+      estimated_value real,
+      currency text,
+      status text not null default 'held' check (status in ('held', 'returned')),
+      received_at text not null,
+      returned_at text,
+      notes text,
+      created_at text not null,
+      updated_at text not null
+    );
+  `);
+}
+
 function addColumnIfMissing(
   database: Database.Database,
   tableName: string,
@@ -879,6 +1072,7 @@ function seedNumberSequences(database: Database.Database, now: string): void {
     { name: "contract", prefix: "ARAK", nextNumber: 1, padding: 6 },
     { name: "receipt", prefix: "RCP", nextNumber: 1, padding: 6 },
     { name: "vehicle_sale", prefix: "SALE", nextNumber: 1, padding: 6 },
+    { name: "employee_loan", prefix: "LOAN", nextNumber: 1, padding: 6 },
   ];
 
   for (const sequence of sequences) {

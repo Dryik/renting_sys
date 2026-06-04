@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
-import { useEffect, useMemo } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
@@ -14,12 +14,35 @@ import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/hooks/useI18n";
 import {
   calculateRentalSummary,
+  collateralTypeValues,
+  formatCollateralType,
   getDefaultRentalFormValues,
   type RentalActivationInput,
+  type RentalCollateralInput,
   type RentalFormOptions,
   type RentalFormValues,
   rentalFormSchema,
 } from "@/shared/rentals";
+import {
+  calculateAccessoryChargeTotal,
+  type RentalAccessoryInput,
+} from "@/shared/accessories";
+
+type AccessoryFormRow = {
+  accessoryId: string;
+  quantity: string;
+  unitCharge: string;
+  notes: string;
+};
+
+type CollateralFormRow = {
+  type: RentalCollateralInput["type"];
+  description: string;
+  referenceNumber: string;
+  estimatedValue: string;
+  currency: string;
+  notes: string;
+};
 
 type RentalFormProps = {
   error: string | null;
@@ -51,6 +74,8 @@ export function RentalForm({
     defaultValues: getDefaultRentalFormValues(),
     mode: "onBlur",
   });
+  const [accessoryRows, setAccessoryRows] = useState<AccessoryFormRow[]>([]);
+  const [collateralRows, setCollateralRows] = useState<CollateralFormRow[]>([]);
 
   const selectedVehicleId = useWatch({ control, name: "vehicleId" });
   const selectedCustomerId = useWatch({ control, name: "customerId" });
@@ -112,19 +137,40 @@ export function RentalForm({
   }, [selectedVehicle, setValue, settings.enableClientDeposit]);
 
   useEffect(() => {
-    reset(getDefaultRentalFormValues());
+    const timeout = window.setTimeout(() => {
+      reset(getDefaultRentalFormValues());
+      setAccessoryRows([]);
+      setCollateralRows([]);
+    }, 0);
+
+    return () => window.clearTimeout(timeout);
   }, [reset]);
 
+  const rentalAccessories = useMemo(
+    () => normalizeAccessoryRows(accessoryRows),
+    [accessoryRows],
+  );
+  const collateralItems = useMemo(
+    () => normalizeCollateralRows(collateralRows, settings.defaultCurrency),
+    [collateralRows, settings.defaultCurrency],
+  );
+  const accessoryChargeTotal = calculateAccessoryChargeTotal(rentalAccessories);
   const summary = calculateRentalSummary(
     startDatetime,
     expectedReturnDatetime,
     Number(dailyPriceValue),
+    accessoryChargeTotal,
   );
+  const submitRental = (values: RentalActivationInput): RentalActivationInput => ({
+    ...values,
+    accessories: rentalAccessories,
+    collateralItems,
+  });
 
   return (
     <form
       className="flex flex-col gap-5"
-      onSubmit={handleSubmit((values) => onSave(values))}
+      onSubmit={handleSubmit((values) => onSave(submitRental(values)))}
     >
       {error ? (
         <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -145,6 +191,7 @@ export function RentalForm({
           t("Customer"),
           t("Vehicle"),
           t("Rental Period"),
+          t("Accessories"),
           t("Amounts"),
         ]}
       />
@@ -296,8 +343,233 @@ export function RentalForm({
         </div>
       </WorkflowSection>
 
+      <WorkflowSection
+        title={t("Accessories")}
+        description={t("Assign helmets, backpacks, or other accessories. Charges are zero unless you enter an amount.")}
+      >
+        <div className="flex flex-col gap-3">
+          {accessoryRows.length === 0 ? (
+            <p className="rounded-md border bg-muted/35 px-3 py-2 text-sm text-muted-foreground">
+              {t("No accessories assigned.")}
+            </p>
+          ) : (
+            accessoryRows.map((row, index) => (
+              <div
+                key={index}
+                className="grid gap-3 rounded-md border bg-background p-3 md:grid-cols-[1.4fr_0.7fr_0.9fr_auto]"
+              >
+                <Field label="Accessory">
+                  <select
+                    className="h-10 rounded-md border bg-background px-3 text-sm"
+                    value={row.accessoryId}
+                    onChange={(event) => {
+                      const accessory = options.accessories.find(
+                        (item) => item.id === Number(event.target.value),
+                      );
+                      updateAccessoryRow(setAccessoryRows, index, {
+                        accessoryId: event.target.value,
+                        unitCharge: accessory
+                          ? String(accessory.defaultCharge)
+                          : row.unitCharge,
+                      });
+                    }}
+                  >
+                    <option value="">{t("Select accessory")}</option>
+                    {options.accessories.map((accessory) => (
+                      <option key={accessory.id} value={accessory.id}>
+                        {accessory.name} ({t("Available")}: {accessory.quantityAvailable})
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Quantity">
+                  <Input
+                    data-ltr="true"
+                    inputMode="numeric"
+                    value={row.quantity}
+                    onChange={(event) =>
+                      updateAccessoryRow(setAccessoryRows, index, {
+                        quantity: event.target.value,
+                      })
+                    }
+                  />
+                </Field>
+                <Field label="Charge">
+                  <Input
+                    data-ltr="true"
+                    inputMode="decimal"
+                    value={row.unitCharge}
+                    onChange={(event) =>
+                      updateAccessoryRow(setAccessoryRows, index, {
+                        unitCharge: event.target.value,
+                      })
+                    }
+                  />
+                </Field>
+                <div className="flex items-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() =>
+                      setAccessoryRows((rows) => rows.filter((_, rowIndex) => rowIndex !== index))
+                    }
+                  >
+                    {t("Remove")}
+                  </Button>
+                </div>
+                <div className="md:col-span-4">
+                  <Field label="Notes">
+                    <Input
+                      value={row.notes}
+                      onChange={(event) =>
+                        updateAccessoryRow(setAccessoryRows, index, {
+                          notes: event.target.value,
+                        })
+                      }
+                      placeholder={t("Optional accessory notes")}
+                    />
+                  </Field>
+                </div>
+              </div>
+            ))
+          )}
+          <div>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={options.accessories.length === 0}
+              onClick={() =>
+                setAccessoryRows((rows) => [
+                  ...rows,
+                  { accessoryId: "", quantity: "1", unitCharge: "0", notes: "" },
+                ])
+              }
+            >
+              {t("Add Accessory")}
+            </Button>
+          </div>
+        </div>
+      </WorkflowSection>
+
+      <WorkflowSection
+        title={t("Amanat")}
+        description={t("Track documents, cash, or items left by the customer. This does not affect payments.")}
+      >
+        <div className="flex flex-col gap-3">
+          {collateralRows.length === 0 ? (
+            <p className="rounded-md border bg-muted/35 px-3 py-2 text-sm text-muted-foreground">
+              {t("No Amanat recorded.")}
+            </p>
+          ) : (
+            collateralRows.map((row, index) => (
+              <div
+                key={index}
+                className="grid gap-3 rounded-md border bg-background p-3 md:grid-cols-2"
+              >
+                <Field label="Type">
+                  <select
+                    className="h-10 rounded-md border bg-background px-3 text-sm"
+                    value={row.type}
+                    onChange={(event) =>
+                      updateCollateralRow(setCollateralRows, index, {
+                        type: event.target.value as RentalCollateralInput["type"],
+                      })
+                    }
+                  >
+                    {collateralTypeValues.map((type) => (
+                      <option key={type} value={type}>
+                        {t(formatCollateralType(type, "en"))}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Description" required>
+                  <Input
+                    value={row.description}
+                    onChange={(event) =>
+                      updateCollateralRow(setCollateralRows, index, {
+                        description: event.target.value,
+                      })
+                    }
+                    placeholder={t("Passport, ID card, cash, or item details")}
+                  />
+                </Field>
+                <Field label="Reference Number">
+                  <Input
+                    data-ltr="true"
+                    value={row.referenceNumber}
+                    onChange={(event) =>
+                      updateCollateralRow(setCollateralRows, index, {
+                        referenceNumber: event.target.value,
+                      })
+                    }
+                  />
+                </Field>
+                <Field label="Estimated Value">
+                  <Input
+                    data-ltr="true"
+                    inputMode="decimal"
+                    value={row.estimatedValue}
+                    onChange={(event) =>
+                      updateCollateralRow(setCollateralRows, index, {
+                        estimatedValue: event.target.value,
+                      })
+                    }
+                  />
+                </Field>
+                <div className="md:col-span-2">
+                  <Field label="Notes">
+                    <Input
+                      value={row.notes}
+                      onChange={(event) =>
+                        updateCollateralRow(setCollateralRows, index, {
+                          notes: event.target.value,
+                        })
+                      }
+                      placeholder={t("Optional Amanat notes")}
+                    />
+                  </Field>
+                </div>
+                <div className="md:col-span-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() =>
+                      setCollateralRows((rows) => rows.filter((_, rowIndex) => rowIndex !== index))
+                    }
+                  >
+                    {t("Remove Amanat")}
+                  </Button>
+                </div>
+              </div>
+            ))
+          )}
+          <div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() =>
+                setCollateralRows((rows) => [
+                  ...rows,
+                  {
+                    type: "id_card",
+                    description: "",
+                    referenceNumber: "",
+                    estimatedValue: "",
+                    currency: settings.defaultCurrency,
+                    notes: "",
+                  },
+                ])
+              }
+            >
+              {t("Add Amanat")}
+            </Button>
+          </div>
+        </div>
+      </WorkflowSection>
+
       <WorkflowSection title={t("Amounts")}>
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-4">
           <SummaryValue
             label={t("Rental Days")}
             value={<BidiValue value={new Intl.NumberFormat(locale).format(summary.days)} />}
@@ -307,7 +579,11 @@ export function RentalForm({
             value={<BidiValue value={formatCurrency(Number(dailyPriceValue) || 0)} />}
           />
           <SummaryValue
-            label={t("Rent Total")}
+            label={t("Accessory Charges")}
+            value={<BidiValue value={formatCurrency(accessoryChargeTotal)} />}
+          />
+          <SummaryValue
+            label={t("Total")}
             value={<BidiValue value={formatCurrency(summary.totalAmount)} />}
           />
         </div>
@@ -326,7 +602,9 @@ export function RentalForm({
               options.customers.length === 0 ||
               options.vehicles.length === 0
             }
-            onClick={() => void handleSubmit((values) => onSaveDraft(values))()}
+            onClick={() =>
+              void handleSubmit((values) => onSaveDraft(submitRental(values)))()
+            }
           >
             {isSaving ? <Loader2 className="size-4 animate-spin" /> : null}
             {t("Save Draft")}
@@ -345,6 +623,93 @@ export function RentalForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+function normalizeAccessoryRows(rows: AccessoryFormRow[]): RentalAccessoryInput[] {
+  return rows.flatMap((row) => {
+    const accessoryId = Number(row.accessoryId);
+    const quantity = Number(row.quantity);
+    const unitCharge = Number(row.unitCharge);
+
+    if (!Number.isInteger(accessoryId) || accessoryId <= 0) {
+      return [];
+    }
+
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      return [];
+    }
+
+    return [
+      {
+        accessoryId,
+        quantity,
+        unitCharge: Number.isFinite(unitCharge) && unitCharge >= 0 ? unitCharge : 0,
+        notes: row.notes.trim() || null,
+      },
+    ];
+  });
+}
+
+function normalizeCollateralRows(
+  rows: CollateralFormRow[],
+  defaultCurrency: string,
+): RentalCollateralInput[] {
+  return rows.flatMap((row) => {
+    const description = row.description.trim();
+    const estimatedValue = Number(row.estimatedValue);
+
+    if (!description) {
+      return [];
+    }
+
+    return [
+      {
+        type: row.type,
+        description,
+        referenceNumber: row.referenceNumber.trim() || null,
+        estimatedValue:
+          row.estimatedValue.trim() && Number.isFinite(estimatedValue)
+            ? estimatedValue
+            : null,
+        currency: row.currency.trim() || defaultCurrency || null,
+        notes: row.notes.trim() || null,
+      },
+    ];
+  });
+}
+
+function updateAccessoryRow(
+  setRows: Dispatch<SetStateAction<AccessoryFormRow[]>>,
+  index: number,
+  patch: Partial<AccessoryFormRow>,
+): void {
+  setRows((rows) =>
+    rows.map((row, rowIndex) =>
+      rowIndex === index
+        ? {
+            ...row,
+            ...patch,
+          }
+        : row,
+    ),
+  );
+}
+
+function updateCollateralRow(
+  setRows: Dispatch<SetStateAction<CollateralFormRow[]>>,
+  index: number,
+  patch: Partial<CollateralFormRow>,
+): void {
+  setRows((rows) =>
+    rows.map((row, rowIndex) =>
+      rowIndex === index
+        ? {
+            ...row,
+            ...patch,
+          }
+        : row,
+    ),
   );
 }
 
@@ -372,7 +737,7 @@ function WorkflowSection({
 
 function WorkflowSteps({ steps }: { steps: string[] }) {
   return (
-    <div className="grid gap-3 md:grid-cols-4">
+    <div className="grid gap-3 md:grid-cols-5">
       {steps.map((step, index) => (
         <div
           key={step}

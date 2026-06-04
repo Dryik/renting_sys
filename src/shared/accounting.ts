@@ -153,9 +153,38 @@ export type AccountingDailyClosingRecord = {
   isClosed: boolean;
 };
 
+export type StaffDailyClosingInput = {
+  closingDate: string;
+  countedCash: number;
+  notes: string | null;
+};
+
+export type StaffDailyClosingRecord = {
+  closingDate: string;
+  countedCash: number;
+  notes: string | null;
+  closedAt: string;
+  isClosed: true;
+};
+
+export type WeeklyIncomeDayRecord = {
+  date: string;
+  rent: number;
+  deposit: number;
+  extraCharge: number;
+  refunds: number;
+  netIncome: number;
+};
+
 export type AccountingTransactionRecord = {
   id: string;
-  source: "payment" | "vehicle_sale" | "expense" | "cash_movement" | "adjustment";
+  source:
+    | "payment"
+    | "vehicle_sale"
+    | "expense"
+    | "cash_movement"
+    | "adjustment"
+    | "employee_loan";
   sourceId: number;
   occurredAt: string;
   kind: Exclude<AccountingTransactionKind, "all">;
@@ -394,6 +423,12 @@ export const accountingDailyClosingSaveInputSchema = z.object({
   notes: z.string().trim().max(500).nullable(),
   reason: z.string().trim().max(500).optional(),
   approvalToken: approvalTokenSchema.optional(),
+});
+
+export const staffDailyClosingInputSchema = z.object({
+  closingDate: dateField("Closing date"),
+  countedCash: z.number().finite().min(0, "Counted cash must be zero or more."),
+  notes: z.string().trim().max(500).nullable(),
 });
 
 export function getDefaultExpenseFormValues(): ExpenseFormValues {

@@ -11,6 +11,9 @@ describe("IPC license access policy", () => {
     expect(getIpcAccessPolicy("rentals:get-form-options").requiresWriteAccess).toBe(false);
     expect(getIpcAccessPolicy("accounting:get-summary").requiresWriteAccess).toBe(false);
     expect(getIpcAccessPolicy("accounting:list-transactions").requiresWriteAccess).toBe(false);
+    expect(getIpcAccessPolicy("accounting:get-weekly-income").requiresWriteAccess).toBe(false);
+    expect(getIpcAccessPolicy("employee-loans:list").requiresWriteAccess).toBe(false);
+    expect(getIpcAccessPolicy("accessories:list").requiresWriteAccess).toBe(false);
     expect(getIpcAccessPolicy("reports:get-vehicle-sales").requiresWriteAccess).toBe(false);
     expect(getIpcAccessPolicy("reports:export").requiresWriteAccess).toBe(false);
     expect(getIpcAccessPolicy("backup:run-backup").requiresWriteAccess).toBe(false);
@@ -26,11 +29,16 @@ describe("IPC license access policy", () => {
     expect(getIpcAccessPolicy("rentals:return").requiresWriteAccess).toBe(true);
     expect(getIpcAccessPolicy("payments:create").requiresWriteAccess).toBe(true);
     expect(getIpcAccessPolicy("accounting:create-expense").requiresWriteAccess).toBe(true);
+    expect(getIpcAccessPolicy("accounting:save-staff-daily-closing").requiresWriteAccess).toBe(true);
+    expect(getIpcAccessPolicy("employee-loans:create").requiresWriteAccess).toBe(true);
+    expect(getIpcAccessPolicy("employee-loans:repay").requiresWriteAccess).toBe(true);
+    expect(getIpcAccessPolicy("accessories:update").requiresWriteAccess).toBe(true);
     expect(getIpcAccessPolicy("accounting:void-cash-movement").requiresWriteAccess).toBe(true);
     expect(getIpcAccessPolicy("accounting:create-adjustment").requiresWriteAccess).toBe(true);
     expect(getIpcAccessPolicy("accounting:void-adjustment").requiresWriteAccess).toBe(true);
     expect(getIpcAccessPolicy("backup:run-restore").requiresWriteAccess).toBe(true);
     expect(getIpcAccessPolicy("settings:save").requiresWriteAccess).toBe(true);
+    expect(getIpcAccessPolicy("settings:select-owner-signature").requiresWriteAccess).toBe(true);
     expect(getIpcAccessPolicy("users:create").requiresWriteAccess).toBe(true);
     expect(getIpcAccessPolicy("users:reset-password").requiresWriteAccess).toBe(true);
     expect(getIpcAccessPolicy("security:approve-sensitive-action").requiresWriteAccess).toBe(true);

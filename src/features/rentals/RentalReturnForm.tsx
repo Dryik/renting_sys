@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
-import { useEffect } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
@@ -11,8 +11,11 @@ import { useI18n } from "@/hooks/useI18n";
 import { formatMoney } from "@/shared/money";
 import {
   calculateReturnSummary,
+  formatCollateralType,
   getDefaultRentalReturnFormValues,
   type RentalListRecord,
+  type RentalAccessoryReturnInput,
+  type RentalCollateralReturnInput,
   type RentalReturnFormInput,
   type RentalReturnFormValues,
   type RentalReturnInput,
@@ -52,9 +55,21 @@ export function RentalReturnForm({
     defaultValues: getDefaultRentalReturnFormValues(rental, defaultLateFee),
     mode: "onBlur",
   });
+  const [accessoryReturns, setAccessoryReturns] = useState<
+    RentalAccessoryReturnInput[]
+  >(() => getDefaultAccessoryReturns(rental));
+  const [collateralReturns, setCollateralReturns] = useState<
+    RentalCollateralReturnInput[]
+  >(() => getDefaultCollateralReturns(rental));
 
   useEffect(() => {
-    reset(getDefaultRentalReturnFormValues(rental, defaultLateFee));
+    const timeout = window.setTimeout(() => {
+      reset(getDefaultRentalReturnFormValues(rental, defaultLateFee));
+      setAccessoryReturns(getDefaultAccessoryReturns(rental));
+      setCollateralReturns(getDefaultCollateralReturns(rental));
+    }, 0);
+
+    return () => window.clearTimeout(timeout);
   }, [defaultLateFee, rental, reset]);
 
   const actualReturnDatetime = useWatch({
@@ -75,15 +90,18 @@ export function RentalReturnForm({
     damageCharge: Number(damageCharge) || 0,
     discount: Number(discount) || 0,
   });
+  const buildReturnInput = (values: RentalReturnFormInput): RentalReturnInput => ({
+    ...values,
+    rentalId: rental.id,
+    accessoryReturns,
+    collateralReturns,
+  });
 
   return (
     <form
       className="flex flex-col gap-5"
       onSubmit={handleSubmit((values) => {
-        return onSave({
-          ...values,
-          rentalId: rental.id,
-        });
+        return onSave(buildReturnInput(values));
       })}
     >
       {error ? (
@@ -143,6 +161,117 @@ export function RentalReturnForm({
           </Field>
         </div>
       </WorkflowSection>
+
+      {rental.accessories?.length ? (
+        <WorkflowSection title={t("Accessories")}>
+          <div className="flex flex-col gap-3">
+            {rental.accessories.map((accessory) => {
+              const row = accessoryReturns.find(
+                (item) => item.rentalAccessoryId === accessory.id,
+              );
+
+              return (
+                <div
+                  key={accessory.id}
+                  className="grid gap-3 rounded-md border bg-background p-3 md:grid-cols-4"
+                >
+                  <div>
+                    <p className="text-sm font-semibold">{accessory.accessoryName}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {t("Assigned")}: {accessory.quantity}
+                    </p>
+                  </div>
+                  <Field label="Returned">
+                    <Input
+                      data-ltr="true"
+                      inputMode="numeric"
+                      value={String(row?.returnedQuantity ?? 0)}
+                      onChange={(event) =>
+                        updateAccessoryReturn(setAccessoryReturns, accessory.id, {
+                          returnedQuantity: Math.max(0, Number(event.target.value) || 0),
+                        })
+                      }
+                    />
+                  </Field>
+                  <Field label="Missing">
+                    <Input
+                      data-ltr="true"
+                      inputMode="numeric"
+                      value={String(row?.missingQuantity ?? 0)}
+                      onChange={(event) =>
+                        updateAccessoryReturn(setAccessoryReturns, accessory.id, {
+                          missingQuantity: Math.max(0, Number(event.target.value) || 0),
+                        })
+                      }
+                    />
+                  </Field>
+                  <Field label="Notes">
+                    <Input
+                      value={row?.notes ?? ""}
+                      onChange={(event) =>
+                        updateAccessoryReturn(setAccessoryReturns, accessory.id, {
+                          notes: event.target.value.trim() || null,
+                        })
+                      }
+                    />
+                  </Field>
+                </div>
+              );
+            })}
+          </div>
+        </WorkflowSection>
+      ) : null}
+
+      {rental.collateralItems?.length ? (
+        <WorkflowSection title={t("Amanat Held")}>
+          <div className="flex flex-col gap-3">
+            {rental.collateralItems.map((item) => {
+              const row = collateralReturns.find(
+                (returnItem) => returnItem.collateralId === item.id,
+              );
+
+              return (
+                <div
+                  key={item.id}
+                  className="grid gap-3 rounded-md border bg-background p-3 md:grid-cols-[1.2fr_0.8fr_1fr]"
+                >
+                  <div>
+                    <p className="text-sm font-semibold">{item.description}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {t(formatCollateralType(item.type, "en"))}
+                      {item.referenceNumber ? ` - ${item.referenceNumber}` : ""}
+                    </p>
+                  </div>
+                  <Field label="Status">
+                    <select
+                      className="h-10 rounded-md border bg-background px-3 text-sm"
+                      value={row?.status ?? item.status}
+                      onChange={(event) =>
+                        updateCollateralReturn(setCollateralReturns, item.id, {
+                          status: event.target.value as "held" | "returned",
+                        })
+                      }
+                    >
+                      <option value="held">{t("Held")}</option>
+                      <option value="returned">{t("Returned")}</option>
+                    </select>
+                  </Field>
+                  <Field label="Notes">
+                    <Input
+                      value={row?.notes ?? ""}
+                      onChange={(event) =>
+                        updateCollateralReturn(setCollateralReturns, item.id, {
+                          notes: event.target.value.trim() || null,
+                        })
+                      }
+                    />
+                  </Field>
+                </div>
+              );
+            })}
+          </div>
+        </WorkflowSection>
+      ) : null}
 
       <WorkflowSection title={t("Amounts")}>
         <div className="grid gap-4 md:grid-cols-3">
@@ -258,8 +387,7 @@ export function RentalReturnForm({
             onClick={() =>
               void handleSubmit((values) =>
                 onSaveWithPayment({
-                  ...values,
-                  rentalId: rental.id,
+                  ...buildReturnInput(values),
                 }),
               )()
             }
@@ -274,6 +402,64 @@ export function RentalReturnForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+function getDefaultAccessoryReturns(
+  rental: RentalListRecord,
+): RentalAccessoryReturnInput[] {
+  return (rental.accessories ?? []).map((accessory) => ({
+    rentalAccessoryId: accessory.id,
+    returnedQuantity: Math.max(
+      0,
+      accessory.quantity - accessory.missingQuantity,
+    ),
+    missingQuantity: accessory.missingQuantity,
+    notes: accessory.notes,
+  }));
+}
+
+function getDefaultCollateralReturns(
+  rental: RentalListRecord,
+): RentalCollateralReturnInput[] {
+  return (rental.collateralItems ?? []).map((item) => ({
+    collateralId: item.id,
+    status: item.status,
+    notes: item.notes,
+  }));
+}
+
+function updateAccessoryReturn(
+  setRows: Dispatch<SetStateAction<RentalAccessoryReturnInput[]>>,
+  rentalAccessoryId: number,
+  patch: Partial<RentalAccessoryReturnInput>,
+): void {
+  setRows((rows) =>
+    rows.map((row) =>
+      row.rentalAccessoryId === rentalAccessoryId
+        ? {
+            ...row,
+            ...patch,
+          }
+        : row,
+    ),
+  );
+}
+
+function updateCollateralReturn(
+  setRows: Dispatch<SetStateAction<RentalCollateralReturnInput[]>>,
+  collateralId: number,
+  patch: Partial<RentalCollateralReturnInput>,
+): void {
+  setRows((rows) =>
+    rows.map((row) =>
+      row.collateralId === collateralId
+        ? {
+            ...row,
+            ...patch,
+          }
+        : row,
+    ),
   );
 }
 

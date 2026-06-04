@@ -1,4 +1,12 @@
 import { z } from "zod";
+import {
+  rentalAccessoryInputSchema,
+  rentalAccessoryReturnInputSchema,
+  type AccessoryRecord,
+  type RentalAccessoryInput,
+  type RentalAccessoryRecord,
+  type RentalAccessoryReturnInput,
+} from "./accessories";
 import { translate } from "./i18n";
 import type { LanguageCode } from "./language";
 import type { PageRequest } from "./pagination";
@@ -37,6 +45,57 @@ export type RentalListSummary = {
   returned: number;
   amount: number;
 };
+
+export const collateralTypeValues = [
+  "passport",
+  "id_card",
+  "driver_license",
+  "cash",
+  "other_document",
+  "other_item",
+] as const;
+
+export type CollateralType = (typeof collateralTypeValues)[number];
+
+export type RentalCollateralStatus = "held" | "returned";
+
+export type RentalCollateralInput = {
+  type: CollateralType;
+  description: string;
+  referenceNumber: string | null;
+  estimatedValue: number | null;
+  currency: string | null;
+  notes: string | null;
+};
+
+export type RentalCollateralRecord = RentalCollateralInput & {
+  id: number;
+  rentalId: number;
+  status: RentalCollateralStatus;
+  receivedAt: string;
+  returnedAt: string | null;
+};
+
+export type RentalCollateralReturnInput = {
+  collateralId: number;
+  status: RentalCollateralStatus;
+  notes: string | null;
+};
+
+export const rentalCollateralInputSchema = z.object({
+  type: z.enum(collateralTypeValues),
+  description: z.string().trim().min(1, "Amanat description is required.").max(200),
+  referenceNumber: z.string().trim().max(100).nullable(),
+  estimatedValue: z.number().finite().min(0).nullable(),
+  currency: z.string().trim().max(10).nullable(),
+  notes: z.string().trim().max(500).nullable(),
+});
+
+export const rentalCollateralReturnInputSchema = z.object({
+  collateralId: z.number().int().positive("Amanat item is required."),
+  status: z.enum(["held", "returned"]),
+  notes: z.string().trim().max(500).nullable(),
+});
 
 const optionalTextField = (maxLength: number) =>
   z
@@ -140,6 +199,8 @@ export const rentalActivationInputSchema = z
     mileageOut: z.number().int().min(0).nullable(),
     fuelOut: z.string().trim().max(40).nullable(),
     notesOut: z.string().trim().max(500).nullable(),
+    accessories: z.array(rentalAccessoryInputSchema).default([]),
+    collateralItems: z.array(rentalCollateralInputSchema).default([]),
   })
   .superRefine((values, context) => {
     if (
@@ -195,6 +256,8 @@ export const rentalReturnInputSchema = z
     vehicleStatus: z.enum(returnVehicleStatusValues),
     maintenanceTitle: z.string().trim().max(100).nullable().optional(),
     maintenanceDescription: z.string().trim().max(1000).nullable().optional(),
+    accessoryReturns: z.array(rentalAccessoryReturnInputSchema).default([]),
+    collateralReturns: z.array(rentalCollateralReturnInputSchema).default([]),
   })
   .superRefine((values, context) => {
     if (new Date(values.actualReturnDatetime).getTime() > Date.now()) {
@@ -344,6 +407,7 @@ export type RentalListRecord = {
   notesIn: string | null;
   damageNotes: string | null;
   extraCharges: number;
+  accessoryCharges: number;
   discount: number;
   totalAmount: number;
   paidAmount: number;
@@ -352,6 +416,8 @@ export type RentalListRecord = {
   cancelReason: string | null;
   createdAt: string;
   updatedAt: string;
+  accessories?: RentalAccessoryRecord[];
+  collateralItems?: RentalCollateralRecord[];
 };
 
 export type RentalCustomerOption = {
@@ -373,6 +439,7 @@ export type RentalVehicleOption = {
 export type RentalFormOptions = {
   customers: RentalCustomerOption[];
   vehicles: RentalVehicleOption[];
+  accessories: AccessoryRecord[];
 };
 
 export function getDefaultRentalFormValues(): RentalFormValues {
@@ -441,12 +508,15 @@ export function calculateRentalSummary(
   startDatetime: string,
   expectedReturnDatetime: string,
   dailyPrice: number,
+  accessoryCharges = 0,
 ): { days: number; totalAmount: number } {
   const days = calculateRentalDays(startDatetime, expectedReturnDatetime);
 
   return {
     days,
-    totalAmount: calculateRentalTotal(days, dailyPrice),
+    totalAmount: roundMoney(
+      calculateRentalTotal(days, dailyPrice) + Math.max(0, accessoryCharges),
+    ),
   };
 }
 
@@ -589,6 +659,34 @@ export function formatRentalStatus(
 
   return translate(language, labels[status]);
 }
+
+export function formatCollateralType(
+  type: CollateralType,
+  language: LanguageCode = "en",
+): string {
+  const labels: Record<CollateralType, string> = {
+    cash: "Cash Amanat",
+    driver_license: "Driver License",
+    id_card: "ID Card",
+    other_document: "Other Document",
+    other_item: "Other Item",
+    passport: "Passport",
+  };
+
+  return translate(language, labels[type]);
+}
+
+export function hasHeldCollateral(
+  items: Pick<RentalCollateralRecord, "status">[],
+): boolean {
+  return items.some((item) => item.status === "held");
+}
+
+export type {
+  RentalAccessoryInput,
+  RentalAccessoryRecord,
+  RentalAccessoryReturnInput,
+};
 
 function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;

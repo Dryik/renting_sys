@@ -103,6 +103,24 @@ const api: RentalAppApi = {
       ipcRenderer.invoke("accounting:get-daily-closing", date),
     saveDailyClosing: (input) =>
       ipcRenderer.invoke("accounting:save-daily-closing", input),
+    saveStaffDailyClosing: (input) =>
+      ipcRenderer.invoke("accounting:save-staff-daily-closing", input),
+    getWeeklyIncome: (date) =>
+      ipcRenderer.invoke("accounting:get-weekly-income", date),
+  },
+  employeeLoans: {
+    listEmployees: () => ipcRenderer.invoke("employee-loans:list-employees"),
+    list: (request) => ipcRenderer.invoke("employee-loans:list", request),
+    listPayments: (loanId) =>
+      ipcRenderer.invoke("employee-loans:list-payments", loanId),
+    create: (input) => ipcRenderer.invoke("employee-loans:create", input),
+    repay: (input) => ipcRenderer.invoke("employee-loans:repay", input),
+    void: (input) => ipcRenderer.invoke("employee-loans:void", input),
+  },
+  accessories: {
+    list: (request) => ipcRenderer.invoke("accessories:list", request),
+    create: (input) => ipcRenderer.invoke("accessories:create", input),
+    update: (id, input) => ipcRenderer.invoke("accessories:update", id, input),
   },
   reports: {
     getActiveRentals: () => ipcRenderer.invoke("reports:get-active-rentals"),
@@ -144,6 +162,10 @@ const api: RentalAppApi = {
     save: (settings) => ipcRenderer.invoke("settings:save", settings),
     selectLogo: (input) => ipcRenderer.invoke("settings:select-logo", input),
     clearLogo: (input) => ipcRenderer.invoke("settings:clear-logo", input),
+    selectOwnerSignature: (input) =>
+      ipcRenderer.invoke("settings:select-owner-signature", input),
+    clearOwnerSignature: (input) =>
+      ipcRenderer.invoke("settings:clear-owner-signature", input),
   },
   maintenance: {
     list: (request) => ipcRenderer.invoke("maintenance:list", request),

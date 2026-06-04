@@ -3,7 +3,17 @@ import { eq } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import fs from "node:fs";
 import { getDatabase } from "./database";
-import { customers, payments, rentals, users, vehicleSales, vehicles } from "./schema";
+import {
+  accessories,
+  customers,
+  payments,
+  rentalAccessories,
+  rentalCollateralItems,
+  rentals,
+  users,
+  vehicleSales,
+  vehicles,
+} from "./schema";
 import { getShopSettings } from "./settings.service";
 import { escapeHtml } from "../../src/shared/html";
 import { translate } from "../../src/shared/i18n";
@@ -14,7 +24,11 @@ import {
 } from "../../src/shared/language";
 import { formatMoney } from "../../src/shared/money";
 import { formatPaymentMethod, formatPaymentType } from "../../src/shared/payments";
-import { calculateRentalDays, formatRentalStatus } from "../../src/shared/rentals";
+import {
+  calculateRentalDays,
+  formatCollateralType,
+  formatRentalStatus,
+} from "../../src/shared/rentals";
 import { formatVehicleType } from "../../src/shared/vehicles";
 import { getCurrentUserForService } from "./auth.service";
 
@@ -68,6 +82,28 @@ function optionalTextHtml(
   return value === null || value === undefined || value === ""
     ? escapeHtml(fallback)
     : escapeHtml(String(value));
+}
+
+function getMotorcycleDiagramHtml(tr: (key: string) => string): string {
+  return `
+    <div class="section-title">${escapeHtml(tr("Motorcycle Condition Diagram"))}</div>
+    <div class="motorcycle-diagram">
+      <svg viewBox="0 0 760 250" role="img" aria-label="${escapeHtml(tr("Motorcycle Condition Diagram"))}">
+        <rect x="1" y="1" width="758" height="248" fill="white" stroke="#111" stroke-width="1"/>
+        <circle cx="170" cy="175" r="55" fill="none" stroke="#111" stroke-width="5"/>
+        <circle cx="590" cy="175" r="55" fill="none" stroke="#111" stroke-width="5"/>
+        <path d="M170 175 L255 95 L375 95 L465 175 L590 175" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M260 95 L320 55 L410 55 L375 95" fill="none" stroke="#111" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M410 55 L485 52 L535 78" fill="none" stroke="#111" stroke-width="6" stroke-linecap="round"/>
+        <path d="M255 95 L230 55 L185 50" fill="none" stroke="#111" stroke-width="5" stroke-linecap="round"/>
+        <path d="M360 95 L410 145 L465 175" fill="none" stroke="#111" stroke-width="5" stroke-linecap="round"/>
+        <path d="M345 95 L310 175 L170 175" fill="none" stroke="#111" stroke-width="5" stroke-linecap="round"/>
+        <line x1="80" y1="35" x2="700" y2="35" stroke="#999" stroke-dasharray="8 8"/>
+        <text x="80" y="24" fill="#111" font-size="18">${escapeHtml(tr("Mark scratches, dents, and damage here before signing."))}</text>
+      </svg>
+      <div class="diagram-notes"></div>
+    </div>
+  `;
 }
 
 // Function to print or save HTML content via Electron
@@ -152,6 +188,7 @@ export async function printRentalContract(
       notesIn: rentals.notesIn,
       damageNotes: rentals.damageNotes,
       extraCharges: rentals.extraCharges,
+      accessoryCharges: rentals.accessoryCharges,
       discount: rentals.discount,
       totalAmount: rentals.totalAmount,
       paidAmount: rentals.paidAmount,
@@ -189,6 +226,35 @@ export async function printRentalContract(
   if (!rental) {
     throw new Error("Rental not found.");
   }
+
+  const assignedAccessories = db
+    .select({
+      id: rentalAccessories.id,
+      name: accessories.name,
+      quantity: rentalAccessories.quantity,
+      unitCharge: rentalAccessories.unitCharge,
+      returnedQuantity: rentalAccessories.returnedQuantity,
+      missingQuantity: rentalAccessories.missingQuantity,
+      notes: rentalAccessories.notes,
+    })
+    .from(rentalAccessories)
+    .innerJoin(accessories, eq(rentalAccessories.accessoryId, accessories.id))
+    .where(eq(rentalAccessories.rentalId, rentalId))
+    .all();
+  const collateralItems = db
+    .select({
+      id: rentalCollateralItems.id,
+      type: rentalCollateralItems.type,
+      description: rentalCollateralItems.description,
+      referenceNumber: rentalCollateralItems.referenceNumber,
+      estimatedValue: rentalCollateralItems.estimatedValue,
+      currency: rentalCollateralItems.currency,
+      status: rentalCollateralItems.status,
+      notes: rentalCollateralItems.notes,
+    })
+    .from(rentalCollateralItems)
+    .where(eq(rentalCollateralItems.rentalId, rentalId))
+    .all();
 
   const currency = settings.defaultCurrency;
   const language = resolvePrintLanguage(settings.language, languageOverride);
@@ -250,6 +316,73 @@ export async function printRentalContract(
   const accessoriesHtml = accessoryLabels
     .map((label) => `<li><span class="checkmark">&#9744;</span>${escapeHtml(tr(label))}</li>`)
     .join("");
+  const assignedAccessoriesHtml = assignedAccessories.length
+    ? `
+      <div class="section-title">${escapeHtml(tr("Assigned Accessories"))}</div>
+      <table>
+        <thead>
+          <tr>
+            <th>${escapeHtml(tr("Accessory"))}</th>
+            <th>${escapeHtml(tr("Quantity"))}</th>
+            <th>${escapeHtml(tr("Unit Charge"))}</th>
+            <th>${escapeHtml(tr("Line Total"))}</th>
+            <th>${escapeHtml(tr("Returned / Missing"))}</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${assignedAccessories
+            .map(
+              (accessory) => `
+                <tr>
+                  <td>${escapeHtml(accessory.name)}${accessory.notes ? `<br><small>${escapeHtml(accessory.notes)}</small>` : ""}</td>
+                  <td>${ltrHtml(accessory.quantity)}</td>
+                  <td>${ltrHtml(formatPrintMoney(accessory.unitCharge, currency, language))}</td>
+                  <td>${ltrHtml(formatPrintMoney(accessory.quantity * accessory.unitCharge, currency, language))}</td>
+                  <td>${ltrHtml(`${accessory.returnedQuantity} / ${accessory.missingQuantity}`)}</td>
+                </tr>
+              `,
+            )
+            .join("")}
+        </tbody>
+      </table>
+    `
+    : "";
+  const collateralHtml = collateralItems.length
+    ? `
+      <div class="section-title">${escapeHtml(tr("Amanat Held"))}</div>
+      <table>
+        <thead>
+          <tr>
+            <th>${escapeHtml(tr("Type"))}</th>
+            <th>${escapeHtml(tr("Description"))}</th>
+            <th>${escapeHtml(tr("Reference"))}</th>
+            <th>${escapeHtml(tr("Estimated Value"))}</th>
+            <th>${escapeHtml(tr("Status"))}</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${collateralItems
+            .map(
+              (item) => `
+                <tr>
+                  <td>${escapeHtml(formatCollateralType(item.type, language))}</td>
+                  <td>${escapeHtml(item.description)}${item.notes ? `<br><small>${escapeHtml(item.notes)}</small>` : ""}</td>
+                  <td>${optionalLtrHtml(item.referenceNumber, fallback)}</td>
+                  <td>${item.estimatedValue === null ? escapeHtml(fallback) : ltrHtml(formatPrintMoney(item.estimatedValue, item.currency ?? currency, language))}</td>
+                  <td>${escapeHtml(tr(item.status === "returned" ? "Returned" : "Held"))}</td>
+                </tr>
+              `,
+            )
+            .join("")}
+        </tbody>
+      </table>
+    `
+    : "";
+  const motorcycleDiagramHtml =
+    rental.vehicleType === "motorcycle" ? getMotorcycleDiagramHtml(tr) : "";
+  const ownerSignatureHtml = settings.ownerSignatureDataUrl
+    ? `<img class="owner-signature-image" src="${escapeHtml(settings.ownerSignatureDataUrl)}" alt="${escapeHtml(tr("Owner Signature"))}">`
+    : `<div class="signature-placeholder">${escapeHtml(tr("Owner Signature"))}</div>`;
   const returnAcknowledgmentHtml = rental.actualReturnDatetime
     ? `
       <div class="section-title">${escapeHtml(tr("Return Acknowledgment"))}</div>
@@ -446,6 +579,28 @@ export async function printRentalContract(
           border-top: 1px solid #d8eef8;
           padding-top: 10px;
         }
+        .motorcycle-diagram {
+          border: 1px solid #111;
+          margin-top: 8px;
+          padding: 8px;
+          break-inside: avoid;
+        }
+        .motorcycle-diagram svg {
+          width: 100%;
+          height: auto;
+          display: block;
+        }
+        .diagram-notes {
+          height: 70px;
+          margin-top: 8px;
+          border: 1px dashed #111;
+          background: repeating-linear-gradient(
+            to bottom,
+            transparent,
+            transparent 22px,
+            #ddd 23px
+          );
+        }
         .signatures {
           margin-top: 36px;
           display: grid;
@@ -459,6 +614,21 @@ export async function printRentalContract(
           margin-top: 40px;
           font-weight: 600;
           color: #435b6a;
+        }
+        .owner-signature-image {
+          display: block;
+          max-height: 58px;
+          max-width: 220px;
+          margin: 0 auto 8px auto;
+          object-fit: contain;
+        }
+        .signature-placeholder {
+          height: 58px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: #94a3b8;
+          font-size: 11px;
         }
         @media print {
           body {
@@ -533,6 +703,7 @@ export async function printRentalContract(
             <th>${escapeHtml(tr("Estimated Days"))}</th>
             <th>${escapeHtml(tr("Daily Rate"))}</th>
             <th>${escapeHtml(tr("Deposit Paid / Required"))}</th>
+            <th>${escapeHtml(tr("Accessory Charges"))}</th>
             <th>${escapeHtml(tr("Estimated Rental Charge"))}</th>
             <th>${escapeHtml(tr("Remaining"))}</th>
           </tr>
@@ -544,6 +715,7 @@ export async function printRentalContract(
             <td>${ltrHtml(estimatedDays)}</td>
             <td>${ltrHtml(formatPrintMoney(rental.dailyPrice, currency, language))}</td>
             <td>${ltrHtml(`${formatPrintMoney(rental.depositPaid, currency, language)} / ${formatPrintMoney(rental.depositRequired, currency, language)}`)}</td>
+            <td>${ltrHtml(formatPrintMoney(rental.accessoryCharges, currency, language))}</td>
             <td style="font-weight: 700;">${ltrHtml(formatPrintMoney(rental.totalAmount, currency, language))}</td>
             <td style="font-weight: 700;">${ltrHtml(formatPrintMoney(rental.remainingAmount, currency, language))}</td>
           </tr>
@@ -593,6 +765,10 @@ export async function printRentalContract(
         </div>
       </div>
 
+      ${assignedAccessoriesHtml}
+      ${collateralHtml}
+      ${motorcycleDiagramHtml}
+
       <div class="section-title">${escapeHtml(tr("Key Terms"))}</div>
       <ol class="terms-list">${termsHtml}</ol>
 
@@ -618,7 +794,9 @@ export async function printRentalContract(
           <div class="signature-box">${escapeHtml(tr("Customer Signature"))}</div>
         </div>
         <div>
-          <div class="signature-box">${escapeHtml(tr("Authorized Shop Representative"))}: ${optionalTextHtml(issuedByName, fallback)}</div>
+          ${ownerSignatureHtml}
+          <div class="signature-box">${escapeHtml(tr("Owner Signature"))}</div>
+          <div class="signature-box">${escapeHtml(tr("Employee Finalizer"))}: ${optionalTextHtml(issuedByName, fallback)}</div>
         </div>
       </div>
     </body>

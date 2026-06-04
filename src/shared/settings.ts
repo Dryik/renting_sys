@@ -4,6 +4,8 @@ export type ShopSettings = {
   shopName: string;
   shopLogoDataUrl: string | null;
   shopLogoPath: string | null;
+  ownerSignatureDataUrl: string | null;
+  ownerSignaturePath: string | null;
   shopPhone: string;
   shopAddress: string;
   defaultCurrency: string;
@@ -28,6 +30,8 @@ export const defaultShopSettings: ShopSettings = {
   shopName: "مكتب التأجير",
   shopLogoDataUrl: null,
   shopLogoPath: null,
+  ownerSignatureDataUrl: null,
+  ownerSignaturePath: null,
   shopPhone: "+218 91 000 0000",
   shopAddress: "طرابلس",
   defaultCurrency: "LYD",

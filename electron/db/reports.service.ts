@@ -59,6 +59,7 @@ function getRentalListFields(nowIso: string) {
     notesIn: rentals.notesIn,
     damageNotes: rentals.damageNotes,
     extraCharges: rentals.extraCharges,
+    accessoryCharges: rentals.accessoryCharges,
     discount: rentals.discount,
     totalAmount: rentals.totalAmount,
     paidAmount: rentals.paidAmount,

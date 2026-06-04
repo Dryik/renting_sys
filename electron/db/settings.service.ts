@@ -12,7 +12,7 @@ import { requirePermissionForCurrentSession } from "./auth.service";
 import { logAuditEvent } from "./audit.service";
 import { requireSensitiveApproval } from "./security.service";
 
-const allowedLogoExtensions = new Set([".png", ".jpg", ".jpeg", ".webp", ".svg"]);
+const allowedImageExtensions = new Set([".png", ".jpg", ".jpeg", ".webp", ".svg"]);
 
 function getUserDataPath(): string {
   return process.env.RENTAL_APP_USER_DATA_DIR
@@ -24,12 +24,17 @@ export function getShopSettings(): ShopSettings {
   const db = getDatabase();
   const rows = db.select().from(appSettings).all();
   const settingsMap = new Map(rows.map((row) => [row.key, row.value]));
-  const shopLogoPath = normalizeLogoPath(settingsMap.get("shop_logo_path"));
+  const shopLogoPath = normalizeUploadPath(settingsMap.get("shop_logo_path"));
+  const ownerSignaturePath = normalizeUploadPath(
+    settingsMap.get("owner_signature_path"),
+  );
 
   return {
     shopName: settingsMap.get("shop_name") ?? defaultShopSettings.shopName,
-    shopLogoDataUrl: getLogoDataUrl(shopLogoPath),
+    shopLogoDataUrl: getImageDataUrl(shopLogoPath),
     shopLogoPath,
+    ownerSignatureDataUrl: getImageDataUrl(ownerSignaturePath),
+    ownerSignaturePath,
     shopPhone: settingsMap.get("shop_phone") ?? defaultShopSettings.shopPhone,
     shopAddress: settingsMap.get("shop_address") ?? defaultShopSettings.shopAddress,
     defaultCurrency:
@@ -119,7 +124,11 @@ export function saveShopSettings(settings: Partial<ShopSettings>): ShopSettings 
 
   const entries = [
     { key: "shop_name", value: updated.shopName },
-    { key: "shop_logo_path", value: toStoredLogoPath(updated.shopLogoPath) },
+    { key: "shop_logo_path", value: toStoredUploadPath(updated.shopLogoPath) },
+    {
+      key: "owner_signature_path",
+      value: toStoredUploadPath(updated.ownerSignaturePath),
+    },
     { key: "shop_phone", value: updated.shopPhone },
     { key: "shop_address", value: updated.shopAddress },
     { key: "default_currency", value: updated.defaultCurrency },
@@ -187,7 +196,7 @@ export async function selectShopLogo(input?: unknown): Promise<ShopSettings> {
   const sourcePath = filePaths[0]!;
   const extension = path.extname(sourcePath).toLowerCase();
 
-  if (!allowedLogoExtensions.has(extension)) {
+  if (!allowedImageExtensions.has(extension)) {
     throw new Error("Logo file must be PNG, JPG, WEBP, or SVG.");
   }
 
@@ -221,7 +230,60 @@ export function clearShopLogo(input?: unknown): ShopSettings {
   } as Partial<ShopSettings>);
 }
 
-function normalizeLogoPath(value: string | undefined): string | null {
+export async function selectOwnerSignature(input?: unknown): Promise<ShopSettings> {
+  requirePermissionForCurrentSession("settings.edit");
+  const approvalToken =
+    input && typeof input === "object" && "approvalToken" in input
+      ? (input as { approvalToken?: string }).approvalToken
+      : undefined;
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    title: "Select Owner Signature",
+    filters: [
+      { name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "svg"] },
+    ],
+    properties: ["openFile"],
+  });
+
+  if (canceled || filePaths.length === 0) {
+    return getShopSettings();
+  }
+
+  const sourcePath = filePaths[0]!;
+  const extension = path.extname(sourcePath).toLowerCase();
+
+  if (!allowedImageExtensions.has(extension)) {
+    throw new Error("Signature file must be PNG, JPG, WEBP, or SVG.");
+  }
+
+  const uploadsPath = path.join(getUserDataPath(), "uploads");
+  fs.mkdirSync(uploadsPath, { recursive: true });
+
+  const signaturePath = path.join(uploadsPath, `owner-signature${extension}`);
+  fs.copyFileSync(sourcePath, signaturePath);
+
+  return saveShopSettings({
+    ownerSignaturePath: toPortablePath(path.relative(uploadsPath, signaturePath)),
+    approvalToken,
+    reason: "Owner signature updated.",
+  } as Partial<ShopSettings>);
+}
+
+export function clearOwnerSignature(input?: unknown): ShopSettings {
+  requirePermissionForCurrentSession("settings.edit");
+  const approvalToken =
+    input && typeof input === "object" && "approvalToken" in input
+      ? (input as { approvalToken?: string }).approvalToken
+      : undefined;
+
+  return saveShopSettings({
+    approvalToken,
+    ownerSignatureDataUrl: null,
+    ownerSignaturePath: null,
+    reason: "Owner signature removed.",
+  } as Partial<ShopSettings>);
+}
+
+function normalizeUploadPath(value: string | undefined): string | null {
   if (!value) {
     return null;
   }
@@ -239,7 +301,7 @@ function normalizeLogoPath(value: string | undefined): string | null {
   return fs.existsSync(resolved) ? resolved : null;
 }
 
-function toStoredLogoPath(value: string | null): string {
+function toStoredUploadPath(value: string | null): string {
   if (!value) {
     return "";
   }
@@ -261,12 +323,12 @@ function toPortablePath(value: string): string {
   return value.split(path.sep).join("/");
 }
 
-function getLogoDataUrl(logoPath: string | null): string | null {
-  if (!logoPath) {
+function getImageDataUrl(imagePath: string | null): string | null {
+  if (!imagePath) {
     return null;
   }
 
-  const extension = path.extname(logoPath).toLowerCase();
+  const extension = path.extname(imagePath).toLowerCase();
   const mimeType =
     extension === ".svg"
       ? "image/svg+xml"
@@ -275,7 +337,7 @@ function getLogoDataUrl(logoPath: string | null): string | null {
         : extension === ".jpg" || extension === ".jpeg"
           ? "image/jpeg"
           : "image/png";
-  const bytes = fs.readFileSync(logoPath);
+  const bytes = fs.readFileSync(imagePath);
 
   return `data:${mimeType};base64,${bytes.toString("base64")}`;
 }

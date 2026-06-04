@@ -204,6 +204,7 @@ export const rentals = sqliteTable(
     notesIn: text("notes_in"),
     damageNotes: text("damage_notes"),
     extraCharges: real("extra_charges").notNull().default(0),
+    accessoryCharges: real("accessory_charges").notNull().default(0),
     discount: real("discount").notNull().default(0),
     totalAmount: real("total_amount").notNull().default(0),
     paidAmount: real("paid_amount").notNull().default(0),
@@ -250,6 +251,82 @@ export const rentals = sqliteTable(
     cancelledAtIdx: index("rentals_cancelled_at_idx").on(table.cancelledAt),
     customerIdIdx: index("rentals_customer_id_idx").on(table.customerId),
     vehicleIdIdx: index("rentals_vehicle_id_idx").on(table.vehicleId),
+  }),
+);
+
+export const accessories = sqliteTable(
+  "accessories",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    name: text("name").notNull(),
+    quantityOwned: integer("quantity_owned").notNull().default(0),
+    defaultCharge: real("default_charge").notNull().default(0),
+    isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+    notes: text("notes"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    nameIdx: uniqueIndex("accessories_name_idx").on(table.name),
+    activeIdx: index("accessories_is_active_idx").on(table.isActive),
+  }),
+);
+
+export const rentalAccessories = sqliteTable(
+  "rental_accessories",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    rentalId: integer("rental_id")
+      .notNull()
+      .references(() => rentals.id),
+    accessoryId: integer("accessory_id")
+      .notNull()
+      .references(() => accessories.id),
+    quantity: integer("quantity").notNull(),
+    unitCharge: real("unit_charge").notNull().default(0),
+    returnedQuantity: integer("returned_quantity").notNull().default(0),
+    missingQuantity: integer("missing_quantity").notNull().default(0),
+    notes: text("notes"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    rentalIdx: index("rental_accessories_rental_id_idx").on(table.rentalId),
+    accessoryIdx: index("rental_accessories_accessory_id_idx").on(table.accessoryId),
+  }),
+);
+
+export const rentalCollateralItems = sqliteTable(
+  "rental_collateral_items",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    rentalId: integer("rental_id")
+      .notNull()
+      .references(() => rentals.id),
+    type: text("type", {
+      enum: [
+        "passport",
+        "id_card",
+        "driver_license",
+        "cash",
+        "other_document",
+        "other_item",
+      ],
+    }).notNull(),
+    description: text("description").notNull(),
+    referenceNumber: text("reference_number"),
+    estimatedValue: real("estimated_value"),
+    currency: text("currency"),
+    status: text("status", { enum: ["held", "returned"] }).notNull().default("held"),
+    receivedAt: text("received_at").notNull(),
+    returnedAt: text("returned_at"),
+    notes: text("notes"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    rentalIdx: index("rental_collateral_items_rental_id_idx").on(table.rentalId),
+    statusIdx: index("rental_collateral_items_status_idx").on(table.status),
   }),
 );
 
@@ -400,6 +477,69 @@ export const cashMovements = sqliteTable(
     statusIdx: index("cash_movements_status_idx").on(table.status),
     toIdx: index("cash_movements_to_location_idx").on(table.toLocation),
     typeIdx: index("cash_movements_type_idx").on(table.type),
+  }),
+);
+
+export const employeeLoans = sqliteTable(
+  "employee_loans",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    loanNo: text("loan_no").notNull(),
+    employeeUserId: integer("employee_user_id")
+      .notNull()
+      .references(() => users.id),
+    amount: real("amount").notNull(),
+    issuedAt: text("issued_at").notNull(),
+    sourceLocation: text("source_location", {
+      enum: ["cash_drawer", "shop_safe", "bank"],
+    }).notNull(),
+    remainingAmount: real("remaining_amount").notNull(),
+    status: text("status", { enum: ["open", "paid", "voided"] })
+      .notNull()
+      .default("open"),
+    notes: text("notes"),
+    voidedAt: text("voided_at"),
+    voidedByUserId: integer("voided_by_user_id").references(() => users.id),
+    voidReason: text("void_reason"),
+    createdByUserId: integer("created_by_user_id").references(() => users.id),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    loanNoIdx: uniqueIndex("employee_loans_loan_no_idx").on(table.loanNo),
+    employeeIdx: index("employee_loans_employee_user_id_idx").on(table.employeeUserId),
+    statusIdx: index("employee_loans_status_idx").on(table.status),
+    issuedAtIdx: index("employee_loans_issued_at_idx").on(table.issuedAt),
+  }),
+);
+
+export const employeeLoanPayments = sqliteTable(
+  "employee_loan_payments",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    loanId: integer("loan_id")
+      .notNull()
+      .references(() => employeeLoans.id),
+    amount: real("amount").notNull(),
+    paymentDate: text("payment_date").notNull(),
+    method: text("method", {
+      enum: ["cash", "card", "bank_transfer", "other"],
+    }).notNull(),
+    location: text("location", {
+      enum: ["cash_drawer", "shop_safe", "bank"],
+    }).notNull(),
+    status: text("status", { enum: ["posted", "voided"] })
+      .notNull()
+      .default("posted"),
+    notes: text("notes"),
+    createdByUserId: integer("created_by_user_id").references(() => users.id),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    loanIdx: index("employee_loan_payments_loan_id_idx").on(table.loanId),
+    dateIdx: index("employee_loan_payments_payment_date_idx").on(table.paymentDate),
+    statusIdx: index("employee_loan_payments_status_idx").on(table.status),
   }),
 );
 
@@ -710,7 +850,34 @@ export const rentalsRelations = relations(rentals, ({ one, many }) => ({
     references: [vehicles.id],
   }),
   payments: many(payments),
+  accessories: many(rentalAccessories),
+  collateralItems: many(rentalCollateralItems),
 }));
+
+export const accessoriesRelations = relations(accessories, ({ many }) => ({
+  rentalAssignments: many(rentalAccessories),
+}));
+
+export const rentalAccessoriesRelations = relations(rentalAccessories, ({ one }) => ({
+  rental: one(rentals, {
+    fields: [rentalAccessories.rentalId],
+    references: [rentals.id],
+  }),
+  accessory: one(accessories, {
+    fields: [rentalAccessories.accessoryId],
+    references: [accessories.id],
+  }),
+}));
+
+export const rentalCollateralItemsRelations = relations(
+  rentalCollateralItems,
+  ({ one }) => ({
+    rental: one(rentals, {
+      fields: [rentalCollateralItems.rentalId],
+      references: [rentals.id],
+    }),
+  }),
+);
 
 export const paymentsRelations = relations(payments, ({ one }) => ({
   rental: one(rentals, {
@@ -740,6 +907,24 @@ export const cashMovementsRelations = relations(cashMovements, ({ one }) => ({
     references: [moneyLocations.key],
   }),
 }));
+
+export const employeeLoansRelations = relations(employeeLoans, ({ one, many }) => ({
+  employee: one(users, {
+    fields: [employeeLoans.employeeUserId],
+    references: [users.id],
+  }),
+  payments: many(employeeLoanPayments),
+}));
+
+export const employeeLoanPaymentsRelations = relations(
+  employeeLoanPayments,
+  ({ one }) => ({
+    loan: one(employeeLoans, {
+      fields: [employeeLoanPayments.loanId],
+      references: [employeeLoans.id],
+    }),
+  }),
+);
 
 export const accountingAdjustmentsRelations = relations(
   accountingAdjustments,

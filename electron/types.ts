@@ -24,6 +24,9 @@ import type {
   ExpenseInput,
   ExpenseListRecord,
   ExpenseRecord,
+  StaffDailyClosingInput,
+  StaffDailyClosingRecord,
+  WeeklyIncomeDayRecord,
 } from "../src/shared/accounting";
 import type {
   RentalActivationInput,
@@ -36,6 +39,20 @@ import type {
   RentalReturnInput,
   RentalReturnWithPaymentInput,
 } from "../src/shared/rentals";
+import type {
+  AccessoryInput,
+  AccessoryListRequest,
+  AccessoryRecord,
+} from "../src/shared/accessories";
+import type {
+  EmployeeLoanInput,
+  EmployeeLoanEmployeeOption,
+  EmployeeLoanListRequest,
+  EmployeeLoanPaymentRecord,
+  EmployeeLoanRecord,
+  EmployeeLoanRepaymentInput,
+  EmployeeLoanVoidInput,
+} from "../src/shared/employee-loans";
 import type { VehicleInput, VehicleListRequest, VehicleRecord } from "../src/shared/vehicles";
 import type {
   MaintenanceInput,
@@ -198,6 +215,25 @@ export type RentalAppApi = {
     saveDailyClosing: (
       input: AccountingDailyClosingSaveInput,
     ) => Promise<AccountingDailyClosingRecord>;
+    saveStaffDailyClosing: (
+      input: StaffDailyClosingInput,
+    ) => Promise<StaffDailyClosingRecord>;
+    getWeeklyIncome: (date?: string) => Promise<WeeklyIncomeDayRecord[]>;
+  };
+  employeeLoans: {
+    listEmployees: () => Promise<EmployeeLoanEmployeeOption[]>;
+    list: (
+      request?: EmployeeLoanListRequest,
+    ) => Promise<PageResult<EmployeeLoanRecord>>;
+    listPayments: (loanId: number) => Promise<EmployeeLoanPaymentRecord[]>;
+    create: (input: EmployeeLoanInput) => Promise<EmployeeLoanRecord>;
+    repay: (input: EmployeeLoanRepaymentInput) => Promise<EmployeeLoanRecord>;
+    void: (input: EmployeeLoanVoidInput) => Promise<EmployeeLoanRecord>;
+  };
+  accessories: {
+    list: (request?: AccessoryListRequest) => Promise<PageResult<AccessoryRecord>>;
+    create: (input: AccessoryInput) => Promise<AccessoryRecord>;
+    update: (id: number, input: AccessoryInput) => Promise<AccessoryRecord>;
   };
   reports: {
     getActiveRentals: () => Promise<RentalListRecord[]>;
@@ -256,6 +292,8 @@ export type RentalAppApi = {
     save: (settings: Partial<ShopSettings> & { approvalToken?: string; reason?: string }) => Promise<ShopSettings>;
     selectLogo: (input?: { approvalToken?: string }) => Promise<ShopSettings>;
     clearLogo: (input?: { approvalToken?: string }) => Promise<ShopSettings>;
+    selectOwnerSignature: (input?: { approvalToken?: string }) => Promise<ShopSettings>;
+    clearOwnerSignature: (input?: { approvalToken?: string }) => Promise<ShopSettings>;
   };
   maintenance: {
     list: (request?: MaintenanceListRequest) => Promise<PageResult<MaintenanceRecordWithVehicle>>;

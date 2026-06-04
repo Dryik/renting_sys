@@ -30,6 +30,7 @@ import { cn } from "@/lib/utils";
 import { normalizeDigits } from "@/shared/numerals";
 import type { PageResult } from "@/shared/pagination";
 import type { PaymentInput, PaymentRecord } from "@/shared/payments";
+import { formatCollateralType } from "@/shared/rentals";
 import type {
   RentalActivationInput,
   RentalFormOptions,
@@ -95,6 +96,7 @@ export function RentalsPage({
   const { formatCurrency, formatDateTime, locale, settings, t } = useI18n();
   const [rentalPage, setRentalPage] = useState(emptyRentalPage);
   const [options, setOptions] = useState<RentalFormOptions>({
+    accessories: [],
     customers: [],
     vehicles: [],
   });
@@ -902,6 +904,66 @@ function RentalDetailPanel({
           />
         </div>
       </div>
+
+      {rental.accessories?.length ? (
+        <div className="rounded-md border">
+          <div className="border-b px-4 py-3 font-medium">{t("Accessories")}</div>
+          <div className="divide-y">
+            {rental.accessories.map((accessory) => (
+              <div
+                key={accessory.id}
+                className="grid gap-3 px-4 py-3 sm:grid-cols-[1fr_auto_auto]"
+              >
+                <div>
+                  <p className="font-medium">{accessory.accessoryName}</p>
+                  {accessory.notes ? (
+                    <p className="text-xs text-muted-foreground">{accessory.notes}</p>
+                  ) : null}
+                </div>
+                <DetailItem
+                  label={t("Quantity")}
+                  value={`${accessory.quantity}`}
+                  alignEnd
+                />
+                <DetailItem
+                  label={t("Charge")}
+                  value={<BidiValue value={formatCurrency(accessory.quantity * accessory.unitCharge)} />}
+                  alignEnd
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {rental.collateralItems?.length ? (
+        <div className="rounded-md border">
+          <div className="border-b px-4 py-3 font-medium">{t("Amanat Held")}</div>
+          <div className="divide-y">
+            {rental.collateralItems.map((item) => (
+              <div key={item.id} className="grid gap-3 px-4 py-3 sm:grid-cols-3">
+                <DetailItem
+                  label={t(formatCollateralType(item.type, "en"))}
+                  value={item.description}
+                />
+                <DetailItem
+                  label={t("Reference")}
+                  value={item.referenceNumber ? <BidiValue value={item.referenceNumber} /> : t("No reference")}
+                />
+                <DetailItem
+                  label={t("Status")}
+                  value={t(item.status === "returned" ? "Returned" : "Held")}
+                />
+                {item.notes ? (
+                  <div className="sm:col-span-3 text-sm text-muted-foreground">
+                    {item.notes}
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <div className="rounded-md border">
         <div className="border-b px-4 py-3 font-medium">{t("Rental Period")}</div>

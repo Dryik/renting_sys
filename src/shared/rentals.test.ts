@@ -7,6 +7,7 @@ import {
   calculateRentalTotal,
   calculateReturnSummary,
   getOpenRentalStatusForExpectedReturn,
+  hasHeldCollateral,
   rentalCancelInputSchema,
   validateMileageProgression,
 } from "./rentals";
@@ -156,6 +157,13 @@ describe("rental calculations", () => {
         "2026-05-20T10:00:00.000Z",
       ),
     ).toBe("overdue");
+  });
+
+  it("detects whether Amanat is still held", () => {
+    expect(hasHeldCollateral([{ status: "returned" }])).toBe(false);
+    expect(hasHeldCollateral([{ status: "returned" }, { status: "held" }])).toBe(
+      true,
+    );
   });
 
   it("keeps maintenance status while active maintenance records exist", () => {

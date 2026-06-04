@@ -25,6 +25,7 @@ const ar: Record<string, string> = {
   Payments: "المدفوعات",
   Accounting: "الحسابات",
   "Cash drawer, shop safe, bank, expenses, and payments.": "درج النقد والخزنة والبنك والمصروفات والمدفوعات.",
+  "Record expenses, close the day, and view weekly income.": "سجل المصروفات وأغلق اليوم وراجع دخل الأسبوع.",
   "Cash Drawer": "درج النقد",
   "Shop Safe": "خزنة المحل",
   Bank: "البنك",

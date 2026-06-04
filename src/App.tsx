@@ -56,7 +56,7 @@ type NavigationItem = {
   id: PageId;
   label: string;
   icon: LucideIcon;
-  permission: Permission | null;
+  permission: Permission | Permission[] | null;
   showInSidebar?: boolean;
 };
 
@@ -91,7 +91,7 @@ const navigation: NavigationItem[] = [
     id: "payments",
     label: "Accounting",
     icon: Landmark,
-    permission: "accounting.view",
+    permission: ["accounting.view", "dailyClosing.staffClose", "weeklyIncome.view"],
   },
   {
     group: "Workshop",
@@ -256,9 +256,7 @@ export default function App() {
       return [];
     }
 
-    return navigation.filter((item) =>
-      item.permission === null || currentUser.permissions.includes(item.permission),
-    );
+    return navigation.filter((item) => canOpenNavigationItem(item, currentUser.permissions));
   }, [authState]);
 
   const visibleNavigation = useMemo(
@@ -278,7 +276,10 @@ export default function App() {
         activePageForRender === "license"
       ? "settings"
       : activePageForRender;
-  const activeCopy = pageCopy[activePageForRender];
+  const activeCopy = getActivePageCopy(
+    activePageForRender,
+    authState?.currentUser?.permissions ?? [],
+  );
 
   function toggleColorTheme() {
     if (typeof document !== "undefined" && "startViewTransition" in document) {
@@ -414,6 +415,35 @@ function getStoredColorTheme(): AppColorTheme {
   } catch {
     return "light";
   }
+}
+
+function canOpenNavigationItem(
+  item: NavigationItem,
+  permissions: Permission[],
+): boolean {
+  if (item.permission === null) {
+    return true;
+  }
+
+  const requiredPermissions = Array.isArray(item.permission)
+    ? item.permission
+    : [item.permission];
+
+  return requiredPermissions.some((permission) => permissions.includes(permission));
+}
+
+function getActivePageCopy(
+  pageId: PageId,
+  permissions: Permission[],
+): { description: string; title: string } {
+  if (pageId === "payments" && !permissions.includes("accounting.view")) {
+    return {
+      title: "Accounting",
+      description: "Record expenses, close the day, and view weekly income.",
+    };
+  }
+
+  return pageCopy[pageId];
 }
 
 function ThemeToggleButton({

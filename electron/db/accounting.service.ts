@@ -12,8 +12,10 @@ import {
   cashMovementInputSchema,
   expenseInputSchema,
   formatMoneyLocation,
+  getExpensePaymentMethodForLocation,
   getNegativeBalanceLocations,
   getPaymentMoneyLocation,
+  staffDailyClosingInputSchema,
   type AccountingAdjustmentRecord,
   type AccountingBalanceInput,
   type AccountingBalanceDelta,
@@ -29,6 +31,8 @@ import {
   type ExpenseRecord,
   type LocationBalances,
   type MoneyLocation,
+  type StaffDailyClosingRecord,
+  type WeeklyIncomeDayRecord,
 } from "../../src/shared/accounting";
 import type { PageResult } from "../../src/shared/pagination";
 import { getDatabase, getSqliteDatabase } from "./database";
@@ -36,6 +40,8 @@ import {
   cashMovements,
   accountingAdjustments,
   dailyClosings,
+  employeeLoanPayments,
+  employeeLoans,
   expenses,
   payments,
   rentals,
@@ -43,7 +49,11 @@ import {
   vehicles,
 } from "./schema";
 import { createPageResult, normalizePageRequest, toLikeTerm } from "./listing";
-import { getCurrentUserForService, requirePermissionForCurrentSession } from "./auth.service";
+import {
+  currentUserCan,
+  getCurrentUserForService,
+  requirePermissionForCurrentSession,
+} from "./auth.service";
 import { logAuditEvent } from "./audit.service";
 import { requireSensitiveApproval } from "./security.service";
 
@@ -162,7 +172,15 @@ export function listExpenses(request?: AccountingListRequest): PageResult<Expens
 
 export function createExpense(input: unknown): ExpenseRecord {
   requirePermissionForCurrentSession("expenses.create");
-  const values = expenseInputSchema.parse(input);
+  const parsedValues = expenseInputSchema.parse(input);
+  const location = currentUserCan("accounting.view")
+    ? parsedValues.location
+    : "cash_drawer";
+  const values = {
+    ...parsedValues,
+    location,
+    method: getExpensePaymentMethodForLocation(location),
+  };
   const now = new Date().toISOString();
   const actor = getCurrentUserForService();
   assertAccountingBalanceDeltasAllowed([
@@ -571,6 +589,76 @@ export function saveAccountingDailyClosing(
   return getAccountingDailyClosing(values.closingDate);
 }
 
+export function saveStaffDailyClosing(input: unknown): StaffDailyClosingRecord {
+  requirePermissionForCurrentSession("dailyClosing.staffClose");
+  const values = staffDailyClosingInputSchema.parse(input);
+  const now = new Date().toISOString();
+  const existing = getDatabase()
+    .select()
+    .from(dailyClosings)
+    .where(eq(dailyClosings.closingDate, values.closingDate))
+    .get();
+
+  if (existing) {
+    throw new Error("This day is already closed. Ask a manager to update it.");
+  }
+
+  const expectedCash = getExpectedCashForDate(values.closingDate);
+  const difference = calculateDailyClosingDifference(expectedCash, values.countedCash);
+
+  getDatabase().transaction((tx) => {
+    tx.insert(dailyClosings)
+      .values({
+        closingDate: values.closingDate,
+        countedCash: values.countedCash,
+        difference,
+        expectedCash,
+        notes: values.notes,
+        closedAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    logAuditEvent(tx, {
+      action: "dailyClosing.staffCreated",
+      entityType: "daily_closing",
+      entityLabel: values.closingDate,
+      summaryAr: "تم حفظ إغلاق يومي للموظف",
+      summaryEn: "Staff daily closing was saved.",
+      after: {
+        closingDate: values.closingDate,
+        countedCash: values.countedCash,
+        notes: values.notes,
+      },
+    });
+  });
+
+  return {
+    closingDate: values.closingDate,
+    countedCash: values.countedCash,
+    notes: values.notes,
+    closedAt: now,
+    isClosed: true,
+  };
+}
+
+export function getWeeklyIncome(
+  anchorDate = getCurrentLocalDate(),
+): WeeklyIncomeDayRecord[] {
+  requirePermissionForCurrentSession("weeklyIncome.view");
+  const parsedAnchorDate = parseDateInput(anchorDate);
+  const days: string[] = [];
+  const anchor = new Date(`${parsedAnchorDate}T00:00:00`);
+
+  for (let offset = 6; offset >= 0; offset -= 1) {
+    const date = new Date(anchor);
+    date.setDate(anchor.getDate() - offset);
+    days.push(toLocalDateValue(date));
+  }
+
+  return days.map(getWeeklyIncomeDay);
+}
+
 export function getDailyClosingAccountingTotals(date: string): {
   expectedCash: number;
   countedCash: number | null;
@@ -618,6 +706,7 @@ function loadAccountingBalanceInputs(
     ...loadExpenseBalanceInputs(request),
     ...loadCashMovementBalanceInputs(request),
     ...loadAdjustmentBalanceInputs(request),
+    ...loadEmployeeLoanBalanceInputs(request),
   ];
 }
 
@@ -764,12 +853,63 @@ function loadAdjustmentBalanceInputs(
     }));
 }
 
+function loadEmployeeLoanBalanceInputs(
+  request: AccountingSummaryRequest,
+): AccountingBalanceInput[] {
+  const loanConditions = getDateConditions(employeeLoans.issuedAt, request);
+  const repaymentConditions = getDateConditions(
+    employeeLoanPayments.paymentDate,
+    request,
+  );
+
+  return [
+    ...getDatabase()
+      .select({
+        amount: employeeLoans.amount,
+        location: employeeLoans.sourceLocation,
+        status: employeeLoans.status,
+      })
+      .from(employeeLoans)
+      .where(loanConditions.length ? and(...loanConditions) : undefined)
+      .all()
+      .map((loan): AccountingBalanceInput => ({
+        adjustmentDirection: "decrease",
+        amount: loan.amount,
+        kind: "adjustment",
+        location: loan.location,
+        status: loan.status === "voided" ? "voided" : "posted",
+      })),
+    ...getDatabase()
+      .select({
+        amount: employeeLoanPayments.amount,
+        location: employeeLoanPayments.location,
+        status: employeeLoanPayments.status,
+      })
+      .from(employeeLoanPayments)
+      .where(repaymentConditions.length ? and(...repaymentConditions) : undefined)
+      .all()
+      .map((payment): AccountingBalanceInput => ({
+        adjustmentDirection: "increase",
+        amount: payment.amount,
+        kind: "adjustment",
+        location: payment.location,
+        status: payment.status,
+      })),
+  ];
+}
+
 type SqlQuery = {
   params: unknown[];
   sql: string;
 };
 
-type AccountingSourceKey = "payment" | "vehicle_sale" | "expense" | "cash_movement" | "adjustment";
+type AccountingSourceKey =
+  | "payment"
+  | "vehicle_sale"
+  | "expense"
+  | "cash_movement"
+  | "adjustment"
+  | "employee_loan";
 
 function buildAccountingTransactionSourceQueries(
   request: AccountingListRequest | undefined,
@@ -825,6 +965,16 @@ function buildAccountingTransactionSourceQueries(
           kind,
           search,
           "adjustment",
+        )
+      : null,
+    sourceSupportsKind(kind, ["adjustment"])
+      ? buildAccountingSourceQuery(
+          employeeLoanTransactionsSql,
+          "employee_loan_transactions.occurredAt",
+          request,
+          kind,
+          search,
+          "employee_loan",
         )
       : null,
   ].filter((query): query is SqlQuery => Boolean(query));
@@ -996,6 +1146,51 @@ function adjustmentTransactionsSql(whereSql: string): string {
   `;
 }
 
+function employeeLoanTransactionsSql(whereSql: string): string {
+  return `
+    select *
+    from (
+      select
+        'employee-loan-' || employee_loans.id as id,
+        'employee_loan' as source,
+        employee_loans.id as sourceId,
+        employee_loans.issued_at as occurredAt,
+        'adjustment' as kind,
+        'Employee Loan' as title,
+        employee_loans.loan_no || ' - ' || users.full_name as detail,
+        employee_loans.amount as amount,
+        case when employee_loans.status = 'voided' then 'voided' else 'posted' end as status,
+        employee_loans.source_location as location,
+        employee_loans.source_location as fromLocation,
+        null as toLocation,
+        employee_loans.notes as notes
+      from employee_loans
+      inner join users on employee_loans.employee_user_id = users.id
+
+      union all
+
+      select
+        'employee-loan-payment-' || employee_loan_payments.id as id,
+        'employee_loan' as source,
+        employee_loan_payments.id as sourceId,
+        employee_loan_payments.payment_date as occurredAt,
+        'adjustment' as kind,
+        'Employee Loan Repayment' as title,
+        employee_loans.loan_no || ' - ' || users.full_name as detail,
+        employee_loan_payments.amount as amount,
+        employee_loan_payments.status as status,
+        employee_loan_payments.location as location,
+        null as fromLocation,
+        employee_loan_payments.location as toLocation,
+        employee_loan_payments.notes as notes
+      from employee_loan_payments
+      inner join employee_loans on employee_loan_payments.loan_id = employee_loans.id
+      inner join users on employee_loans.employee_user_id = users.id
+    ) employee_loan_transactions
+    ${whereSql}
+  `;
+}
+
 function getAccountingWhereSql(
   dateColumn: string,
   request: AccountingListRequest | undefined,
@@ -1062,6 +1257,10 @@ function buildAccountingSourceSearchConditions(
 
   if (source === "cash_movement") {
     return buildCashMovementSearchConditions(search, params);
+  }
+
+  if (source === "employee_loan") {
+    return buildEmployeeLoanSearchConditions(search, params);
   }
 
   return buildAdjustmentSearchConditions(search, params);
@@ -1162,6 +1361,25 @@ function buildAdjustmentSearchConditions(
   return conditions;
 }
 
+function buildEmployeeLoanSearchConditions(
+  search: string,
+  params: unknown[],
+): string[] {
+  const conditions: string[] = [];
+
+  addStaticSearchCondition(conditions, search, [
+    "employee loan",
+    "loan",
+    "repayment",
+  ]);
+  addLocationSearchConditions(conditions, search, "employee_loan_transactions.location");
+  addLowerLikeCondition(conditions, params, "employee_loan_transactions.title", search);
+  addLowerLikeCondition(conditions, params, "employee_loan_transactions.detail", search);
+  addLowerLikeCondition(conditions, params, "employee_loan_transactions.notes", search);
+
+  return conditions;
+}
+
 function addLowerLikeCondition(
   conditions: string[],
   params: unknown[],
@@ -1257,6 +1475,45 @@ function getDepositHeldTotal(): number {
   return roundMoney(Number(result?.total ?? 0));
 }
 
+function getWeeklyIncomeDay(date: string): WeeklyIncomeDayRecord {
+  const row = getSqliteDatabase()
+    .prepare(
+      `
+        select
+          coalesce(sum(case when type = 'rent' then amount else 0 end), 0) as rent,
+          coalesce(sum(case when type = 'deposit' then amount else 0 end), 0) as deposit,
+          coalesce(sum(case when type = 'extra_charge' then amount else 0 end), 0) as extraCharge,
+          coalesce(sum(case when type = 'refund' then amount else 0 end), 0) as refunds
+        from payments
+        where status = 'posted'
+          and payment_date >= ?
+          and payment_date < ?
+      `,
+    )
+    .get(getLocalDateStart(date), getLocalDateEnd(date)) as
+    | {
+        deposit?: number;
+        extraCharge?: number;
+        refunds?: number;
+        rent?: number;
+      }
+    | undefined;
+
+  const rent = roundMoney(Number(row?.rent ?? 0));
+  const deposit = roundMoney(Number(row?.deposit ?? 0));
+  const extraCharge = roundMoney(Number(row?.extraCharge ?? 0));
+  const refunds = roundMoney(-Number(row?.refunds ?? 0));
+
+  return {
+    date,
+    rent,
+    deposit,
+    extraCharge,
+    refunds,
+    netIncome: roundMoney(rent + deposit + extraCharge + refunds),
+  };
+}
+
 function getExpectedCashForDate(date: string): number {
   return buildAccountingSummary({ dateTo: date }).cashDrawer;
 }
@@ -1266,7 +1523,9 @@ type AccountingDateColumn =
   | typeof vehicleSales.saleDate
   | typeof expenses.expenseDate
   | typeof cashMovements.movementDate
-  | typeof accountingAdjustments.adjustmentDate;
+  | typeof accountingAdjustments.adjustmentDate
+  | typeof employeeLoans.issuedAt
+  | typeof employeeLoanPayments.paymentDate;
 
 function getDateConditions(
   dateColumn: AccountingDateColumn,
@@ -1400,6 +1659,18 @@ function getLocalDateEnd(date: string): string {
   end.setDate(end.getDate() + 1);
 
   return end.toISOString();
+}
+
+function getCurrentLocalDate(): string {
+  return toLocalDateValue(new Date());
+}
+
+function toLocalDateValue(date: Date): string {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
 }
 
 function parseDateInput(value: string): string {

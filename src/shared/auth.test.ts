@@ -25,7 +25,11 @@ describe("auth roles and validation", () => {
     expect(can("staff", "payments.refund")).toBe(false);
     expect(can("staff", "payments.void")).toBe(false);
     expect(can("staff", "accounting.view")).toBe(false);
-    expect(can("staff", "expenses.create")).toBe(false);
+    expect(can("staff", "expenses.create")).toBe(true);
+    expect(can("staff", "dailyClosing.staffClose")).toBe(true);
+    expect(can("staff", "weeklyIncome.view")).toBe(true);
+    expect(can("staff", "accessories.view")).toBe(true);
+    expect(can("staff", "employeeLoans.view")).toBe(false);
     expect(can("staff", "cashMovements.create")).toBe(false);
     expect(can("staff", "accountingAdjustments.create")).toBe(false);
     expect(can("staff", "rentals.cancel")).toBe(false);
@@ -51,6 +55,9 @@ describe("auth roles and validation", () => {
     expect(can("accountant", "payments.refund")).toBe(true);
     expect(can("accountant", "accounting.view")).toBe(true);
     expect(can("accountant", "expenses.create")).toBe(true);
+    expect(can("accountant", "employeeLoans.view")).toBe(true);
+    expect(can("accountant", "employeeLoans.repay")).toBe(true);
+    expect(can("accountant", "employeeLoans.create")).toBe(false);
     expect(can("accountant", "cashMovements.create")).toBe(false);
     expect(can("accountant", "accountingAdjustments.create")).toBe(false);
     expect(can("accountant", "dailyClosing.save")).toBe(true);

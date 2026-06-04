@@ -20,9 +20,11 @@ import {
   createExpense,
   getAccountingDailyClosing,
   getAccountingSummary,
+  getWeeklyIncome,
   listAccountingTransactions,
   listExpenses,
   saveAccountingDailyClosing,
+  saveStaffDailyClosing,
   voidAccountingAdjustment,
   voidCashMovement,
   voidExpense,
@@ -83,11 +85,26 @@ import {
   verifyBackup,
 } from "./db/backup.service";
 import {
+  clearOwnerSignature,
   clearShopLogo,
   getShopSettings,
   saveShopSettings,
+  selectOwnerSignature,
   selectShopLogo,
 } from "./db/settings.service";
+import {
+  createAccessory,
+  listAccessories,
+  updateAccessory,
+} from "./db/accessories.service";
+import {
+  createEmployeeLoan,
+  listEmployeeLoanEmployees,
+  listEmployeeLoanPayments,
+  listEmployeeLoans,
+  recordEmployeeLoanRepayment,
+  voidEmployeeLoan,
+} from "./db/employee-loans.service";
 import {
   listMaintenance,
   createMaintenance,
@@ -145,6 +162,8 @@ import type { MaintenanceInput, MaintenanceListRequest } from "../src/shared/mai
 import type { PaymentListRequest } from "../src/shared/payments";
 import type { AccountingListRequest, AccountingSummaryRequest } from "../src/shared/accounting";
 import type { RentalListRequest } from "../src/shared/rentals";
+import type { AccessoryListRequest } from "../src/shared/accessories";
+import type { EmployeeLoanListRequest } from "../src/shared/employee-loans";
 import type {
   CustomerRentalHistoryRequest,
   DailyPaymentsReportRequest,
@@ -569,6 +588,39 @@ app.whenReady().then(() => {
   handle("accounting:save-daily-closing", (_event, input: unknown) =>
     (guard("dailyClosing.save"), saveAccountingDailyClosing(input)),
   );
+  handle("accounting:save-staff-daily-closing", (_event, input: unknown) =>
+    (guard("dailyClosing.staffClose"), saveStaffDailyClosing(input)),
+  );
+  handle("accounting:get-weekly-income", (_event, date: unknown) =>
+    (guard("weeklyIncome.view"), getWeeklyIncome(typeof date === "string" ? date : undefined)),
+  );
+  handle("employee-loans:list-employees", () =>
+    (guard("employeeLoans.view"), listEmployeeLoanEmployees()),
+  );
+  handle("employee-loans:list", (_event, request: unknown) =>
+    (guard("employeeLoans.view"), listEmployeeLoans(request as EmployeeLoanListRequest)),
+  );
+  handle("employee-loans:list-payments", (_event, loanId: unknown) =>
+    (guard("employeeLoans.view"), listEmployeeLoanPayments(loanId)),
+  );
+  handle("employee-loans:create", (_event, input: unknown) =>
+    (guard("employeeLoans.create"), createEmployeeLoan(input)),
+  );
+  handle("employee-loans:repay", (_event, input: unknown) =>
+    (guard("employeeLoans.repay"), recordEmployeeLoanRepayment(input)),
+  );
+  handle("employee-loans:void", (_event, input: unknown) =>
+    (guard("employeeLoans.void"), voidEmployeeLoan(input)),
+  );
+  handle("accessories:list", (_event, request: unknown) =>
+    (guard("accessories.view"), listAccessories(request as AccessoryListRequest)),
+  );
+  handle("accessories:create", (_event, input: unknown) =>
+    (guard("accessories.create"), createAccessory(input)),
+  );
+  handle("accessories:update", (_event, id: unknown, input: unknown) =>
+    (guard("accessories.edit"), updateAccessory(id, input)),
+  );
   handle("reports:get-active-rentals", () =>
     (guard("reports.view"), getActiveRentals()),
   );
@@ -662,6 +714,12 @@ app.whenReady().then(() => {
   );
   handle("settings:clear-logo", (_event, input: unknown) =>
     (guard("settings.edit"), clearShopLogo(input)),
+  );
+  handle("settings:select-owner-signature", (_event, input: unknown) =>
+    (guard("settings.edit"), selectOwnerSignature(input)),
+  );
+  handle("settings:clear-owner-signature", (_event, input: unknown) =>
+    (guard("settings.edit"), clearOwnerSignature(input)),
   );
   handle("maintenance:list", (_event, request: unknown) =>
     (guard("maintenance.view"), listMaintenance(request as MaintenanceListRequest)),
