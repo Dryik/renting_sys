@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  assertRefundWithinPaidAmount,
   calculatePaidAmount,
   paymentCorrectionInputSchema,
   paymentVoidInputSchema,
@@ -51,5 +52,24 @@ describe("payment safety helpers", () => {
         { type: "extra_charge", amount: 25, status: "posted" },
       ]),
     ).toBe(125);
+  });
+
+  it("rejects refunds above the remaining posted payment amount", () => {
+    const totalPaidForRental = calculatePaidAmount([
+      { type: "rent", amount: 100, status: "posted" },
+      { type: "deposit", amount: 50, status: "posted" },
+      { type: "refund", amount: 25, status: "posted" },
+      { type: "extra_charge", amount: 40, status: "voided" },
+    ]);
+
+    expect(totalPaidForRental).toBe(125);
+    expect(() =>
+      assertRefundWithinPaidAmount(125, totalPaidForRental),
+    ).not.toThrow();
+    expect(() =>
+      assertRefundWithinPaidAmount(125.01, totalPaidForRental),
+    ).toThrow(
+      "Refund amount cannot exceed total posted payments for this rental.",
+    );
   });
 });

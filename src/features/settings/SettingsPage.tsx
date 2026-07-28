@@ -791,19 +791,14 @@ export function SettingsPage({
               title={t("Reminders")}
               description={t("Local reminders for renewals and backup checks.")}
             >
-              <label className="flex items-start gap-3 rounded-lg border bg-card p-4 text-sm shadow-xs">
-                <input
-                  type="checkbox"
-                  className="mt-1 size-4 accent-primary"
-                  {...register("scheduledBackupEnabled")}
-                />
+              <div className="flex items-start gap-3 rounded-lg border bg-card p-4 text-sm shadow-xs">
                 <span>
-                  <span className="block font-medium">{t("Enable scheduled local backup")}</span>
+                  <span className="block font-medium">{t("Manual Backup Only")}</span>
                   <span className="mt-1 block text-muted-foreground">
-                    {t("Scheduled backup setting help")}
+                    {t("Create backups manually from the Backup screen.")}
                   </span>
                 </span>
-              </label>
+              </div>
 
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
                 <label className="flex flex-col gap-2 text-sm font-medium">

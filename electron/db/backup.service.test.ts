@@ -1,6 +1,9 @@
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { shouldIncludeBackupUploadPath } from "./backup.service";
+import {
+  getRequiredBackupTablesForVersion,
+  shouldIncludeBackupUploadPath,
+} from "./backup.service";
 
 vi.mock("electron", () => ({
   app: {
@@ -24,5 +27,63 @@ describe("backup upload export filter", () => {
     expect(shouldIncludeBackupUploadPath(uploadsPath, path.join(uploadsPath, "client.private.pem"))).toBe(false);
     expect(shouldIncludeBackupUploadPath(uploadsPath, path.join(uploadsPath, "file.map"))).toBe(false);
     expect(shouldIncludeBackupUploadPath(uploadsPath, path.join(uploadsPath, "secret", "note.txt"))).toBe(false);
+  });
+});
+
+describe("backup schema table validation", () => {
+  it("keeps version 1 validation compatible with the original core schema", () => {
+    expect(getRequiredBackupTablesForVersion(1)).toEqual([
+      "app_settings",
+      "vehicles",
+      "customers",
+      "rentals",
+      "payments",
+      "maintenance_records",
+    ]);
+  });
+
+  it.each([
+    [2, "number_sequences"],
+    [3, "audit_events"],
+    [4, "attachments"],
+    [5, "money_locations"],
+    [6, "accounting_adjustments"],
+    [7, "accounting_adjustments"],
+    [8, "vehicle_sales"],
+    [9, "employee_loans"],
+  ])(
+    "requires the tables introduced through schema version %i",
+    (schemaVersion, expectedTable) => {
+      expect(getRequiredBackupTablesForVersion(schemaVersion)).toContain(
+        expectedTable,
+      );
+    },
+  );
+
+  it("requires every table introduced through schema version 9", () => {
+    expect(getRequiredBackupTablesForVersion(9)).toEqual(
+      expect.arrayContaining([
+        "roles",
+        "role_permissions",
+        "users",
+        "audit_events",
+        "attachments",
+        "app_events",
+        "maintenance_reminders",
+        "vehicle_mileage_events",
+        "number_sequences",
+        "money_locations",
+        "expenses",
+        "cash_movements",
+        "daily_closings",
+        "accounting_adjustments",
+        "vehicle_sales",
+        "employee_loans",
+        "employee_loan_payments",
+        "accessories",
+        "rental_accessories",
+        "rental_collateral_items",
+      ]),
+    );
   });
 });

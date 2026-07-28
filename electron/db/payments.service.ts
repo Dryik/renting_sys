@@ -1,6 +1,7 @@
 import { and, asc, count, desc, eq, gte, like, lt, or, type SQL } from "drizzle-orm";
 import { ZodError } from "zod";
 import {
+  assertRefundWithinPaidAmount,
   calculatePaidAmount,
   calculateRemainingAmount,
   type PaymentListRecord,
@@ -53,10 +54,6 @@ export function createPayment(input: unknown): PaymentRecord {
     throw new Error("Client deposit is disabled in settings.");
   }
 
-  if (values.type === "refund") {
-    assertAccountingBalanceDeltasAllowed(getPaymentAccountingDeltas(values));
-  }
-
   try {
     return getDatabase().transaction((tx) => {
       const rental = tx
@@ -75,6 +72,29 @@ export function createPayment(input: unknown): PaymentRecord {
 
       if (rental.status === "cancelled" || rental.status === "draft") {
         throw new Error("Cannot record payment for this rental.");
+      }
+
+      if (values.type === "refund") {
+        const postedRentalPayments = tx
+          .select({
+            amount: payments.amount,
+            status: payments.status,
+            type: payments.type,
+          })
+          .from(payments)
+          .where(
+            and(
+              eq(payments.rentalId, values.rentalId),
+              eq(payments.status, "posted"),
+            ),
+          )
+          .all();
+        const totalPaidForRental = calculatePaidAmount(postedRentalPayments);
+
+        assertRefundWithinPaidAmount(values.amount, totalPaidForRental);
+        assertAccountingBalanceDeltasAllowed(
+          getPaymentAccountingDeltas(values),
+        );
       }
 
       const receiptNo = getNextSequenceValue(tx, "receipt", "RCP");

@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useI18n } from "@/hooks/useI18n";
 import type { DataHealthIssue } from "@/shared/data-health";
 import type { DiagnosticsStatus } from "@/shared/diagnostics";
@@ -13,6 +14,8 @@ export function DiagnosticsPanel() {
   const [issues, setIssues] = useState<DataHealthIssue[]>([]);
   const [hasScanned, setHasScanned] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
+  const [isApplyingFix, setIsApplyingFix] = useState(false);
+  const [pendingFix, setPendingFix] = useState<DataHealthIssue | null>(null);
 
   useEffect(() => {
     window.rentalApp.diagnostics.getStatus().then(setDiagnostics).catch(() => {
@@ -33,10 +36,17 @@ export function DiagnosticsPanel() {
   }
 
   async function applyFix(issueId: string) {
-    const nextIssues = await window.rentalApp.dataHealth.applyFix({ issueId });
-    setIssues(nextIssues);
-    setHasScanned(true);
-    window.rentalApp.diagnostics.getStatus().then(setDiagnostics).catch(() => undefined);
+    setIsApplyingFix(true);
+
+    try {
+      const nextIssues = await window.rentalApp.dataHealth.applyFix({ issueId });
+      setIssues(nextIssues);
+      setHasScanned(true);
+      setPendingFix(null);
+      window.rentalApp.diagnostics.getStatus().then(setDiagnostics).catch(() => undefined);
+    } finally {
+      setIsApplyingFix(false);
+    }
   }
 
   return (
@@ -117,7 +127,12 @@ export function DiagnosticsPanel() {
                       {t(issue.detail)}
                     </p>
                     {issue.canAutoFix ? (
-                      <Button className="mt-2" size="sm" variant="outline" onClick={() => void applyFix(issue.id)}>
+                      <Button
+                        className="mt-2"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setPendingFix(issue)}
+                      >
                         <Wrench data-icon="inline-start" />
                         {t("Apply Fix")}
                       </Button>
@@ -129,6 +144,24 @@ export function DiagnosticsPanel() {
           )}
         </div>
       </CardContent>
+      <ConfirmDialog
+        cancelLabel={t("Cancel")}
+        confirmLabel={t("Apply Fix")}
+        description={
+          pendingFix
+            ? `${t(pendingFix.title)} ${t(pendingFix.detail)}`
+            : ""
+        }
+        isBusy={isApplyingFix}
+        onCancel={() => setPendingFix(null)}
+        onConfirm={() => {
+          if (pendingFix) {
+            void applyFix(pendingFix.id);
+          }
+        }}
+        open={pendingFix !== null}
+        title={`${t("Apply Fix")}?`}
+      />
     </Card>
   );
 }

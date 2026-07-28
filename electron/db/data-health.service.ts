@@ -35,7 +35,6 @@ export function scanDataHealth(): DataHealthIssue[] {
       contractNo: rentals.contractNo,
       vehicleId: rentals.vehicleId,
       vehicleStatus: vehicles.status,
-      remainingAmount: rentals.remainingAmount,
       status: rentals.status,
     })
     .from(rentals)
@@ -71,18 +70,6 @@ export function scanDataHealth(): DataHealthIssue[] {
       });
     }
 
-    if (rental.remainingAmount < 0) {
-      issues.push({
-        id: `negative_remaining_balance:${rental.id}`,
-        type: "negative_remaining_balance",
-        severity: "warning",
-        title: "Rental has a negative remaining balance",
-        detail: `${rental.contractNo} has a negative remaining balance.`,
-        entityType: "rental",
-        entityId: rental.id,
-        canAutoFix: true,
-      });
-    }
   }
 
   for (const vehicle of db.select().from(vehicles).where(eq(vehicles.status, "maintenance")).all()) {
@@ -163,13 +150,6 @@ export function applyDataHealthFix(input: DataHealthFixRequest): DataHealthIssue
           .where(eq(vehicles.id, rental.vehicleId))
           .run();
       }
-    }
-
-    if (issue.type === "negative_remaining_balance") {
-      tx.update(rentals)
-        .set({ remainingAmount: 0, updatedAt: now })
-        .where(eq(rentals.id, issue.entityId))
-        .run();
     }
 
     recordAppEvent(tx, {

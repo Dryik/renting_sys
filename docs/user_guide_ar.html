@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <title>دليل استخدام برنامج مكتب أراك للتأجير وسيناريوهات التشغيل</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
+
+    @page {
+      size: A4;
+      margin: 12mm 12mm 12mm 12mm;
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+
+    body {
+      font-family: 'Cairo', system-ui, -apple-system, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #ffffff;
+      color: #1e293b;
+      line-height: 1.6;
+      font-size: 12.5px;
+    }
+
+    .cover-page {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      color: #ffffff;
+      padding: 40px;
+      page-break-after: always;
+    }
+
+    .cover-logo {
+      width: 110px;
+      height: 110px;
+      background: #2563eb;
+      border-radius: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 42px;
+      font-weight: 800;
+      margin-bottom: 20px;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+    }
+
+    .cover-title {
+      font-size: 30px;
+      font-weight: 800;
+      margin: 0 0 10px 0;
+      color: #ffffff;
+    }
+
+    .cover-subtitle {
+      font-size: 16px;
+      color: #94a3b8;
+      margin-bottom: 30px;
+      max-width: 600px;
+    }
+
+    .cover-badge {
+      background: rgba(37, 99, 235, 0.2);
+      border: 1px solid rgba(37, 99, 235, 0.4);
+      color: #60a5fa;
+      padding: 8px 20px;
+      border-radius: 9999px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .cover-footer {
+      margin-top: auto;
+      font-size: 12px;
+      color: #64748b;
+    }
+
+    .page-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid #2563eb;
+      padding-bottom: 6px;
+      margin-bottom: 20px;
+    }
+
+    .page-title {
+      font-size: 18px;
+      font-weight: 800;
+      color: #0f172a;
+      margin: 0;
+    }
+
+    .section-card {
+      background: #f8fafc;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 20px;
+      page-break-inside: avoid;
+    }
+
+    .section-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #2563eb;
+      margin-top: 0;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .workflow-box {
+      background: #ffffff;
+      border: 1px solid #94a3b8;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 14px;
+    }
+
+    .workflow-header {
+      font-weight: 700;
+      color: #0f172a;
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .step-list {
+      margin: 0;
+      padding-right: 18px;
+    }
+
+    .step-item {
+      margin-bottom: 6px;
+    }
+
+    .step-item strong {
+      color: #0f172a;
+    }
+
+    .screenshot-container {
+      margin: 12px 0;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid #cbd5e1;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+
+    .screenshot-container img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .screenshot-caption {
+      background: #e2e8f0;
+      padding: 5px 10px;
+      font-size: 10.5px;
+      color: #475569;
+      font-weight: 600;
+      text-align: center;
+    }
+
+    .tip-box {
+      background: #eff6ff;
+      border-right: 4px solid #2563eb;
+      padding: 10px 14px;
+      border-radius: 4px;
+      margin-top: 10px;
+      font-size: 11.5px;
+      color: #1e40af;
+    }
+
+    .toc-container {
+      background: #f1f5f9;
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+
+    .toc-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .toc-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+      color: #334155;
+    }
+
+    .page-break {
+      page-break-after: always;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- COVER PAGE -->
+  <div class="cover-page">
+    <div class="cover-logo">ARAK</div>
+    <h1 class="cover-title">دليل التشغيل الكامل وسيناريوهات العمل</h1>
+    <p class="cover-subtitle">دليل الاستخدام التطبيقي الشامل لمكاتب تأجير السيارات والدراجات النارية</p>
+    <div class="cover-badge">تطبيق مكتب أراك للتأجير v0.1.0</div>
+    <div class="cover-footer">أراك للاتصالات وتقنية المعلومات © 2026</div>
+  </div>
+
+  <!-- TOC & WORKFLOW OVERVIEW -->
+  <div style="padding: 10px;">
+    <div class="page-header">
+      <h2 class="page-title">مخطط دورة العمل اليومية في المكتب (Demo Workflow)</h2>
+    </div>
+
+    <div class="toc-container">
+      <div class="toc-grid">
+        <div class="toc-item"><span>المرحلة 1:</span> الافتتاح الصباحي وتسجيل الدخول</div>
+        <div class="toc-item"><span>المرحلة 2:</span> إضافة مركبة جديدة وتسجيل عميل</div>
+        <div class="toc-item"><span>المرحلة 3:</span> إنشاء عقد تأجير جديد (5 خطوات)</div>
+        <div class="toc-item"><span>المرحلة 4:</span> طباعة العقود والإيصالات المعتمدة</div>
+        <div class="toc-item"><span>المرحلة 5:</span> إرجاع المركبة وسداد المتبقي والأمانات</div>
+        <div class="toc-item"><span>المرحلة 6:</span> تحويل المركبات للورشة والصيانة</div>
+        <div class="toc-item"><span>المرحلة 7:</span> إدارة درج النقدية والمصروفات</div>
+        <div class="toc-item"><span>المرحلة 8:</span> إغلاق اليوم والنسخ الاحتياطي</div>
+      </div>
+    </div>
+
+    <!-- PHASE 1 & 2 -->
+    <div class="section-card">
+      <h3 class="section-title">المرحلة 1: الافتتاح الصباحي وتسجيل الدخول</h3>
+      <div class="workflow-box">
+        <div class="workflow-header">
+          <span>سيناريو العمل: بدية الدوام الصباحي لموظف الاستقبال</span>
+        </div>
+        <ol class="step-list">
+          <li class="step-item"><strong>افتح التطبيق:</strong> اضغط على أيقونة التطبيق على سطح المكتب.</li>
+          <li class="step-item"><strong>اختر الحساب:</strong> اختر اسمك (مثال: موظف الاستقبال أو مدير المكتب).</li>
+          <li class="step-item"><strong>أدخل رمز PIN:</strong> أدخل رمز الدخول المكون من 4 أرقام لتأكيد صلاحياتك.</li>
+          <li class="step-item"><strong>مراجعة رصيد النقدية:</strong> توجه لتبويب (الحسابات) للتأكد من رصيد درج النقدية الافتتاحي.</li>
+        </ol>
+      </div>
+
+      <div class="screenshot-container">
+        <img src="screenshots/16-login-ar.png" alt="شاشة الدخول">
+        <div class="screenshot-caption">شاشه الدخول السريعة باستخدام رمز PIN المحدد لكل موظف</div>
+      </div>
+    </div>
+
+    <div class="page-break"></div>
+
+    <!-- PHASE 3: NEW RENTAL WIZARD -->
+    <div class="section-card">
+      <h3 class="section-title">المرحلة 2: سيناريو إنشاء عقد تأجير جديد (5 خطوات)</h3>
+      <p>عند وصول عميل للمكتب يرغب في تأجير سيارة أو دراجة نارية، اتبع الخوات التالية:</p>
+
+      <div class="screenshot-container">
+        <img src="screenshots/21-new-rental-form-ar.png" alt="نموذج التأجير">
+        <div class="screenshot-caption">نافذة إنشاء عقد التأجير المكونة من 5 خطوات واضحة</div>
+      </div>
+
+      <div class="workflow-box">
+        <div class="workflow-header">
+          <span>خطوات التعبئة التفصيلية (Step-by-Step)</span>
+        </div>
+        <ol class="step-list">
+          <li class="step-item"><strong>الخطوة 01 (العميل):</strong> ابحث عن العميل بالاسم أو رقم الهاتف، أو اضغط إضافة عميل جديد.</li>
+          <li class="step-item"><strong>الخطوة 02 (المركبة):</strong> اختر المركبة المتاحة حالياً من القائمة (مثال: Toyota Corolla - TRP-4102).</li>
+          <li class="step-item"><strong>الخطوة 03 (فترة العقد):</strong> حدد تاريخ ووقت البداية وتاريخ الإرجاع المتوقع والسعر اليومي (مثال: 3 أيام بسعر 85 د.ل = 255 د.ل).</li>
+          <li class="step-item"><strong>الخطوة 04 (الملحقات والأمانات):</strong> أضف أي خوذات أو ملحقات، وسجل الأمانات المحتجزة (مثال: جواز سفر رقم PASS-887766).</li>
+          <li class="step-item"><strong>الخطوة 05 (التأمين والدفع):</strong> أدخل المبلغ المدفوع مسبقاً وعداد المسافة وقراءة الوقود، ثم اضغط (تفعيل التأجير).</li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- PHASE 4: RETURN WORKFLOW -->
+    <div class="section-card">
+      <h3 class="section-title">المرحلة 3: سيناريو إرجاع المركبة وتسديد الحساب</h3>
+      <p>عند عودة العميل لإرجاع المركبة إلى المكتب:</p>
+
+      <div class="screenshot-container">
+        <img src="screenshots/01-rentals-ar.png" alt="قائمة التأجيرات">
+        <div class="screenshot-caption">متابعة العقود والبحث السريع بزر (إرجاع باللوحة)</div>
+      </div>
+
+      <div class="workflow-box">
+        <ol class="step-list">
+          <li class="step-item"><strong>البحث السريع:</strong> اضغط زر (إرجاع باللوحة) وادخل رقم لوحة المركبة.</li>
+          <li class="step-item"><strong>فحص المركبة:</strong> ادخل قراءة عداد المسافة الحالي ومستوى الوقود وتقرير أي أضرار.</li>
+          <li class="step-item"><strong>تصفية الحساب:</strong> يحسب التطبيق تلقائياً أي ساعات تأخير أو رسوم إضافية، ويخصم التأمين المدفوع.</li>
+          <li class="step-item"><strong>تسليم الأمانة:</strong> قم بتغيير حالة الأمانة (جواز السفر) إلى (مستردة للعميل).</li>
+          <li class="step-item"><strong>إنهاء العقد:</strong> اضغط (إرجاع المركبة وتأكيد الدفع) لتتحول حالة المركبة فوراً إلى (متاحة).</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="page-break"></div>
+
+    <!-- PHASE 5: CASH DRAWER & EXPENSES -->
+    <div class="section-card">
+      <h3 class="section-title">المرحلة 4: إدارة درج النقدية والمصروفات (Accounting)</h3>
+      <p>ضبط حركة الأموال والمصروفات والمبالغ المحولة للخزنة أو البنك:</p>
+
+      <div class="screenshot-container">
+        <img src="screenshots/04-payments-ar.png" alt="شاشة الحسابات">
+        <div class="screenshot-caption">إدارة النقدية في الدرج والخزنة وتسجيل المصروفات وبطاقات الأرصدة</div>
+      </div>
+
+      <div class="workflow-box">
+        <ul class="step-list">
+          <li class="step-item"><strong>تسجيل مصروف:</strong> اضغط (+ تسجيل مصروف) لإدخال مصاريف المحل اليومية (غسيل، وقود، صيانة).</li>
+          <li class="step-item"><strong>تحويل الأموال:</strong> اضغط (نقل نقدية) لنقل المبالغ الزائدة من درج النقدية إلى خزنة المحل.</li>
+          <li class="step-item"><strong>إغلاق اليوم:</strong> في نهاية الدوام، اضغط (إغلاق اليوم) وقم بعد النقدية الفعلية لتثبيت المطابقة.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- PHASE 6: SETTINGS & BACKUP -->
+    <div class="section-card">
+      <h3 class="section-title">المرحلة 5: إعدادات الشعار والتوقيع والنسخ الاحتياطي</h3>
+
+      <div class="screenshot-container">
+        <img src="screenshots/12-settings-ar.png" alt="إعدادات المحل">
+        <div class="screenshot-caption">تخصيص بيانات المكتب وشعار المحل وتوقيع المالك للطباعة</div>
+      </div>
+
+      <div class="workflow-box">
+        <ul class="step-list">
+          <li class="step-item"><strong>الشعار والتوقيع:</strong> ارفع شعار المحل وتوقيع المالك ليتم تضمينهما تلقائياً في العقود المطبوعة.</li>
+          <li class="step-item"><strong>النسخ الاحتياطي:</strong> من تبويب النسخ الاحتياطي، اضغط (إنشاء نسخة احتياطية) للحصول على ملف مضغوط يحفظ جميع العقود والبيانات.</li>
+        </ul>
+      </div>
+
+      <div class="tip-box">
+        ✅ <strong>ملخص التشغيل:</strong> التزم بتسجيل كافة العقود والدفعات أولاً بأول للحفاظ على مطابقة دقيقة لدرج النقدية وأسطول المركبات.
+      </div>
+    </div>
+
+  </div>
+
+</body>
+</html>

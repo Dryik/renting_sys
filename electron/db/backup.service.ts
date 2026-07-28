@@ -564,36 +564,100 @@ function validateStagedDatabase(databasePath: string): void {
 }
 
 function getRequiredBackupTables(sqlite: Database.Database): string[] {
+  const schemaVersionRow = sqlite
+    .prepare("select value from app_settings where key = 'schema_version'")
+    .get() as { value?: string } | undefined;
+  const schemaVersion = Number(schemaVersionRow?.value) || 1;
+
+  return getRequiredBackupTablesForVersion(schemaVersion);
+}
+
+export function getRequiredBackupTablesForVersion(
+  schemaVersion: number,
+): string[] {
   const baseTables = [
     "app_settings",
     "vehicles",
     "customers",
     "rentals",
     "payments",
+    "maintenance_records",
   ];
-  const schemaVersionRow = sqlite
-    .prepare("select value from app_settings where key = 'schema_version'")
-    .get() as { value?: string } | undefined;
-  const schemaVersion = Number(schemaVersionRow?.value) || 1;
 
-  if (schemaVersion < 5) {
+  if (schemaVersion < 2) {
     return baseTables;
   }
 
-  const accountingTables = [
+  const sequenceTables = [
     ...baseTables,
+    "number_sequences",
+  ];
+
+  if (schemaVersion < 3) {
+    return sequenceTables;
+  }
+
+  const authAuditTables = [
+    ...sequenceTables,
+    "roles",
+    "role_permissions",
+    "users",
+    "audit_events",
+  ];
+
+  if (schemaVersion < 4) {
+    return authAuditTables;
+  }
+
+  const operationalTables = [
+    ...authAuditTables,
+    "attachments",
+    "app_events",
+    "maintenance_reminders",
+    "vehicle_mileage_events",
+  ];
+
+  if (schemaVersion < 5) {
+    return operationalTables;
+  }
+
+  const accountingTables = [
+    ...operationalTables,
     "money_locations",
     "expenses",
     "cash_movements",
+    "daily_closings",
   ];
 
   if (schemaVersion < 6) {
     return accountingTables;
   }
 
-  return [
+  const adjustmentTables = [
     ...accountingTables,
     "accounting_adjustments",
+  ];
+
+  if (schemaVersion < 8) {
+    return adjustmentTables;
+  }
+
+  const vehicleSalesTables = [
+    ...adjustmentTables,
+    "vehicle_sales",
+  ];
+
+  if (schemaVersion < 9) {
+    return vehicleSalesTables;
+  }
+
+  return [
+    ...vehicleSalesTables,
+    "employee_loans",
+    "employee_loan_payments",
+    "accessories",
+    "rental_accessories",
+    "rental_collateral_items",
   ];
 }
 

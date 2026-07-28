@@ -181,6 +181,20 @@ export function calculatePaidAmount(
   );
 }
 
+export function assertRefundWithinPaidAmount(
+  refundAmount: number,
+  totalPaidForRental: number,
+): void {
+  if (
+    roundMoney(refundAmount) >
+    roundMoney(Math.max(0, totalPaidForRental))
+  ) {
+    throw new Error(
+      "Refund amount cannot exceed total posted payments for this rental.",
+    );
+  }
+}
+
 export function calculateRemainingAmount(
   totalAmount: number,
   paidAmount: number,
