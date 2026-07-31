@@ -45,6 +45,9 @@ export const users = sqliteTable(
       .notNull()
       .references(() => roles.key),
     isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+    earnsCommission: integer("earns_commission", { mode: "boolean" })
+      .notNull()
+      .default(true),
     mustChangePassword: integer("must_change_password", { mode: "boolean" })
       .notNull()
       .default(false),
@@ -72,6 +75,7 @@ export const vehicles = sqliteTable(
     brand: text("brand").notNull(),
     model: text("model").notNull(),
     plateNumber: text("plate_number").notNull(),
+    chassisNumber: text("chassis_number"),
     color: text("color"),
     year: integer("year"),
     dailyPrice: real("daily_price").notNull(),
@@ -88,6 +92,7 @@ export const vehicles = sqliteTable(
     lastOilChangeDate: text("last_oil_change_date"),
     lastOilChangeMileage: integer("last_oil_change_mileage"),
     notes: text("notes"),
+    commissionRateOverride: real("commission_rate_override"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
@@ -212,6 +217,9 @@ export const rentals = sqliteTable(
     cancelledAt: text("cancelled_at"),
     cancelReason: text("cancel_reason"),
     createdByUserId: integer("created_by_user_id").references(() => users.id),
+    salesUserId: integer("sales_user_id").references(() => users.id),
+    commissionRatePerDay: real("commission_rate_per_day").notNull().default(0),
+    commissionAmount: real("commission_amount").notNull().default(0),
     activatedByUserId: integer("activated_by_user_id").references(() => users.id),
     returnedByUserId: integer("returned_by_user_id").references(() => users.id),
     cancelledByUserId: integer("cancelled_by_user_id").references(() => users.id),
@@ -848,6 +856,10 @@ export const rentalsRelations = relations(rentals, ({ one, many }) => ({
   vehicle: one(vehicles, {
     fields: [rentals.vehicleId],
     references: [vehicles.id],
+  }),
+  salesUser: one(users, {
+    fields: [rentals.salesUserId],
+    references: [users.id],
   }),
   payments: many(payments),
   accessories: many(rentalAccessories),

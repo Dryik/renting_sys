@@ -3,6 +3,7 @@ import {
   CalendarCheck,
   CalendarClock,
   CarFront,
+  Coins,
   CreditCard,
   FileText,
   HandCoins,
@@ -22,6 +23,7 @@ import { VehicleIncomeReport } from "./VehicleIncomeReport";
 import { ReturnedRentalsReport } from "./ReturnedRentalsReport";
 import { CustomerRentalHistoryReport } from "./CustomerRentalHistoryReport";
 import { OperationalReport } from "./OperationalReport";
+import { CommissionReport } from "./CommissionReport";
 
 type ReportTab =
   | "active"
@@ -38,7 +40,8 @@ type ReportTab =
   | "expiring"
   | "cancelled"
   | "voids"
-  | "sales";
+  | "sales"
+  | "commissions";
 
 type ReportCategory = {
   id: string;
@@ -75,6 +78,7 @@ const reportCategories: ReportCategory[] = [
       { id: "outstanding", label: "Outstanding Balances", description: "Contracts with remaining balance due.", icon: ReceiptText },
       { id: "voids", label: "Payment Voids", description: "Voided payments with reasons for review.", icon: ReceiptText },
       { id: "sales", label: "Vehicle Sales", description: "Sold fleet vehicles and sale proceeds.", icon: HandCoins },
+      { id: "commissions", label: "Sales Commission", description: "Daily commission calculations by sales employee.", icon: Coins },
       { id: "income", label: "Vehicle Income", description: "Rental income grouped by vehicle.", icon: CarFront },
       { id: "utilization", label: "Vehicle Utilization", description: "Rental days and utilization for a date range.", icon: CarFront },
       { id: "net", label: "Vehicle Net Summary", description: "Simple rental income minus maintenance cost.", icon: FileText },
@@ -187,6 +191,7 @@ export function ReportsPage() {
           {visibleActiveTab === "cancelled" && <OperationalReport type="cancelledRentals" />}
           {visibleActiveTab === "voids" && <OperationalReport type="paymentVoids" />}
           {visibleActiveTab === "sales" && <OperationalReport type="vehicleSales" />}
+          {visibleActiveTab === "commissions" && <CommissionReport />}
         </div>
       </section>
     </div>

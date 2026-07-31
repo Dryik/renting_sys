@@ -175,6 +175,44 @@ export type PaymentVoidRecord = {
 export type VehicleSalesReportRequest = VehicleSaleListRequest;
 export type VehicleSalesReportRecord = VehicleSaleListRecord;
 
+export type CommissionReportRequest = {
+  dateFrom?: string;
+  dateTo?: string;
+  salesUserId?: number;
+  vehicleType?: "all" | "car" | "motorcycle";
+  page?: number;
+  pageSize?: number;
+};
+
+export type CommissionReportRecord = {
+  rentalId: number;
+  contractNo: string;
+  customerId: number;
+  customerName: string;
+  vehicleId: number;
+  vehiclePlateNumber: string;
+  vehicleBrand: string;
+  vehicleModel: string;
+  vehicleType: "car" | "motorcycle";
+  salesUserId: number | null;
+  salesUserName: string | null;
+  status: string;
+  startDatetime: string;
+  expectedReturnDatetime: string;
+  actualReturnDatetime: string | null;
+  rentedDays: number;
+  commissionRatePerDay: number;
+  commissionAmount: number;
+  createdAt: string;
+};
+
+export type CommissionReportSummary = {
+  records: CommissionReportRecord[];
+  totalRentals: number;
+  totalDays: number;
+  totalCommission: number;
+};
+
 export type ReportExportType =
   | "activeRentals"
   | "overdueRentals"
@@ -191,7 +229,8 @@ export type ReportExportType =
   | "paymentVoids"
   | "vehicleSales"
   | "accountingTransactions"
-  | "expenses";
+  | "expenses"
+  | "commissions";
 
 export type ReportExportRequest = {
   type: ReportExportType;

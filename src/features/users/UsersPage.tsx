@@ -375,6 +375,7 @@ function UserForm({
   const [fullName, setFullName] = useState(user?.fullName ?? "");
   const [username, setUsername] = useState(user?.username ?? "");
   const [roleKey, setRoleKey] = useState<RoleKey>(user?.roleKey ?? "staff");
+  const [earnsCommission, setEarnsCommission] = useState(user?.earnsCommission ?? true);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
@@ -382,12 +383,12 @@ function UserForm({
     event.preventDefault();
 
     if (mode === "create") {
-      onCreate({ fullName, username, roleKey, password, confirmPassword });
+      onCreate({ fullName, username, roleKey, earnsCommission, password, confirmPassword });
       return;
     }
 
     if (user) {
-      onUpdate({ userId: user.id, fullName, username, roleKey });
+      onUpdate({ userId: user.id, fullName, username, roleKey, earnsCommission });
     }
   }
 
@@ -412,6 +413,15 @@ function UserForm({
           ))}
         </select>
       </Field>
+      <label className="flex items-center gap-3 rounded-lg border bg-card p-3 text-sm">
+        <input
+          type="checkbox"
+          className="size-4 accent-primary"
+          checked={earnsCommission}
+          onChange={(e) => setEarnsCommission(e.target.checked)}
+        />
+        <span>{t("Earns Sales Commission")}</span>
+      </label>
       {mode === "create" ? (
         <>
           <Field label={t("PIN")}>

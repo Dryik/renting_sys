@@ -358,7 +358,7 @@ function writeBackupZip(
   filePath: string,
   databasePath: string,
   uploadsPath: string,
-  backupType: "manual" | "safety_before_restore",
+  backupType: "manual" | "safety_before_restore" | "auto",
 ): void {
   const zip = new AdmZip();
   const metadata = {
@@ -673,4 +673,63 @@ function appendRestoreOperationLog(
   });
 
   fs.appendFileSync(path.join(userDataPath, "restore_operations.log"), `${line}\n`, "utf8");
+}
+
+export function checkAndRunScheduledAutoBackup(): void {
+  try {
+    const db = getDatabase();
+    const rows = db.select().from(appSettings).all();
+    const settingsMap = new Map(rows.map((row) => [row.key, row.value]));
+
+    const scheduledBackupEnabled = settingsMap.get("scheduled_backup_enabled") === "true";
+    if (!scheduledBackupEnabled) {
+      return;
+    }
+
+    const lastAutoBackup = settingsMap.get("last_auto_backup_at");
+    const backupReminderDays = Number(settingsMap.get("backup_reminder_days") ?? "7") || 1;
+    const now = new Date();
+    const lastBackupTime = lastAutoBackup ? new Date(lastAutoBackup).getTime() : 0;
+
+    if (now.getTime() - lastBackupTime < backupReminderDays * 24 * 60 * 60 * 1000) {
+      return;
+    }
+
+    const userDataPath = getUserDataPath();
+    const autoBackupDir = path.join(userDataPath, "auto_backups");
+    fs.mkdirSync(autoBackupDir, { recursive: true });
+
+    const dateStr = now.toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    const autoBackupFile = path.join(autoBackupDir, `auto_backup_${dateStr}.zip`);
+    const databasePath = path.join(userDataPath, "rental_app.db");
+    const uploadsPath = path.join(userDataPath, "uploads");
+
+    checkpointDatabase();
+    writeBackupZip(autoBackupFile, databasePath, uploadsPath, "auto");
+
+    // Keep last 10 auto-backups
+    const files = fs
+      .readdirSync(autoBackupDir)
+      .filter((f) => f.startsWith("auto_backup_") && f.endsWith(".zip"))
+      .map((f) => path.join(autoBackupDir, f))
+      .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+
+    for (const oldFile of files.slice(10)) {
+      try {
+        fs.unlinkSync(oldFile);
+      } catch {
+        // ignore
+      }
+    }
+
+    db.insert(appSettings)
+      .values({ key: "last_auto_backup_at", value: now.toISOString() })
+      .onConflictDoUpdate({
+        target: appSettings.key,
+        set: { value: now.toISOString() },
+      })
+      .run();
+  } catch (error) {
+    console.error("Scheduled auto-backup error:", error);
+  }
 }

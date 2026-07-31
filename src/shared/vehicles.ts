@@ -24,6 +24,7 @@ export const vehicleInputSchema = z.object({
     .min(1, "Plate number is required.")
     .max(30)
     .transform((value) => value.toUpperCase()),
+  chassisNumber: z.string().trim().max(50).nullable().default(null),
   color: z.string().trim().max(40).nullable(),
   year: z
     .number()
@@ -56,6 +57,12 @@ export const vehicleInputSchema = z.object({
     .nullable()
     .default(null),
   notes: z.string().trim().max(500).nullable(),
+  commissionRateOverride: z
+    .number()
+    .finite("Commission rate override must be a valid number.")
+    .min(0, "Commission rate override cannot be negative.")
+    .nullable()
+    .default(null),
 });
 
 export type VehicleInput = z.infer<typeof vehicleInputSchema>;
@@ -76,6 +83,7 @@ export type VehicleRecord = VehicleInput & {
   soldAt: string | null;
   createdAt: string;
   updatedAt: string;
+  commissionRateOverride: number | null;
 };
 
 export type VehicleFormValues = {
@@ -83,6 +91,7 @@ export type VehicleFormValues = {
   brand: string;
   model: string;
   plateNumber: string;
+  chassisNumber: string;
   color: string;
   year: string;
   dailyPrice: string;
@@ -95,6 +104,7 @@ export type VehicleFormValues = {
   lastOilChangeDate: string;
   lastOilChangeMileage: string;
   notes: string;
+  commissionRateOverride: string;
 };
 
 const optionalTextField = (maxLength: number) =>
@@ -153,6 +163,7 @@ export const vehicleFormSchema = z
     brand: z.string().trim().min(1, "Brand is required.").max(80),
     model: z.string().trim().min(1, "Model is required.").max(80),
     plateNumber: z.string().trim().min(1, "Plate number is required.").max(30),
+    chassisNumber: optionalTextField(50),
     color: optionalTextField(40),
     year: optionalIntegerField("Year"),
     dailyPrice: requiredMoneyField("Daily price"),
@@ -165,6 +176,23 @@ export const vehicleFormSchema = z
     lastOilChangeDate: optionalTextField(20),
     lastOilChangeMileage: optionalIntegerField("Oil change mileage"),
     notes: optionalTextField(500),
+    commissionRateOverride: z
+      .string()
+      .trim()
+      .transform((value, context): number | null => {
+        if (value === "") {
+          return null;
+        }
+        const numberValue = Number(value);
+        if (!Number.isFinite(numberValue)) {
+          context.addIssue({
+            code: "custom",
+            message: "Commission rate override must be a valid number.",
+          });
+          return z.NEVER;
+        }
+        return numberValue;
+      }),
   })
   .transform((values) => vehicleInputSchema.parse(values));
 
@@ -173,6 +201,7 @@ export const emptyVehicleFormValues: VehicleFormValues = {
   brand: "",
   model: "",
   plateNumber: "",
+  chassisNumber: "",
   color: "",
   year: "",
   dailyPrice: "",
@@ -185,6 +214,7 @@ export const emptyVehicleFormValues: VehicleFormValues = {
   lastOilChangeDate: "",
   lastOilChangeMileage: "",
   notes: "",
+  commissionRateOverride: "",
 };
 
 export function vehicleToFormValues(vehicle: VehicleRecord): VehicleFormValues {
@@ -193,6 +223,7 @@ export function vehicleToFormValues(vehicle: VehicleRecord): VehicleFormValues {
     brand: vehicle.brand,
     model: vehicle.model,
     plateNumber: vehicle.plateNumber,
+    chassisNumber: vehicle.chassisNumber ?? "",
     color: vehicle.color ?? "",
     year: vehicle.year === null ? "" : String(vehicle.year),
     dailyPrice: String(vehicle.dailyPrice),
@@ -206,6 +237,8 @@ export function vehicleToFormValues(vehicle: VehicleRecord): VehicleFormValues {
     lastOilChangeMileage:
       vehicle.lastOilChangeMileage === null ? "" : String(vehicle.lastOilChangeMileage),
     notes: vehicle.notes ?? "",
+    commissionRateOverride:
+      vehicle.commissionRateOverride === null ? "" : String(vehicle.commissionRateOverride),
   };
 }
 

@@ -87,6 +87,15 @@ export function VehicleForm({
           />
         </Field>
 
+        <Field label="Chassis Number" error={errors.chassisNumber?.message}>
+          <Input
+            aria-invalid={Boolean(errors.chassisNumber)}
+            data-ltr="true"
+            placeholder={t("Chassis number placeholder")}
+            {...register("chassisNumber")}
+          />
+        </Field>
+
         <Field label="Brand" required error={errors.brand?.message}>
           <Input
             aria-invalid={Boolean(errors.brand)}
@@ -126,6 +135,18 @@ export function VehicleForm({
         ) : (
           <input type="hidden" {...register("depositAmount")} defaultValue="0" />
         )}
+
+        {settings.enableSalesCommission ? (
+          <Field label="Commission Rate Override (Dinars/day)" error={errors.commissionRateOverride?.message}>
+            <Input
+              aria-invalid={Boolean(errors.commissionRateOverride)}
+              data-ltr="true"
+              inputMode="decimal"
+              placeholder={String(settings.defaultDailyCommissionRate)}
+              {...register("commissionRateOverride")}
+            />
+          </Field>
+        ) : null}
 
         {canChangeStatus ? (
           <Field label="Status" error={errors.status?.message}>

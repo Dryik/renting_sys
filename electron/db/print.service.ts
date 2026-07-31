@@ -201,6 +201,7 @@ export async function printRentalContract(
       customerAddress: customers.address,
       vehicleType: vehicles.type,
       vehiclePlateNumber: vehicles.plateNumber,
+      vehicleChassisNumber: vehicles.chassisNumber,
       vehicleBrand: vehicles.brand,
       vehicleModel: vehicles.model,
       vehicleColor: vehicles.color,
@@ -687,6 +688,7 @@ export async function printRentalContract(
             ${item("Vehicle Type", escapeHtml(formatVehicleType(rental.vehicleType, language)))}
             ${item("Brand / Model", escapeHtml(`${rental.vehicleBrand} ${rental.vehicleModel}`))}
             ${item("Plate Number", ltrHtml(rental.vehiclePlateNumber))}
+            ${item("Chassis Number", optionalLtrHtml(rental.vehicleChassisNumber, fallback))}
             ${item("Color / Year", `${optionalTextHtml(rental.vehicleColor, fallback)} / ${optionalLtrHtml(rental.vehicleYear, fallback)}`)}
             ${item("Mileage Out", rental.mileageOut !== null ? ltrHtml(`${rental.mileageOut} ${tr("km")}`) : escapeHtml(fallback))}
             ${item("Fuel Level Out", optionalTextHtml(rental.fuelOut, fallback))}

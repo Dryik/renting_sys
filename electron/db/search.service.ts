@@ -134,6 +134,7 @@ function getVehicleMatches(
     .where(
       or(
         like(vehicles.plateNumber, compactLikeTerm),
+        like(vehicles.chassisNumber, compactLikeTerm),
         like(vehicles.brand, likeTerm),
         like(vehicles.model, likeTerm),
       ),
@@ -148,7 +149,12 @@ function getVehiclePlateMatches(compactLikeTerm: string, limit: number) {
       id: vehicles.id,
     })
     .from(vehicles)
-    .where(like(vehicles.plateNumber, compactLikeTerm))
+    .where(
+      or(
+        like(vehicles.plateNumber, compactLikeTerm),
+        like(vehicles.chassisNumber, compactLikeTerm),
+      ),
+    )
     .limit(limit)
     .all();
 }

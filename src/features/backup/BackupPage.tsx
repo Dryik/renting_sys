@@ -215,6 +215,25 @@ export function BackupPage() {
           <p className="rounded-lg border bg-muted/35 px-3 py-2 text-sm leading-relaxed text-muted-foreground">
             {t("The backup includes the database and local documents/photos.")}
           </p>
+          {settings.scheduledBackupEnabled ? (
+            <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm">
+              <div className="flex items-start gap-3">
+                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-primary" />
+                <div className="min-w-0">
+                  <p className="font-semibold text-primary">{t("Automated Daily Backup Active")}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {t("Automatically creates a local ZIP archive in app data folder on launch.")}
+                  </p>
+                  {settings.lastAutoBackupAt ? (
+                    <p className="mt-1 text-xs font-mono text-muted-foreground">
+                      {t("Last auto-backup:")} <BidiValue value={settings.lastAutoBackupAt} />
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           {backupStatus?.lastBackupAt ? (
             <div className="rounded-lg border bg-muted/35 p-3 text-sm">
               <div className="flex items-start gap-3">

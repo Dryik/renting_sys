@@ -10,6 +10,7 @@ import {
 import {
   calculateCancelledRentalBalance,
   calculateInitialRentalBalance,
+  calculateRentalDays,
   calculateReturnSummary,
   calculateRentalSummary,
   getOpenRentalStatusForExpectedReturn,
@@ -42,10 +43,12 @@ import {
   rentalAccessories,
   rentalCollateralItems,
   rentals,
+  users,
   vehicleMileageEvents,
   vehicleSales,
   vehicles,
 } from "./schema";
+import { calculateCommission } from "./commission";
 import { getDatabase, getSqliteDatabase } from "./database";
 import { createPageResult, normalizePageRequest, toLikeTerm } from "./listing";
 import { getShopSettings } from "./settings.service";
@@ -327,6 +330,7 @@ export function activateRental(input: unknown): RentalListRecord {
         .insert(rentals)
         .values({
           ...toRentalInsert(
+            tx,
             values,
             now,
             contractNo,
@@ -334,6 +338,7 @@ export function activateRental(input: unknown): RentalListRecord {
             totalAmount,
             accessoryCharges,
             initialBalance,
+            actor?.id ?? null,
           ),
           createdByUserId: actor?.id ?? null,
           activatedByUserId: actor?.id ?? null,
@@ -485,6 +490,7 @@ export function createDraftRental(input: unknown): RentalListRecord {
         .insert(rentals)
         .values({
           ...toRentalInsert(
+            tx,
             values,
             now,
             contractNo,
@@ -492,6 +498,7 @@ export function createDraftRental(input: unknown): RentalListRecord {
             totalAmount,
             accessoryCharges,
             initialBalance,
+            actor?.id ?? null,
           ),
           createdByUserId: actor?.id ?? null,
           lastUpdatedByUserId: actor?.id ?? null,
@@ -888,6 +895,7 @@ export function cancelRental(input: unknown): RentalListRecord {
         .set({
           status: "cancelled",
           remainingAmount,
+          commissionAmount: 0,
           cancelledAt: now,
           cancelReason: parsed.reason,
           cancelledByUserId: actor?.id ?? null,
@@ -1556,6 +1564,8 @@ function returnRentalInTransaction(
       totalAmount: rentals.totalAmount,
       paidAmount: rentals.paidAmount,
       mileageOut: rentals.mileageOut,
+      salesUserId: rentals.salesUserId,
+      commissionRatePerDay: rentals.commissionRatePerDay,
     })
     .from(rentals)
     .where(eq(rentals.id, values.rentalId))
@@ -1616,6 +1626,26 @@ function returnRentalInTransaction(
   applyRentalAccessoryReturns(tx, rental.id, values.accessoryReturns, now);
   applyRentalCollateralReturns(tx, rental.id, values.collateralReturns, now);
 
+  const salesUserId = rental.salesUserId;
+  const salesUserRow = salesUserId
+    ? tx
+        .select({ earnsCommission: users.earnsCommission })
+        .from(users)
+        .where(eq(users.id, salesUserId))
+        .get()
+    : null;
+  const actualDays = calculateRentalDays(
+    rental.startDatetime,
+    values.actualReturnDatetime,
+  );
+  const updatedCommission = calculateCommission({
+    rentedDays: actualDays,
+    dailyRate: rental.commissionRatePerDay ?? 0,
+    status: "returned",
+    userEarnsCommission: Boolean(salesUserRow?.earnsCommission),
+    commissionEnabled: getShopSettings().enableSalesCommission,
+  });
+
   tx.update(rentals)
     .set({
       status: "returned",
@@ -1628,6 +1658,7 @@ function returnRentalInTransaction(
       discount: values.discount,
       totalAmount: summary.finalAmount,
       remainingAmount: summary.remainingAmount,
+      commissionAmount: updatedCommission.commissionAmount,
       returnedByUserId: actor?.id ?? null,
       lastUpdatedByUserId: actor?.id ?? null,
       updatedAt: now,
@@ -1797,6 +1828,7 @@ function toDateInputValue(date: Date): string {
 }
 
 function toRentalInsert(
+  tx: RentalTx,
   values: RentalActivationInput,
   now: string,
   contractNo: string,
@@ -1804,7 +1836,43 @@ function toRentalInsert(
   totalAmount: number,
   accessoryCharges: number,
   initialBalance: { paidAmount: number; remainingAmount: number },
+  actorId: number | null,
 ) {
+  const settings = getShopSettings();
+  const salesUserId = actorId;
+  let commissionRatePerDay = 0;
+  let commissionAmount = 0;
+
+  if (settings.enableSalesCommission && salesUserId) {
+    const userRow = tx
+      .select({ earnsCommission: users.earnsCommission })
+      .from(users)
+      .where(eq(users.id, salesUserId))
+      .get();
+    if (userRow?.earnsCommission) {
+      const vehicleRow = tx
+        .select({ commissionRateOverride: vehicles.commissionRateOverride })
+        .from(vehicles)
+        .where(eq(vehicles.id, values.vehicleId))
+        .get();
+      const dailyRate =
+        vehicleRow?.commissionRateOverride ?? settings.defaultDailyCommissionRate;
+      const rentedDays = calculateRentalDays(
+        values.startDatetime,
+        values.expectedReturnDatetime,
+      );
+      const calc = calculateCommission({
+        rentedDays,
+        dailyRate,
+        status,
+        userEarnsCommission: true,
+        commissionEnabled: true,
+      });
+      commissionRatePerDay = calc.commissionRatePerDay;
+      commissionAmount = calc.commissionAmount;
+    }
+  }
+
   return {
     contractNo,
     customerId: values.customerId,
@@ -1829,6 +1897,9 @@ function toRentalInsert(
     totalAmount,
     paidAmount: initialBalance.paidAmount,
     remainingAmount: initialBalance.remainingAmount,
+    salesUserId,
+    commissionRatePerDay,
+    commissionAmount,
     cancelledAt: null,
     cancelReason: null,
     createdAt: now,

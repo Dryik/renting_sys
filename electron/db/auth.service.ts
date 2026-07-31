@@ -403,6 +403,7 @@ export function createUser(input: unknown): UserListRecord {
           passwordAlgo,
           roleKey: values.roleKey,
           isActive: true,
+          earnsCommission: values.earnsCommission ?? true,
           mustChangePassword: false,
           failedLoginCount: 0,
           lockedUntil: null,
@@ -454,6 +455,7 @@ export function updateUser(input: unknown): UserListRecord {
           fullName: values.fullName,
           username: values.username,
           roleKey: values.roleKey,
+          earnsCommission: values.earnsCommission ?? true,
           updatedAt: now,
         })
         .where(eq(users.id, values.userId))
@@ -767,6 +769,7 @@ function toCurrentUser(user: UserRow): CurrentUser {
     username: user.username,
     roleKey: user.roleKey as RoleKey,
     isActive: user.isActive,
+    earnsCommission: user.earnsCommission,
     mustChangePassword: user.mustChangePassword,
     lastLoginAt: user.lastLoginAt,
     permissions: getPermissionsForRole(user.roleKey as RoleKey),
@@ -780,6 +783,7 @@ function toUserListRecord(user: UserRow): UserListRecord {
     username: user.username,
     roleKey: user.roleKey as RoleKey,
     isActive: user.isActive,
+    earnsCommission: user.earnsCommission,
     mustChangePassword: user.mustChangePassword,
     failedLoginCount: user.failedLoginCount,
     lockedUntil: user.lockedUntil,

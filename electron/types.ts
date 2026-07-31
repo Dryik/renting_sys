@@ -62,6 +62,8 @@ import type {
 } from "../src/shared/maintenance";
 import type {
   CustomerRentalHistoryRequest,
+  CommissionReportRequest,
+  CommissionReportSummary,
   DailyPaymentRecord,
   DailyPaymentsReportRequest,
   DepositReportRequest,
@@ -274,6 +276,9 @@ export type RentalAppApi = {
     getVehicleSales: (
       request?: VehicleSalesReportRequest,
     ) => Promise<PageResult<VehicleSalesReportRecord>>;
+    getCommissions: (
+      request?: CommissionReportRequest,
+    ) => Promise<CommissionReportSummary>;
     export: (request: ReportExportRequest) => Promise<{ success: boolean; filePath?: string; error?: string }>;
   };
   backup: {

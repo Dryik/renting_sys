@@ -56,6 +56,7 @@ import {
 import {
   getActiveRentals,
   getCancelledRentals,
+  getCommissionReport,
   getCustomerRentalHistory,
   getDailyClosing,
   getDailyPayments,
@@ -78,6 +79,7 @@ import {
   printVehicleSaleReceipt,
 } from "./db/print.service";
 import {
+  checkAndRunScheduledAutoBackup,
   getBackupStatus,
   previewBackup,
   runBackup,
@@ -166,6 +168,7 @@ import type { AccessoryListRequest } from "../src/shared/accessories";
 import type { EmployeeLoanListRequest } from "../src/shared/employee-loans";
 import type {
   CustomerRentalHistoryRequest,
+  CommissionReportRequest,
   DailyPaymentsReportRequest,
   DepositReportRequest,
   OutstandingBalancesReportRequest,
@@ -432,6 +435,7 @@ app.whenReady().then(() => {
     ...databaseState,
   };
   setAuthAppVersion(appInfo.appVersion);
+  checkAndRunScheduledAutoBackup();
 
   handle("auth:get-state", () => getAuthState());
   handle("auth:setup-owner", (_event, input: unknown) =>
@@ -677,6 +681,9 @@ app.whenReady().then(() => {
   );
   handle("reports:get-vehicle-sales", (_event, request: unknown) =>
     (guard("reports.view"), getVehicleSales(request as VehicleSalesReportRequest)),
+  );
+  handle("reports:get-commissions", (_event, request: unknown) =>
+    (guard("reports.view"), getCommissionReport(request as CommissionReportRequest)),
   );
   handle("reports:export", (_event, request: unknown) =>
     (guard("reports.export"), exportReport(request as ReportExportRequest)),

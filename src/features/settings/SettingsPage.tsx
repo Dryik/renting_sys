@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   CircleDollarSign,
   Clock,
+  Coins,
   FileText,
   Globe2,
   History,
@@ -47,6 +48,7 @@ import { languageValues } from "@/shared/language";
 import { normalizeDigits } from "@/shared/numerals";
 import type { ShopSettings } from "@/shared/settings";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
+import { AccessoriesManagement } from "../accessories/AccessoriesManagement";
 
 const settingsFormSchema = z.object({
   shopName: z.string().trim().min(1, "Shop name is required.").max(100),
@@ -64,6 +66,12 @@ const settingsFormSchema = z.object({
   enableClientDeposit: z.boolean(),
   autoPrintReceipt: z.boolean(),
   dailyClosingEnabled: z.boolean(),
+  enableSalesCommission: z.boolean(),
+  defaultDailyCommissionRate: z
+    .string()
+    .trim()
+    .min(1, "Default daily commission is required.")
+    .refine((val) => !Number.isNaN(Number(val)) && Number(val) >= 0, "Must be zero or a positive number."),
   printLanguage: z.enum(["app", "ar", "en", "both"]),
   insuranceWarningDays: z.string().trim().min(1),
   registrationWarningDays: z.string().trim().min(1),
@@ -73,6 +81,8 @@ const settingsFormSchema = z.object({
   scheduledBackupEnabled: z.boolean(),
   ownerPinEnabled: z.boolean(),
   contractFooter: z.string().trim().max(1000, "Footer text is too long."),
+  printHeaderSubtitle: z.string().trim().max(200, "Header subtitle is too long."),
+  printTermsAndConditions: z.string().trim().max(2000, "Terms text is too long."),
   language: z.enum(languageValues),
 });
 
@@ -124,6 +134,8 @@ export function SettingsPage({
       enableClientDeposit: false,
       autoPrintReceipt: false,
       dailyClosingEnabled: false,
+      enableSalesCommission: true,
+      defaultDailyCommissionRate: "2",
       printLanguage: "app",
       insuranceWarningDays: "30",
       registrationWarningDays: "30",
@@ -147,6 +159,8 @@ export function SettingsPage({
       enableClientDeposit: data.enableClientDeposit,
       autoPrintReceipt: data.autoPrintReceipt,
       dailyClosingEnabled: data.dailyClosingEnabled,
+      enableSalesCommission: data.enableSalesCommission,
+      defaultDailyCommissionRate: String(data.defaultDailyCommissionRate),
       printLanguage: data.printLanguage,
       insuranceWarningDays: String(data.insuranceWarningDays),
       registrationWarningDays: String(data.registrationWarningDays),
@@ -156,6 +170,8 @@ export function SettingsPage({
       scheduledBackupEnabled: data.scheduledBackupEnabled,
       ownerPinEnabled: data.ownerPinEnabled,
       contractFooter: data.contractFooter,
+      printHeaderSubtitle: data.printHeaderSubtitle,
+      printTermsAndConditions: data.printTermsAndConditions,
       language: data.language,
     });
   }
@@ -183,6 +199,8 @@ export function SettingsPage({
           scheduledBackupEnabled: data.scheduledBackupEnabled,
           ownerPinEnabled: data.ownerPinEnabled,
           contractFooter: data.contractFooter,
+          printHeaderSubtitle: data.printHeaderSubtitle,
+          printTermsAndConditions: data.printTermsAndConditions,
           language: data.language,
         });
       } catch {
@@ -748,6 +766,40 @@ export function SettingsPage({
             </SettingBlock>
 
             <SettingBlock
+              icon={<Coins className="size-5" />}
+              title={t("Sales Commission")}
+              description={t("Auto calculate fixed daily commission for sales employees.")}
+            >
+              <div className="space-y-4">
+                <label className="flex items-start gap-3 rounded-lg border bg-card p-4 text-sm shadow-xs">
+                  <input
+                    type="checkbox"
+                    className="mt-1 size-4 accent-primary"
+                    {...register("enableSalesCommission")}
+                  />
+                  <span className="min-w-0">
+                    <span className="block font-medium">{t("Enable sales commission calculation")}</span>
+                    <span className="mt-1 block text-muted-foreground">
+                      {t("Auto calculate fixed daily commission for sales employees.")}
+                    </span>
+                  </span>
+                </label>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">
+                    {t("Default Daily Commission (Dinars)")}
+                  </label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    className="w-full rounded-md border p-2 text-sm"
+                    {...register("defaultDailyCommissionRate")}
+                  />
+                </div>
+              </div>
+            </SettingBlock>
+
+            <SettingBlock
               icon={<LockKeyhole className="size-5" />}
               title={t("Owner PIN prompts")}
               description={t("Use a local owner PIN for sensitive actions on this computer.")}
@@ -826,22 +878,56 @@ export function SettingsPage({
 
             <SettingBlock
               icon={<FileText className="size-5" />}
-              title={t("Contract text")}
-              description={t("Footer text printed on rental contracts.")}
+              title={t("Print & Contract Customizer")}
+              description={t("Header subtitle, terms and conditions, and footer printed on rental contracts.")}
             >
-              <label className="flex flex-col gap-2 text-sm font-medium">
-                <span>{t("Contract Agreement Footer")}</span>
-                <Textarea
-                  {...register("contractFooter")}
-                  placeholder={t("Terms and conditions printed at the bottom of contract pages...")}
-                  rows={5}
-                  className="resize-y"
+              <div className="flex flex-col gap-4">
+                <label className="flex flex-col gap-2 text-sm font-medium">
+                  <span>{t("Header Subtitle")}</span>
+                  <Input {...register("printHeaderSubtitle")} placeholder={t("e.g. Car & Motorcycle Rental Agreement")} />
+                </label>
+
+                <label className="flex flex-col gap-2 text-sm font-medium">
+                  <span>{t("Contract Terms & Conditions")}</span>
+                  <Textarea
+                    {...register("printTermsAndConditions")}
+                    className="min-h-28"
+                    placeholder={t("Enter custom shop rental terms & conditions clause here...")}
+                  />
+                </label>
+
+                <label className="flex flex-col gap-2 text-sm font-medium">
+                  <span>{t("Contract Agreement Footer")}</span>
+                  <Textarea
+                    {...register("contractFooter")}
+                    className="min-h-20"
+                    placeholder={t("Enter contract agreement note here...")}
+                  />
+                </label>
+              </div>
+            </SettingBlock>
+
+            <SettingBlock
+              icon={<Clock className="size-5" />}
+              title={t("Auto-Backup")}
+              description={t("Automated daily local backup configuration.")}
+            >
+              <label className="flex items-start gap-3 rounded-lg border bg-card p-4 text-sm shadow-xs">
+                <input
+                  type="checkbox"
+                  className="mt-1 size-4 accent-primary"
+                  {...register("scheduledBackupEnabled")}
                 />
-                {errors.contractFooter && (
-                  <span className="text-xs text-destructive">{t(errors.contractFooter.message ?? "")}</span>
-                )}
+                <span className="min-w-0">
+                  <span className="block font-medium">{t("Automated Daily Backup")}</span>
+                  <span className="mt-1 block text-muted-foreground">
+                    {t("Automatically saves a local backup ZIP into app data folder on application launch.")}
+                  </span>
+                </span>
               </label>
             </SettingBlock>
+
+            <AccessoriesManagement />
 
             <div className="flex justify-end border-t border-border/70 bg-muted px-1 pt-4">
               <Button type="submit" size="lg" aria-busy={isSaving} disabled={isSaving || !can("settings.edit")}>
@@ -1269,6 +1355,8 @@ function buildSettingsPayload(values: SettingsFormInput): Partial<ShopSettings> 
     enableClientDeposit: values.enableClientDeposit,
     autoPrintReceipt: values.autoPrintReceipt,
     dailyClosingEnabled: values.dailyClosingEnabled,
+    enableSalesCommission: values.enableSalesCommission,
+    defaultDailyCommissionRate: Number(values.defaultDailyCommissionRate),
     printLanguage: values.printLanguage,
     insuranceWarningDays: Number(values.insuranceWarningDays),
     registrationWarningDays: Number(values.registrationWarningDays),

@@ -86,8 +86,21 @@ export function getShopSettings(): ShopSettings {
       settingsMap.get("owner_pin_enabled") === "true"
         ? true
         : defaultShopSettings.ownerPinEnabled,
+    enableSalesCommission:
+      settingsMap.get("enable_sales_commission") === undefined
+        ? defaultShopSettings.enableSalesCommission
+        : settingsMap.get("enable_sales_commission") === "true",
+    defaultDailyCommissionRate: Number(
+      settingsMap.get("default_daily_commission_rate") ??
+        defaultShopSettings.defaultDailyCommissionRate,
+    ),
     contractFooter:
       settingsMap.get("contract_footer") ?? defaultShopSettings.contractFooter,
+    printHeaderSubtitle:
+      settingsMap.get("print_header_subtitle") ?? defaultShopSettings.printHeaderSubtitle,
+    printTermsAndConditions:
+      settingsMap.get("print_terms_and_conditions") ?? defaultShopSettings.printTermsAndConditions,
+    lastAutoBackupAt: settingsMap.get("last_auto_backup_at") || null,
     language: normalizeLanguage(
       settingsMap.get("app_language") ?? defaultShopSettings.language,
     ),
@@ -145,7 +158,15 @@ export function saveShopSettings(settings: Partial<ShopSettings>): ShopSettings 
     { key: "scheduled_backup_enabled", value: String(updated.scheduledBackupEnabled) },
     { key: "scheduled_backup_folder", value: updated.scheduledBackupFolder ?? "" },
     { key: "owner_pin_enabled", value: String(updated.ownerPinEnabled) },
+    { key: "enable_sales_commission", value: String(updated.enableSalesCommission) },
+    {
+      key: "default_daily_commission_rate",
+      value: String(updated.defaultDailyCommissionRate),
+    },
     { key: "contract_footer", value: updated.contractFooter },
+    { key: "print_header_subtitle", value: updated.printHeaderSubtitle },
+    { key: "print_terms_and_conditions", value: updated.printTermsAndConditions },
+    { key: "last_auto_backup_at", value: updated.lastAutoBackupAt ?? "" },
     { key: "app_language", value: normalizeLanguage(updated.language) },
   ];
 

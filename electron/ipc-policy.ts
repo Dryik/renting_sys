@@ -89,6 +89,7 @@ export const ipcAccessPolicy = {
   "reports:get-cancelled-rentals": { requiresWriteAccess: false },
   "reports:get-payment-voids": { requiresWriteAccess: false },
   "reports:get-vehicle-sales": { requiresWriteAccess: false },
+  "reports:get-commissions": { requiresWriteAccess: false },
   "reports:export": { requiresWriteAccess: false },
   "backup:run-backup": { requiresWriteAccess: false },
   "backup:run-restore": { requiresWriteAccess: true },

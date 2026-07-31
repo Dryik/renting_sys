@@ -148,6 +148,8 @@ const api: RentalAppApi = {
     getPaymentVoids: () => ipcRenderer.invoke("reports:get-payment-voids"),
     getVehicleSales: (request) =>
       ipcRenderer.invoke("reports:get-vehicle-sales", request),
+    getCommissions: (request) =>
+      ipcRenderer.invoke("reports:get-commissions", request),
     export: (request) => ipcRenderer.invoke("reports:export", request),
   },
   backup: {

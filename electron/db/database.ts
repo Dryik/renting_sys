@@ -41,7 +41,7 @@ export function initializeDatabase(): DatabaseState {
   db = drizzle(sqlite, { schema });
   db.run(
     `insert into app_settings (key, value)
-     values ('schema_version', '9')
+     values ('schema_version', '11')
      on conflict(key) do nothing`,
   );
 
@@ -117,6 +117,7 @@ function runInitialSchema(database: Database.Database): void {
       brand text not null,
       model text not null,
       plate_number text not null unique,
+      chassis_number text,
       color text,
       year integer,
       daily_price real not null,
@@ -696,6 +697,53 @@ function runMigrations(database: Database.Database): void {
       seedNumberSequences(database, now);
       database
         .prepare("update app_settings set value = '9' where key = 'schema_version'")
+        .run();
+    })();
+  }
+
+  if (schemaVersion < 10) {
+    database.transaction(() => {
+      addColumnIfMissing(database, "vehicles", "chassis_number", "text");
+      database
+        .prepare("update app_settings set value = '10' where key = 'schema_version'")
+        .run();
+    })();
+  }
+
+  if (schemaVersion < 11) {
+    database.transaction(() => {
+      addColumnIfMissing(
+        database,
+        "users",
+        "earns_commission",
+        "integer not null default 1",
+      );
+      addColumnIfMissing(
+        database,
+        "vehicles",
+        "commission_rate_override",
+        "real",
+      );
+      addColumnIfMissing(
+        database,
+        "rentals",
+        "sales_user_id",
+        "integer references users(id)",
+      );
+      addColumnIfMissing(
+        database,
+        "rentals",
+        "commission_rate_per_day",
+        "real not null default 0",
+      );
+      addColumnIfMissing(
+        database,
+        "rentals",
+        "commission_amount",
+        "real not null default 0",
+      );
+      database
+        .prepare("update app_settings set value = '11' where key = 'schema_version'")
         .run();
     })();
   }

@@ -999,7 +999,7 @@ function StaffAccountingPage() {
 
 function EmployeeLoansSection() {
   const { can } = useAuth();
-  const { formatCurrency, formatDateTime, t } = useI18n();
+  const { formatCurrency, formatDateTime, language, t } = useI18n();
   const [loanPage, setLoanPage] = useState<PageResult<EmployeeLoanRecord>>({
     rows: [],
     total: 0,
@@ -1163,7 +1163,7 @@ function EmployeeLoansSection() {
                 <Td className="tabular-nums">
                   <BidiValue value={formatDateTime(loan.issuedAt)} />
                 </Td>
-                <Td>{t(formatMoneyLocation(loan.sourceLocation, "en"))}</Td>
+                <Td>{formatMoneyLocation(loan.sourceLocation, language)}</Td>
                 <Td>
                   <Badge
                     variant={loan.status === "voided" ? "destructive" : "secondary"}
@@ -1481,7 +1481,7 @@ function EmployeeLoanForm({
   onCancel: () => void;
   onSave: (input: EmployeeLoanInput) => Promise<void>;
 }) {
-  const { t } = useI18n();
+  const { language, t } = useI18n();
   const {
     formState: { errors },
     handleSubmit,
@@ -1525,7 +1525,7 @@ function EmployeeLoanForm({
         >
           {moneyLocationValues.map((location) => (
             <option key={location} value={location}>
-              {t(formatMoneyLocation(location, "en"))}
+              {formatMoneyLocation(location, language)}
             </option>
           ))}
         </select>
@@ -1559,7 +1559,7 @@ function EmployeeLoanRepaymentForm({
   onCancel: () => void;
   onSave: (input: EmployeeLoanRepaymentFormInput) => Promise<void>;
 }) {
-  const { formatCurrency, t } = useI18n();
+  const { formatCurrency, language, t } = useI18n();
   const {
     formState: { errors },
     handleSubmit,
@@ -1595,7 +1595,7 @@ function EmployeeLoanRepaymentForm({
         >
           {moneyLocationValues.map((location) => (
             <option key={location} value={location}>
-              {t(formatMoneyLocation(location, "en"))}
+              {formatMoneyLocation(location, language)}
             </option>
           ))}
         </select>
@@ -1633,6 +1633,7 @@ function LocationBalanceGrid({
   formatCurrency: (value: number) => string;
   t: (key: string, params?: Record<string, string | number>) => string;
 }) {
+  const { language } = useI18n();
   return (
     <div className="mt-4 grid gap-3 md:grid-cols-3">
       {moneyLocationValues.map((location) => (
@@ -1641,7 +1642,7 @@ function LocationBalanceGrid({
           className="rounded-xl border border-border/70 bg-background px-4 py-3"
         >
           <p className="text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
-            {t(formatMoneyLocation(location, "en"))}
+            {formatMoneyLocation(location, language)}
           </p>
           <p className="mt-2 text-2xl font-bold leading-none">
             <BidiValue value={formatCurrency(balances[location])} />
@@ -2468,7 +2469,7 @@ function CashMovementForm({
       <FormActions
         cancelLabel={t("Cancel")}
         isSaving={isSaving}
-        saveLabel={t(formatCashMovementType(movementType, "en"))}
+        saveLabel={formatCashMovementType(movementType, language)}
         onCancel={onCancel}
       />
     </form>

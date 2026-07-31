@@ -251,6 +251,7 @@ export type CurrentUser = {
   username: string;
   roleKey: RoleKey;
   isActive: boolean;
+  earnsCommission: boolean;
   mustChangePassword: boolean;
   lastLoginAt: string | null;
   permissions: Permission[];
@@ -269,6 +270,7 @@ export type UserListRecord = {
   username: string;
   roleKey: RoleKey;
   isActive: boolean;
+  earnsCommission: boolean;
   mustChangePassword: boolean;
   failedLoginCount: number;
   lockedUntil: string | null;
@@ -357,6 +359,7 @@ export const createUserSchema = z
     fullName: z.string().trim().min(1, "Full name is required.").max(100),
     username: usernameSchema,
     roleKey: z.enum(roleValues),
+    earnsCommission: z.boolean().default(true),
     password: pinSchema,
     confirmPassword: confirmPinSchema,
   })
@@ -375,6 +378,7 @@ export const updateUserSchema = z.object({
   fullName: z.string().trim().min(1, "Full name is required.").max(100),
   username: usernameSchema,
   roleKey: z.enum(roleValues),
+  earnsCommission: z.boolean().default(true),
   reason: z.string().trim().max(500).nullable().optional(),
 });
 

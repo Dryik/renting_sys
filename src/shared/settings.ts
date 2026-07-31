@@ -22,7 +22,12 @@ export type ShopSettings = {
   scheduledBackupEnabled: boolean;
   scheduledBackupFolder: string | null;
   ownerPinEnabled: boolean;
+  enableSalesCommission: boolean;
+  defaultDailyCommissionRate: number;
   contractFooter: string;
+  printHeaderSubtitle: string;
+  printTermsAndConditions: string;
+  lastAutoBackupAt: string | null;
   language: LanguageCode;
 };
 
@@ -48,7 +53,13 @@ export const defaultShopSettings: ShopSettings = {
   scheduledBackupEnabled: false,
   scheduledBackupFolder: null,
   ownerPinEnabled: false,
+  enableSalesCommission: true,
+  defaultDailyCommissionRate: 2,
   contractFooter:
     "بتوقيع هذا العقد، يوافق العميل على إعادة المركبة بالحالة نفسها التي استلمها بها وفي موعد الإرجاع المتفق عليه. تخضع حالات التأخير لرسوم تأخير حسب سياسة المحل.",
+  printHeaderSubtitle: "عقد تأجير سيارات ومحركات",
+  printTermsAndConditions:
+    "1. يتعهد المستأجر بالحفاظ على المركبة وتسليمها في الموعد المحدد.\n2. يتحمل المستأجر مسؤوليته الكاملة عن أي أضرار أو مخالفات مرورية خلال فترة التأجير.\n3. لا يحق للمستأجر تسليم المركبة للغير دون موافقة خطية من المكتب.",
+  lastAutoBackupAt: null,
   language: "ar",
 };

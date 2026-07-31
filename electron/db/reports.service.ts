@@ -1,7 +1,10 @@
 import { and, count, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
-import type { RentalListRecord } from "../../src/shared/rentals";
+import { calculateRentalDays, type RentalListRecord } from "../../src/shared/rentals";
 import type { PageResult } from "../../src/shared/pagination";
 import type {
+  CommissionReportRecord,
+  CommissionReportRequest,
+  CommissionReportSummary,
   CustomerRentalHistoryRequest,
   CancelledRentalRecord,
   DailyPaymentRecord,
@@ -22,8 +25,9 @@ import type {
 } from "../../src/shared/reports";
 import { getDatabase, getSqliteDatabase } from "./database";
 import { createPageResult, normalizePageRequest, type NormalizedPageRequest } from "./listing";
-import { customers, maintenanceRecords, payments, rentals, vehicleSales, vehicles } from "./schema";
+import { customers, maintenanceRecords, payments, rentals, users, vehicleSales, vehicles } from "./schema";
 import { getShopSettings } from "./settings.service";
+import { requirePermissionForCurrentSession } from "./auth.service";
 import { isWriteAccessAllowed } from "../licensing/service";
 import {
   effectiveActiveRentalFilter,
@@ -1015,4 +1019,95 @@ function toDateInputValue(date: Date): string {
   const day = String(date.getDate()).padStart(2, "0");
 
   return `${year}-${month}-${day}`;
+}
+
+export function getCommissionReport(
+  request?: CommissionReportRequest,
+): CommissionReportSummary {
+  requirePermissionForCurrentSession("reports.view");
+  const db = getDatabase();
+  const conditions = [];
+
+  if (request?.dateFrom) {
+    const range = getLocalDateRange(request.dateFrom, request.dateFrom);
+    conditions.push(gte(rentals.startDatetime, range.start));
+  }
+  if (request?.dateTo) {
+    const range = getLocalDateRange(request.dateTo, request.dateTo);
+    conditions.push(lt(rentals.startDatetime, range.end));
+  }
+  if (request?.salesUserId) {
+    conditions.push(eq(rentals.salesUserId, request.salesUserId));
+  }
+  if (request?.vehicleType && request.vehicleType !== "all") {
+    conditions.push(eq(vehicles.type, request.vehicleType));
+  }
+
+  const whereFilter = conditions.length ? and(...conditions) : undefined;
+
+  const rows = db
+    .select({
+      rentalId: rentals.id,
+      contractNo: rentals.contractNo,
+      customerId: rentals.customerId,
+      customerName: customers.fullName,
+      vehicleId: rentals.vehicleId,
+      vehiclePlateNumber: vehicles.plateNumber,
+      vehicleBrand: vehicles.brand,
+      vehicleModel: vehicles.model,
+      vehicleType: vehicles.type,
+      salesUserId: rentals.salesUserId,
+      salesUserName: users.fullName,
+      status: rentals.status,
+      startDatetime: rentals.startDatetime,
+      expectedReturnDatetime: rentals.expectedReturnDatetime,
+      actualReturnDatetime: rentals.actualReturnDatetime,
+      commissionRatePerDay: rentals.commissionRatePerDay,
+      commissionAmount: rentals.commissionAmount,
+      createdAt: rentals.createdAt,
+    })
+    .from(rentals)
+    .innerJoin(customers, eq(rentals.customerId, customers.id))
+    .innerJoin(vehicles, eq(rentals.vehicleId, vehicles.id))
+    .leftJoin(users, eq(rentals.salesUserId, users.id))
+    .where(whereFilter)
+    .orderBy(desc(rentals.createdAt))
+    .all();
+
+  const records: CommissionReportRecord[] = rows.map((r) => {
+    const endDatetime = r.actualReturnDatetime ?? r.expectedReturnDatetime;
+    const rentedDays = calculateRentalDays(r.startDatetime, endDatetime);
+    return {
+      rentalId: r.rentalId,
+      contractNo: r.contractNo,
+      customerId: r.customerId,
+      customerName: r.customerName,
+      vehicleId: r.vehicleId,
+      vehiclePlateNumber: r.vehiclePlateNumber,
+      vehicleBrand: r.vehicleBrand,
+      vehicleModel: r.vehicleModel,
+      vehicleType: r.vehicleType as "car" | "motorcycle",
+      salesUserId: r.salesUserId,
+      salesUserName: r.salesUserName,
+      status: r.status,
+      startDatetime: r.startDatetime,
+      expectedReturnDatetime: r.expectedReturnDatetime,
+      actualReturnDatetime: r.actualReturnDatetime,
+      rentedDays,
+      commissionRatePerDay: r.commissionRatePerDay,
+      commissionAmount: r.commissionAmount,
+      createdAt: r.createdAt,
+    };
+  });
+
+  const totalRentals = records.length;
+  const totalDays = records.reduce((acc, r) => acc + r.rentedDays, 0);
+  const totalCommission = records.reduce((acc, r) => acc + r.commissionAmount, 0);
+
+  return {
+    records,
+    totalRentals,
+    totalDays,
+    totalCommission,
+  };
 }

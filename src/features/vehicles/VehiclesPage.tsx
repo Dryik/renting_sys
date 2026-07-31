@@ -65,6 +65,8 @@ const statusFilters: { value: VehicleStatusFilter; label: string }[] = [
 const rowClassName =
   "group transition-colors hover:bg-muted/35 focus-within:bg-muted/40";
 
+import { VehicleAvailabilityTimeline } from "../dashboard/VehicleAvailabilityTimeline";
+
 export function VehiclesPage() {
   const { can } = useAuth();
   const { formatCurrency, language, settings, t } = useI18n();
@@ -223,6 +225,8 @@ export function VehiclesPage() {
 
   return (
     <div className="flex flex-col gap-5">
+      <VehicleAvailabilityTimeline />
+
       <ListToolbar
         actions={can("vehicles.create") ? (
           <Button className="w-full sm:w-auto" size="lg" onClick={openCreateForm}>
@@ -329,7 +333,7 @@ export function VehiclesPage() {
 
       <SectionPanel
         title={t("Vehicles")}
-        description={t("Search by plate number, brand, or model.")}
+        description={t("Search by plate number, brand, model, or chassis number.")}
         badge={t("{{count}} shown", { count: vehiclePage.total })}
       >
         {listError ? (
@@ -359,7 +363,7 @@ export function VehiclesPage() {
                 message={search.trim() ? t("No vehicles match this search.") : t("No vehicles yet")}
                 description={
                   search.trim()
-                    ? t("Search by plate number, brand, or model.")
+                    ? t("Search by plate number, brand, model, or chassis number.")
                     : t("Use Add Vehicle to create the first vehicle record.")
                 }
                 action={
@@ -380,7 +384,7 @@ export function VehiclesPage() {
                         {vehicle.brand} {vehicle.model}
                       </span>
                       <span className="text-xs text-muted-foreground">
-                        {[vehicle.color, vehicle.year].filter(Boolean).join(" / ") ||
+                        {[vehicle.color, vehicle.year, vehicle.chassisNumber].filter(Boolean).join(" / ") ||
                           t("No color or year")}
                       </span>
                     </div>

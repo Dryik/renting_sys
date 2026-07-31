@@ -25,6 +25,7 @@ export function listVehicles(request?: VehicleListRequest | string): PageResult<
 
     const searchFilter = or(
       like(vehicles.plateNumber, term),
+      like(vehicles.chassisNumber, term),
       like(vehicles.brand, term),
       like(vehicles.model, term),
     );

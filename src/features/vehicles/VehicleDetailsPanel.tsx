@@ -135,6 +135,7 @@ export function VehicleDetailsPanel({
 
         <div className="mt-5 grid gap-3 md:grid-cols-2">
           <Detail label={t("Plate Number")} value={<BidiValue value={vehicle.plateNumber} wrap />} />
+          <Detail label={t("Chassis Number")} value={vehicle.chassisNumber ? <BidiValue value={vehicle.chassisNumber} wrap /> : t("No details")} />
           <Detail label={t("Vehicle")} value={`${vehicle.brand} ${vehicle.model}`} />
           <Detail label={t("Color")} value={vehicle.color || t("No color or year")} />
           <Detail label={t("Year")} value={vehicle.year ? <BidiValue value={vehicle.year} /> : t("No date")} />
