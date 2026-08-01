@@ -84,24 +84,65 @@ function optionalTextHtml(
     : escapeHtml(String(value));
 }
 
-function getMotorcycleDiagramHtml(tr: (key: string) => string): string {
+function getMotorcycleDiagramHtml(
+  tr: (key: string) => string,
+  contractNo: string,
+  plateNumber: string,
+  customerName: string,
+  brandModel: string,
+  diagramDataUri?: string,
+  logoDataUrl?: string | null,
+): string {
+  const imgSrc = diagramDataUri || "";
+  const logoHtml = logoDataUrl ? `<img src="${logoDataUrl}" class="landscape-logo-img" alt="${escapeHtml(tr("Shop Logo"))}">` : "";
   return `
-    <div class="section-title">${escapeHtml(tr("Motorcycle Condition Diagram"))}</div>
-    <div class="motorcycle-diagram">
-      <svg viewBox="0 0 760 250" role="img" aria-label="${escapeHtml(tr("Motorcycle Condition Diagram"))}">
-        <rect x="1" y="1" width="758" height="248" fill="white" stroke="#111" stroke-width="1"/>
-        <circle cx="170" cy="175" r="55" fill="none" stroke="#111" stroke-width="5"/>
-        <circle cx="590" cy="175" r="55" fill="none" stroke="#111" stroke-width="5"/>
-        <path d="M170 175 L255 95 L375 95 L465 175 L590 175" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M260 95 L320 55 L410 55 L375 95" fill="none" stroke="#111" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M410 55 L485 52 L535 78" fill="none" stroke="#111" stroke-width="6" stroke-linecap="round"/>
-        <path d="M255 95 L230 55 L185 50" fill="none" stroke="#111" stroke-width="5" stroke-linecap="round"/>
-        <path d="M360 95 L410 145 L465 175" fill="none" stroke="#111" stroke-width="5" stroke-linecap="round"/>
-        <path d="M345 95 L310 175 L170 175" fill="none" stroke="#111" stroke-width="5" stroke-linecap="round"/>
-        <line x1="80" y1="35" x2="700" y2="35" stroke="#999" stroke-dasharray="8 8"/>
-        <text x="80" y="24" fill="#111" font-size="18">${escapeHtml(tr("Mark scratches, dents, and damage here before signing."))}</text>
-      </svg>
-      <div class="diagram-notes"></div>
+    <div class="page-break-landscape">
+      <div class="landscape-sheet">
+        <div class="landscape-header">
+          <div class="landscape-brand">
+            ${logoHtml}
+            <div class="shop-title">
+              <h2>${escapeHtml(tr("Motorcycle Condition Diagram"))}</h2>
+              <p>${escapeHtml(tr("Mark scratches, dents, and damage directly on the diagram before signing."))}</p>
+            </div>
+          </div>
+          <div class="landscape-meta">
+            <div><strong>${escapeHtml(tr("Contract No"))}:</strong> <span class="ltr-value">${escapeHtml(contractNo)}</span></div>
+            <div><strong>${escapeHtml(tr("Plate Number"))}:</strong> <span class="ltr-value">${escapeHtml(plateNumber)}</span></div>
+            <div><strong>${escapeHtml(tr("Vehicle"))}:</strong> ${escapeHtml(brandModel)}</div>
+            <div><strong>${escapeHtml(tr("Customer"))}:</strong> ${escapeHtml(customerName)}</div>
+          </div>
+        </div>
+
+        <div class="diagram-image-box">
+          ${imgSrc ? `<img src="${imgSrc}" alt="${escapeHtml(tr("Motorcycle Inspection Diagram"))}">` : `<div style="height: 280px; border: 1px dashed #000; display: flex; align-items: center; justify-content: center; font-weight: 700;">${escapeHtml(tr("Motorcycle Inspection Diagram"))}</div>`}
+        </div>
+
+        <div class="landscape-footer-grid">
+          <div class="inspection-checklist-box">
+            <div class="box-title">${escapeHtml(tr("Pre-Handover Checklist"))}</div>
+            <div class="checklist-items">
+              <span><span class="chk">&#9744;</span>${escapeHtml(tr("Brakes & Levers"))}</span>
+              <span><span class="chk">&#9744;</span>${escapeHtml(tr("Tire Pressure"))}</span>
+              <span><span class="chk">&#9744;</span>${escapeHtml(tr("Headlight & Signals"))}</span>
+              <span><span class="chk">&#9744;</span>${escapeHtml(tr("Fuel & Oil Level"))}</span>
+              <span><span class="chk">&#9744;</span>${escapeHtml(tr("Helmet & Locks"))}</span>
+              <span><span class="chk">&#9744;</span>${escapeHtml(tr("Registration Document"))}</span>
+            </div>
+          </div>
+
+          <div class="inspection-notes-box">
+            <div class="box-title">${escapeHtml(tr("Damage & Condition Notes"))}</div>
+            <div class="notes-line-area"></div>
+          </div>
+
+          <div class="inspection-signature-box">
+            <div class="box-title">${escapeHtml(tr("Handover Sign-off"))}</div>
+            <div class="sign-off-space"></div>
+            <div class="sign-off-line">${escapeHtml(tr("Customer & Inspector Sign-off"))}</div>
+          </div>
+        </div>
+      </div>
     </div>
   `;
 }
@@ -313,6 +354,7 @@ export async function printRentalContract(
     "Vehicle documents",
     rental.vehicleType === "motorcycle" ? "Helmet" : "Spare tire / tools",
     rental.vehicleType === "motorcycle" ? "Lock / chain" : "Other accessories",
+    rental.vehicleType === "motorcycle" ? "Storage bag" : "Luggage bag",
   ];
   const accessoriesHtml = accessoryLabels
     .map((label) => `<li><span class="checkmark">&#9744;</span>${escapeHtml(tr(label))}</li>`)
@@ -380,7 +422,17 @@ export async function printRentalContract(
     `
     : "";
   const motorcycleDiagramHtml =
-    rental.vehicleType === "motorcycle" ? getMotorcycleDiagramHtml(tr) : "";
+    rental.vehicleType === "motorcycle"
+      ? getMotorcycleDiagramHtml(
+          tr,
+          rental.contractNo,
+          rental.vehiclePlateNumber,
+          rental.customerName,
+          `${rental.vehicleBrand} ${rental.vehicleModel}`,
+          undefined,
+          settings.shopLogoDataUrl,
+        )
+      : "";
   const ownerSignatureHtml = settings.ownerSignatureDataUrl
     ? `<img class="owner-signature-image" src="${escapeHtml(settings.ownerSignatureDataUrl)}" alt="${escapeHtml(tr("Owner Signature"))}">`
     : `<div class="signature-placeholder">${escapeHtml(tr("Owner Signature"))}</div>`;
@@ -440,6 +492,16 @@ export async function printRentalContract(
           border-bottom: 3px solid #1D97D7;
           padding-bottom: 12px;
           margin-bottom: 14px;
+        }
+        .shop-brand-header {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+        }
+        .header-logo-img {
+          width: 58px;
+          height: 58px;
+          object-fit: contain;
         }
         .shop-info h1 {
           font-size: 22px;
@@ -602,34 +664,190 @@ export async function printRentalContract(
             #ddd 23px
           );
         }
-        .signatures {
-          margin-top: 36px;
+        .page-break-landscape {
+          margin-top: 30px;
+          page-break-before: always;
+          break-before: page;
+        }
+        .landscape-sheet {
+          border: 1px solid #CBD5E1;
+          border-radius: 8px;
+          padding: 16px;
+          background: #FFFFFF;
+        }
+        .contract-card, .terms-sheet {
+          position: relative;
+          overflow: hidden;
+        }
+        .watermark {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          width: 340px;
+          max-width: 75%;
+          opacity: 0.06;
+          pointer-events: none;
+          z-index: 0;
+        }
+        .landscape-brand {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+        .landscape-logo-img {
+          width: 44px;
+          height: 44px;
+          object-fit: contain;
+        }
+        .landscape-header .shop-title h2 {
+          margin: 0;
+          font-size: 16px;
+          color: #0F2B3D;
+          font-weight: 800;
+        }
+        .landscape-header .shop-title p {
+          margin: 2px 0 0 0;
+          font-size: 10.5px;
+          color: #64748B;
+        }
+        .landscape-meta {
+          display: flex;
+          gap: 14px;
+          font-size: 11px;
+          color: #334155;
+          background: #F8FAFC;
+          padding: 6px 12px;
+          border-radius: 6px;
+          border: 1px solid #E2E8F0;
+        }
+        .diagram-box-bw {
+          background: #FFFFFF;
+          border: 1.5px solid #000000;
+          border-radius: 6px;
+          padding: 10px;
+          margin-bottom: 14px;
+        }
+        .landscape-footer-grid {
+          display: grid;
+          grid-template-columns: 1fr 1.8fr 1fr;
+          gap: 14px;
+        }
+        .zone-list-box, .checklist-box, .sign-off-box {
+          border: 1px solid #CBD5E1;
+          border-radius: 6px;
+          padding: 8px 10px;
+          background: #FAFCFF;
+        }
+        .box-title {
+          font-size: 10.5px;
+          font-weight: 800;
+          color: #475569;
+          text-transform: uppercase;
+          border-bottom: 1px solid #E2E8F0;
+          padding-bottom: 3px;
+          margin-bottom: 6px;
+        }
+        .zone-grid {
           display: grid;
           grid-template-columns: 1fr 1fr;
-          gap: 40px;
-        }
-        .signature-box {
-          border-top: 1px solid #94a3b8;
-          text-align: center;
-          padding-top: 8px;
-          margin-top: 40px;
+          gap: 4px 8px;
+          font-size: 10.5px;
+          color: #334155;
           font-weight: 600;
-          color: #435b6a;
+        }
+        .num {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 15px;
+          height: 15px;
+          border-radius: 50%;
+          background: #1D97D7;
+          color: #FFFFFF;
+          font-size: 9.5px;
+          font-weight: 800;
+          margin-left: 3px;
+        }
+        .checklist-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 4px 6px;
+          font-size: 10.5px;
+          color: #334155;
+        }
+        .chk {
+          display: inline-block;
+          margin-left: 3px;
+        }
+        .sign-off-space {
+          height: 40px;
+        }
+        .sign-off-line {
+          border-top: 1.5px dashed #94A3B8;
+          padding-top: 4px;
+          text-align: center;
+          font-size: 10.5px;
+          font-weight: 700;
+          color: #0F2B3D;
+        }
+        .signatures-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 24px;
+        }
+        .signature-card {
+          border: 1px solid #CBD5E1;
+          border-radius: 6px;
+          padding: 14px 16px;
+          background-color: #FAFCFF;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          min-height: 140px;
+        }
+        .signature-card-title {
+          font-weight: 700;
+          font-size: 12px;
+          color: #475569;
+          text-transform: uppercase;
+          margin-bottom: 8px;
+          border-bottom: 1px solid #E2E8F0;
+          padding-bottom: 4px;
+        }
+        .signature-pad-area {
+          height: 65px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin-bottom: 8px;
+        }
+        .signature-line {
+          border-top: 1.5px dashed #94A3B8;
+          padding-top: 6px;
+          text-align: center;
+          font-weight: 700;
+          color: #0F2B3D;
+          font-size: 12.5px;
+        }
+        .signature-subtext {
+          font-size: 11px;
+          color: #64748B;
+          text-align: center;
+          margin-top: 2px;
+          font-weight: 500;
         }
         .owner-signature-image {
           display: block;
           max-height: 58px;
           max-width: 220px;
-          margin: 0 auto 8px auto;
+          margin: 0 auto;
           object-fit: contain;
         }
         .signature-placeholder {
-          height: 58px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
           color: #94a3b8;
           font-size: 11px;
+          font-style: italic;
         }
         @media print {
           body {
@@ -640,16 +858,20 @@ export async function printRentalContract(
     </head>
     <body>
       <div class="header">
-        <div class="shop-info">
-          <h1>${escapeHtml(settings.shopName)}</h1>
-          <p>${optionalTextHtml(settings.shopAddress, fallback)}</p>
-          <p>${escapeHtml(tr("Phone"))}: ${ltrHtml(settings.shopPhone)}</p>
+        <div class="shop-brand-header">
+          ${settings.shopLogoDataUrl ? `<img src="${settings.shopLogoDataUrl}" class="header-logo-img" alt="${escapeHtml(tr("Shop Logo"))}">` : ""}
+          <div class="shop-info">
+            <h1>${escapeHtml(settings.shopName)}</h1>
+            <p>${optionalTextHtml(settings.shopAddress, fallback)}</p>
+            <p>${escapeHtml(tr("Phone"))}: ${ltrHtml(settings.shopPhone)}</p>
+          </div>
         </div>
         <div class="contract-title">
           <h2>${escapeHtml(tr("RENTAL CONTRACT"))}</h2>
           <p>${ltrHtml(rental.contractNo)}</p>
         </div>
       </div>
+      ${settings.shopLogoDataUrl ? `<img src="${settings.shopLogoDataUrl}" class="watermark" alt="Watermark">` : ""}
 
       <div class="meta-strip">
         <div class="meta-item">
@@ -697,29 +919,31 @@ export async function printRentalContract(
       </div>
 
       <div class="section-title">${escapeHtml(tr("Rental Terms & Pricing"))}</div>
-      <table>
-        <thead>
-          <tr>
-            <th>${escapeHtml(tr("Start Date & Time"))}</th>
-            <th>${escapeHtml(tr("Expected Return Date & Time"))}</th>
-            <th>${escapeHtml(tr("Estimated Days"))}</th>
-            <th>${escapeHtml(tr("Daily Rate"))}</th>
-            <th>${escapeHtml(tr("Deposit Paid / Required"))}</th>
-            <th>${escapeHtml(tr("Accessory Charges"))}</th>
-            <th>${escapeHtml(tr("Estimated Rental Charge"))}</th>
-            <th>${escapeHtml(tr("Remaining"))}</th>
-          </tr>
-        </thead>
+      <table class="details-table">
         <tbody>
           <tr>
-            <td>${escapeHtml(formatPrintDate(rental.startDatetime, language))}</td>
-            <td>${escapeHtml(formatPrintDate(rental.expectedReturnDatetime, language))}</td>
-            <td>${ltrHtml(estimatedDays)}</td>
-            <td>${ltrHtml(formatPrintMoney(rental.dailyPrice, currency, language))}</td>
-            <td>${ltrHtml(`${formatPrintMoney(rental.depositPaid, currency, language)} / ${formatPrintMoney(rental.depositRequired, currency, language)}`)}</td>
-            <td>${ltrHtml(formatPrintMoney(rental.accessoryCharges, currency, language))}</td>
-            <td style="font-weight: 700;">${ltrHtml(formatPrintMoney(rental.totalAmount, currency, language))}</td>
-            <td style="font-weight: 700;">${ltrHtml(formatPrintMoney(rental.remainingAmount, currency, language))}</td>
+            <td class="label-cell">${escapeHtml(tr("Start Date & Time"))}:</td>
+            <td class="value-cell"><span class="ltr-value">${escapeHtml(formatPrintDate(rental.startDatetime, language))}</span></td>
+            <td class="label-cell">${escapeHtml(tr("Expected Return Date & Time"))}:</td>
+            <td class="value-cell"><span class="ltr-value">${escapeHtml(formatPrintDate(rental.expectedReturnDatetime, language))}</span></td>
+          </tr>
+          <tr>
+            <td class="label-cell">${escapeHtml(tr("Estimated Days"))}:</td>
+            <td class="value-cell">${ltrHtml(`${estimatedDays} ${tr("days")}`)}</td>
+            <td class="label-cell">${escapeHtml(tr("Daily Rate"))}:</td>
+            <td class="value-cell">${ltrHtml(formatPrintMoney(rental.dailyPrice, currency, language))}</td>
+          </tr>
+          <tr>
+            <td class="label-cell">${escapeHtml(tr("Deposit Paid / Required"))}:</td>
+            <td class="value-cell">${ltrHtml(`${formatPrintMoney(rental.depositPaid, currency, language)} / ${formatPrintMoney(rental.depositRequired, currency, language)}`)}</td>
+            <td class="label-cell">${escapeHtml(tr("Total Rental Charge"))}:</td>
+            <td class="value-cell"><strong style="font-weight: 800;">${ltrHtml(formatPrintMoney(rental.totalAmount, currency, language))}</strong></td>
+          </tr>
+          <tr>
+            <td class="label-cell">${escapeHtml(tr("Paid Amount"))}:</td>
+            <td class="value-cell"><strong style="font-weight: 800;">${ltrHtml(formatPrintMoney(rental.paidAmount, currency, language))}</strong></td>
+            <td class="label-cell">${escapeHtml(tr("Remaining Amount"))}:</td>
+            <td class="value-cell"><strong style="font-weight: 800; color: #059669;">${ltrHtml(formatPrintMoney(rental.remainingAmount, currency, language))}</strong></td>
           </tr>
         </tbody>
       </table>
@@ -767,40 +991,90 @@ export async function printRentalContract(
         </div>
       </div>
 
-      ${assignedAccessoriesHtml}
-      ${collateralHtml}
-      ${motorcycleDiagramHtml}
+      <div class="signatures-container">
+        <div class="section-title">${escapeHtml(tr("Signatures & Authorization"))}</div>
+        <div class="signatures-grid">
+          <div class="signature-card">
+            <div class="signature-card-title">${escapeHtml(tr("Customer Approval"))}</div>
+            <div class="signature-pad-area">
+              <span class="signature-placeholder">${escapeHtml(tr("Handwritten Signature"))}</span>
+            </div>
+            <div class="signature-line">${escapeHtml(tr("Customer Signature"))}</div>
+            <div class="signature-subtext">${escapeHtml(rental.customerName)}</div>
+          </div>
 
-      <div class="section-title">${escapeHtml(tr("Key Terms"))}</div>
-      <ol class="terms-list">${termsHtml}</ol>
+          <div class="signature-card">
+            <div class="signature-card-title">${escapeHtml(tr("Shop Representative"))}</div>
+            <div class="signature-pad-area">
+              ${ownerSignatureHtml}
+            </div>
+            <div class="signature-line">${escapeHtml(tr("Owner / Authorized Representative"))}</div>
+            <div class="signature-subtext">${escapeHtml(settings.shopName)}${issuedByName ? ` — ${escapeHtml(tr("Issued By"))}: ${escapeHtml(issuedByName)}` : ""}</div>
+          </div>
+        </div>
+      </div>
 
       ${
         rental.vehicleType === "motorcycle"
           ? `
-            <div class="section-title">${escapeHtml(tr("Motorcycle Additional Terms"))}</div>
-            <ol class="terms-list">${motorcycleTermsHtml}</ol>
+            <div class="page-break-portrait">
+              <div class="terms-sheet">
+                ${settings.shopLogoDataUrl ? `<img src="${settings.shopLogoDataUrl}" class="watermark" alt="Watermark">` : ""}
+                <div class="terms-header">
+                  <div>
+                    <h2>${escapeHtml(tr("Detailed Motorcycle Rental Terms & Conditions"))}</h2>
+                    <p>${escapeHtml(tr("These terms are an integral part of rental contract"))}: <span class="ltr-value">${escapeHtml(rental.contractNo)}</span></p>
+                  </div>
+                  <div>
+                    <strong>${escapeHtml(tr("Customer"))}:</strong> ${escapeHtml(rental.customerName)}
+                  </div>
+                </div>
+
+                <div class="terms-grid">
+                  ${[
+                    { title: tr("Traffic Violations"), body: tr("The customer agrees to pay all traffic fines, parking, towing, or legal fees incurred during the rental period.") },
+                    { title: tr("Accident Liability"), body: tr("The customer assumes full liability for damage, repairs, insurance deductible, towing, and loss of use resulting from accidents.") },
+                    { title: tr("Authorized Rider"), body: tr("Only the named customer may operate the motorcycle. Lending, subleasing, or unauthorized riders are strictly prohibited.") },
+                    { title: tr("Geographical Scope"), body: tr("Operating the motorcycle outside the authorized region or outside Libya is prohibited without prior written consent.") },
+                    { title: tr("Prohibited Uses"), body: tr("Racing, stunts, off-road riding, sand dunes, beaches, or reckless operation are strictly forbidden.") },
+                    { title: tr("Impaired Driving"), body: tr("Operating the motorcycle under the influence of alcohol, drugs, or impairing medication is strictly illegal and voids coverage.") },
+                    { title: tr("Mechanical Abuse"), body: tr("The customer is liable for damage caused by abuse, wheelies, clutch slipping, engine overrevving, or aggressive riding.") },
+                    { title: tr("Fuel Policy"), body: tr("The motorcycle must be returned with the same fuel level as handed over, or refueling and service charges will apply.") },
+                    { title: tr("Late Return"), body: tr("Late returns without approval incur additional fees according to company policy, including full daily rate for excess hours.") },
+                    { title: tr("Tires & Wheels"), body: tr("The customer is responsible for tire puncture repairs, tire damage, rim cracks, or damage resulting from improper use.") },
+                    { title: tr("Theft or Loss"), body: tr("In case of theft or loss, the customer must immediately notify police and the shop. Negligence voids liability relief.") },
+                    { title: tr("Lost Keys"), body: tr("The customer covers key replacement, rekeying, lock replacement, or related electronic programming fees.") },
+                    { title: tr("Official Documents"), body: tr("The customer is liable for loss or damage to vehicle registration papers, insurance cards, or handed-over documents.") },
+                    { title: tr("Security Deposit"), body: tr("The deposit is refunded after inspection and settlement of all fees, damages, fines, or fuel shortages.") },
+                    { title: tr("Helmet & Accessories"), body: tr("The customer must return all accessories, helmets, locks, or mounts in good condition or pay replacement costs.") },
+                    { title: tr("Cleaning Fee"), body: tr("Excessive dirt, mud, sand, or oil requiring special detailing will incur a cleaning fee.") },
+                    { title: tr("Mechanical Breakdown"), body: tr("If a warning light or failure occurs, the rider must stop immediately and notify the shop. Unauthorized repairs are prohibited.") },
+                    { title: tr("Condition Acknowledgment"), body: tr("The customer acknowledges inspecting the motorcycle and signing the condition sheet, accepting its current state.") },
+                    { title: tr("Repossession Rights"), body: tr("The shop reserves the right to repossess the motorcycle immediately if terms are violated or illegal activity occurs.") },
+                    { title: tr("Custody of Documents"), body: tr("By signing this contract, the customer agrees to allow the shop to hold their original ID or passport as security for the duration of the contract.") }
+                  ]
+                    .map(
+                      (t, idx) => `
+                        <div class="term-card">
+                          <div class="term-title"><span class="term-num">${idx + 1}.</span> ${escapeHtml(t.title)}</div>
+                          <div class="term-body">${escapeHtml(t.body)}</div>
+                        </div>
+                      `,
+                    )
+                    .join("")}
+                </div>
+
+                <div class="terms-footer-sign">
+                  <div>${escapeHtml(tr("The customer acknowledges reading and agreeing to all detailed terms above."))}</div>
+                  <div>${escapeHtml(tr("Customer Signature"))}: <span class="mini-sign-line"></span></div>
+                </div>
+              </div>
+            </div>
           `
           : ""
       }
 
-      ${returnAcknowledgmentHtml}
-
-      ${
-        settings.contractFooter.trim()
-          ? `<div class="footer-text">${escapeHtml(settings.contractFooter)}</div>`
-          : ""
-      }
-
-      <div class="signatures">
-        <div>
-          <div class="signature-box">${escapeHtml(tr("Customer Signature"))}</div>
-        </div>
-        <div>
-          ${ownerSignatureHtml}
-          <div class="signature-box">${escapeHtml(tr("Owner Signature"))}</div>
-          <div class="signature-box">${escapeHtml(tr("Employee Finalizer"))}: ${optionalTextHtml(issuedByName, fallback)}</div>
-        </div>
-      </div>
+      ${motorcycleDiagramHtml}
     </body>
     </html>
   `;
