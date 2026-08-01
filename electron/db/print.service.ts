@@ -952,38 +952,6 @@ export async function printRentalContract(
         </tbody>
       </table>
 
-      <div class="section-title">${escapeHtml(tr("Vehicle Documents"))}</div>
-      <table>
-        <tbody>
-          <tr>
-            <th>${escapeHtml(tr("Insurance Expiry"))}</th>
-            ${tableValue(formatOptionalDate(rental.vehicleInsuranceExpiryDate))}
-            <th>${escapeHtml(tr("Registration Expiry"))}</th>
-            ${tableValue(formatOptionalDate(rental.vehicleRegistrationExpiryDate))}
-            <th>${escapeHtml(tr("Technical Inspection Expiry"))}</th>
-            ${tableValue(formatOptionalDate(rental.vehicleTechnicalInspectionExpiryDate))}
-          </tr>
-        </tbody>
-      </table>
-
-      <div class="section-title">${escapeHtml(tr("Vehicle Condition"))}</div>
-      <table>
-        <tbody>
-          <tr>
-            <th>${escapeHtml(tr("Mileage Out"))}</th>
-            <td>${rental.mileageOut !== null ? ltrHtml(`${rental.mileageOut} ${tr("km")}`) : escapeHtml(tr("N/A"))}</td>
-            <th>${escapeHtml(tr("Mileage In"))}</th>
-            <td>${rental.mileageIn !== null ? ltrHtml(`${rental.mileageIn} ${tr("km")}`) : escapeHtml(tr("N/A"))}</td>
-          </tr>
-          <tr>
-            <th>${escapeHtml(tr("Fuel Out"))}</th>
-            <td>${escapeHtml(rental.fuelOut ?? tr("N/A"))}</td>
-            <th>${escapeHtml(tr("Fuel In"))}</th>
-            <td>${escapeHtml(rental.fuelIn ?? tr("N/A"))}</td>
-          </tr>
-        </tbody>
-      </table>
-
       <div class="grid">
         <div>
           <div class="section-title">${escapeHtml(tr("Handover Notes"))}</div>
@@ -1036,26 +1004,26 @@ export async function printRentalContract(
 
                 <div class="terms-grid">
                   ${[
-                    { title: tr("Traffic Violations"), body: tr("The customer agrees to pay all traffic fines, parking, towing, or legal fees incurred during the rental period.") },
-                    { title: tr("Accident Liability"), body: tr("The customer assumes full liability for damage, repairs, insurance deductible, towing, and loss of use resulting from accidents.") },
-                    { title: tr("Authorized Rider"), body: tr("Only the named customer may operate the motorcycle. Lending, subleasing, or unauthorized riders are strictly prohibited.") },
-                    { title: tr("Geographical Scope"), body: tr("Operating the motorcycle outside the authorized region or outside Libya is prohibited without prior written consent.") },
-                    { title: tr("Prohibited Uses"), body: tr("Racing, stunts, off-road riding, sand dunes, beaches, or reckless operation are strictly forbidden.") },
-                    { title: tr("Impaired Driving"), body: tr("Operating the motorcycle under the influence of alcohol, drugs, or impairing medication is strictly illegal and voids coverage.") },
-                    { title: tr("Mechanical Abuse"), body: tr("The customer is liable for damage caused by abuse, wheelies, clutch slipping, engine overrevving, or aggressive riding.") },
-                    { title: tr("Fuel Policy"), body: tr("The motorcycle must be returned with the same fuel level as handed over, or refueling and service charges will apply.") },
-                    { title: tr("Late Return"), body: tr("Late returns without approval incur additional fees according to company policy, including full daily rate for excess hours.") },
-                    { title: tr("Tires & Wheels"), body: tr("The customer is responsible for tire puncture repairs, tire damage, rim cracks, or damage resulting from improper use.") },
-                    { title: tr("Theft or Loss"), body: tr("In case of theft or loss, the customer must immediately notify police and the shop. Negligence voids liability relief.") },
-                    { title: tr("Lost Keys"), body: tr("The customer covers key replacement, rekeying, lock replacement, or related electronic programming fees.") },
-                    { title: tr("Official Documents"), body: tr("The customer is liable for loss or damage to vehicle registration papers, insurance cards, or handed-over documents.") },
-                    { title: tr("Security Deposit"), body: tr("The deposit is refunded after inspection and settlement of all fees, damages, fines, or fuel shortages.") },
-                    { title: tr("Helmet & Accessories"), body: tr("The customer must return all accessories, helmets, locks, or mounts in good condition or pay replacement costs.") },
-                    { title: tr("Cleaning Fee"), body: tr("Excessive dirt, mud, sand, or oil requiring special detailing will incur a cleaning fee.") },
-                    { title: tr("Mechanical Breakdown"), body: tr("If a warning light or failure occurs, the rider must stop immediately and notify the shop. Unauthorized repairs are prohibited.") },
-                    { title: tr("Condition Acknowledgment"), body: tr("The customer acknowledges inspecting the motorcycle and signing the condition sheet, accepting its current state.") },
-                    { title: tr("Repossession Rights"), body: tr("The shop reserves the right to repossess the motorcycle immediately if terms are violated or illegal activity occurs.") },
-                    { title: tr("Custody of Documents"), body: tr("By signing this contract, the customer agrees to allow the shop to hold their original ID or passport as security for the duration of the contract.") }
+                    { title: "المخالفات المرورية", body: "يلتزم المستأجر بسداد جميع المخالفات المرورية ورسوم الوقوف أو السحب أو أي غرامات أو رسوم قانونية تترتب على استخدام الدراجة خلال مدة الإيجار، سواء صدرت أثناء مدة العقد أو بعد انتهائه إذا كانت ناتجة عن فترة الإيجار." },
+                    { title: "المسؤولية عن الحوادث", body: "يتحمل المستأجر كامل المسؤولية عن أي أضرار أو خسائر تنتج عن الحوادث التي تقع أثناء فترة الإيجار، بما في ذلك قيمة الإصلاحات، ونسبة التحمل التأميني، وأجور السحب والنقل، وأي خسائر تشغيلية يتكبدها المؤجر نتيجة توقف الدراجة عن العمل." },
+                    { title: "السائق المصرح له", body: "لا يجوز قيادة الدراجة إلا من قبل المستأجر المذكور اسمه في هذا العقد، ويُمنع تسليمها أو إعارتها أو تأجيرها لأي شخص آخر دون موافقة خطية من المؤجر." },
+                    { title: "نطاق الاستخدام", body: "يحظر إخراج الدراجة خارج حدود دولة ليبيا أو استخدامها خارج النطاق الجغرافي المصرح به إلا بعد الحصول على موافقة كتابية من المؤجر." },
+                    { title: "الاستخدام غير المسموح به", body: "يمنع استخدام الدراجة في السباقات، أو الاستعراضات، أو القيادة الخطرة، أو الطرق الوعرة، أو الصحاري، أو الشواطئ، أو أي استخدام يخالف الغرض الطبيعي للمركبة." },
+                    { title: "القيادة تحت تأثير المؤثرات", body: "يقر المستأجر بعدم قيادة الدراجة تحت تأثير الكحول أو المخدرات أو أي أدوية تؤثر على القدرة على القيادة، ويتحمل كامل المسؤولية القانونية والمالية عن أي مخالفة أو حادث ينتج عن ذلك." },
+                    { title: "سوء الاستخدام الميكانيكي", body: "يتحمل المستأجر تكلفة أي أضرار ناتجة عن سوء الاستخدام، مثل القيادة بعنف، أو رفع العجلة الأمامية، أو الاستعراض، أو إساءة استخدام القابض، أو تجاوز حدود التشغيل الطبيعية للمحرك." },
+                    { title: "سياسة الوقود", body: "يجب إعادة الدراجة بنفس مستوى الوقود المسجل عند الاستلام، ويحق للمؤجر خصم قيمة الوقود الناقص بالإضافة إلى رسوم خدمة التعبئة." },
+                    { title: "التأخير في إعادة الدراجة", body: "في حال التأخر عن موعد الإرجاع دون موافقة المؤجر، يتم احتساب رسوم إضافية وفق سياسة الشركة، ويحق للمؤجر احتساب يوم إيجار كامل عند تجاوز مدة التأخير المحددة." },
+                    { title: "الإطارات والعجلات", body: "يتحمل المستأجر قيمة إصلاح أو استبدال الإطارات أو الجنوط في حال تعرضها للتلف أو الثقب أو الكسر نتيجة سوء الاستخدام أو الحوادث أثناء فترة الإيجار." },
+                    { title: "السرقة أو الفقدان", body: "في حال سرقة الدراجة أو فقدانها، يلتزم المستأجر بإبلاغ الجهات الأمنية والمؤجر فوراً، ويتحمل المسؤولية الكاملة إذا ثبت الإهمال أو التأخر في الإبلاغ." },
+                    { title: "فقدان المفاتيح", body: "يتحمل المستأجر تكلفة استبدال المفاتيح أو برمجتها أو استبدال الأقفال أو أي أجزاء مرتبطة بها في حال فقدانها أو تلفها." },
+                    { title: "المستندات الرسمية", body: "يتحمل المستأجر قيمة فقدان أو تلف أي مستندات أو وثائق خاصة بالدراجة يتم تسليمها معه عند الاستلام." },
+                    { title: "الوديعة التأمينية", body: "تُعاد الوديعة بعد فحص الدراجة والتأكد من سلامتها وسداد جميع الالتزامات المالية، ويحق للمؤجر خصم قيمة الأضرار أو المخالفات أو الوقود الناقص أو أي مبالغ مستحقة قبل إعادة المتبقي من الوديعة." },
+                    { title: "الخوذة والملحقات", body: "يتحمل المستأجر مسؤولية المحافظة على جميع الملحقات المسلمة معه، بما في ذلك الخوذة، والقفل، وحامل الهاتف، وأي معدات أخرى، ويلتزم بسداد قيمة أي مفقود أو تالف." },
+                    { title: "رسوم التنظيف", body: "في حال إعادة الدراجة بحالة تتطلب تنظيفاً غير اعتيادي بسبب الأوساخ أو الرمال أو الزيوت أو غيرها، يحق للمؤجر استيفاء رسوم تنظيف مناسبة." },
+                    { title: "الأعطال الميكانيكية", body: "عند ظهور أي عطل أو مؤشر تحذير، يجب على المستأجر التوقف عن استخدام الدراجة وإبلاغ المؤجر فوراً، ويمنع إجراء أي إصلاح دون موافقة مسبقة من المؤجر." },
+                    { title: "الإقرار بحالة الدراجة", body: "يقر المستأجر بأنه قام بفحص الدراجة وجميع ملحقاتها، واطلع على مخطط الفحص، واستلمها بالحالة الموضحة في هذا العقد، ولا يحق له الاعتراض على أي أضرار أو ملاحظات مثبتة عند الاستلام." },
+                    { title: "حق استرداد المركبة", body: "يحق للمؤجر استرداد الدراجة فوراً ودون إنذار في حال مخالفة أي من شروط هذا العقد أو استخدام الدراجة بطريقة تعرضها للخطر أو تنطوي على مخالفة للقانون، مع احتفاظه بحقه في المطالبة بالتعويض عن أي أضرار أو خسائر." },
+                    { title: "الاحتفاظ بالأمانات والوثائق", body: "بموجب التوقيع على هذا العقد، يوافق المستأجر ويقر بحق مكتب التأجير في الاحتفاظ بأصل وثيقة إثبات الشخصية (جواز السفر / الهوية الشخصية) كأمانة معتمدة طيلة فترة سريان هذا العقد، على أن تُعاد للمستأجر فور تسليم المركبة بحالتها الأولى وسداد جميع الالتزامات المالية." }
                   ]
                     .map(
                       (t, idx) => `
