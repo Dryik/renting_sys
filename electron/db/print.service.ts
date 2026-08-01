@@ -193,8 +193,15 @@ async function printHTML(
         silent: false,
         printBackground: true,
       },
-      () => {
-        tempWindow.destroy();
+      (success, failureReason) => {
+        if (!success) {
+          console.error("Direct print failed or canceled:", failureReason);
+        }
+        setTimeout(() => {
+          if (!tempWindow.isDestroyed()) {
+            tempWindow.destroy();
+          }
+        }, 5000);
       },
     );
   }
