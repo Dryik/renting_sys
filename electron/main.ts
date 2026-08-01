@@ -450,6 +450,7 @@ app.on("second-instance", () => {
 });
 
 app.whenReady().then(() => {
+  app.setAppUserModelId("ly.arak.rentaldesk");
   const databaseState = initializeDatabase();
   appInfo = {
     appVersion: app.getVersion(),
