@@ -1,5 +1,5 @@
 import { KeyRound, LogIn, UserPlus } from "lucide-react";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useState, useEffect, type FormEvent, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useI18n } from "@/hooks/useI18n";
@@ -93,10 +93,31 @@ export function OwnerSetupScreen({ onAuthState, themeControl }: AuthScreenProps)
 
 export function LoginScreen({ onAuthState, themeControl }: AuthScreenProps) {
   const { t } = useI18n();
-  const [username, setUsername] = useState("");
+  const [users, setUsers] = useState<{ id: number; username: string; fullName: string }[]>([]);
+  const [selectedUser, setSelectedUser] = useState<{ id: number; username: string; fullName: string } | null>(null);
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    window.rentalApp.auth.listLoginUsers()
+      .then(setUsers)
+      .catch(() => setUsers([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  function selectUser(user: { id: number; username: string; fullName: string }) {
+    setSelectedUser(user);
+    setPassword("");
+    setError(null);
+  }
+
+  function back() {
+    setSelectedUser(null);
+    setPassword("");
+    setError(null);
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -111,7 +132,7 @@ export function LoginScreen({ onAuthState, themeControl }: AuthScreenProps) {
     setIsSubmitting(true);
 
     try {
-      const state = await window.rentalApp.auth.login({ username, password });
+      const state = await window.rentalApp.auth.login({ username: selectedUser!.username, password });
       onAuthState(state);
     } catch (err) {
       setError(t(getFriendlyAuthErrorMessage(err, "Login failed.")));
@@ -121,24 +142,88 @@ export function LoginScreen({ onAuthState, themeControl }: AuthScreenProps) {
   }
 
   return (
-    <AuthFrame
-      title={t("Login")}
-      themeControl={themeControl}
-    >
-      <form noValidate className="flex flex-col gap-4" onSubmit={(event) => void submit(event)}>
-        <AuthField label={t("Username")} required>
-          <Input autoFocus data-ltr="true" value={username} onChange={(event) => setUsername(event.target.value)} />
-        </AuthField>
-        <AuthField label={t("PIN")} required>
-          <PinInput value={password} onChange={setPassword} />
-        </AuthField>
-        <AuthError message={error} />
-        <Button type="submit" size="lg" disabled={isSubmitting}>
-          <LogIn data-rtl-flip="true" className="size-4" />
-          {t("Login")}
-        </Button>
-      </form>
+    <AuthFrame title={t("Login")} themeControl={themeControl}>
+      {selectedUser ? (
+        <form noValidate className="flex flex-col gap-4" onSubmit={(event) => void submit(event)}>
+          {/* Selected user header */}
+          <div className="flex items-center gap-3 rounded-xl border border-border bg-muted px-4 py-3">
+            <UserAvatar name={selectedUser.fullName} size="md" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-semibold text-foreground">{selectedUser.fullName}</p>
+              <p className="truncate text-xs text-muted-foreground" data-ltr="true">{selectedUser.username}</p>
+            </div>
+            <button
+              type="button"
+              className="rounded-lg px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              onClick={back}
+            >
+              {t("Change")}
+            </button>
+          </div>
+
+          <AuthField label={t("PIN")} required>
+            <PinInput autoFocus value={password} onChange={setPassword} />
+          </AuthField>
+          <AuthError message={error} />
+          <Button type="submit" size="lg" disabled={isSubmitting}>
+            <LogIn data-rtl-flip="true" className="size-4" />
+            {t("Login")}
+          </Button>
+        </form>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {loading ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">{t("Loading...")}</p>
+          ) : users.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">{t("No active users found.")}</p>
+          ) : (
+            <>
+              <p className="mb-1 text-sm text-muted-foreground">{t("Select your account:")}</p>
+              <div className="flex flex-col gap-2">
+                {users.map((user) => (
+                  <button
+                    key={user.id}
+                    type="button"
+                    onClick={() => selectUser(user)}
+                    className="flex w-full items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 text-start transition-colors hover:bg-accent hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  >
+                    <UserAvatar name={user.fullName} size="md" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-semibold text-foreground">{user.fullName}</p>
+                      <p className="truncate text-xs text-muted-foreground" data-ltr="true">{user.username}</p>
+                    </div>
+                    <LogIn data-rtl-flip="true" className="size-4 shrink-0 text-muted-foreground" />
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </AuthFrame>
+  );
+}
+
+function UserAvatar({ name, size = "md" }: { name: string; size?: "md" | "lg" }) {
+  const initials = name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((word) => word[0]?.toUpperCase() ?? "")
+    .join("");
+
+  const colors = [
+    "bg-blue-600", "bg-violet-600", "bg-emerald-600",
+    "bg-amber-600", "bg-rose-600", "bg-cyan-600",
+  ];
+  const color = colors[(name.charCodeAt(0) ?? 0) % colors.length];
+
+  const sizeClass = size === "lg" ? "size-12 text-base" : "size-9 text-sm";
+
+  return (
+    <span className={["inline-flex shrink-0 items-center justify-center rounded-full font-bold text-white", sizeClass, color].join(" ")}>
+      {initials || "?"}
+    </span>
   );
 }
 
@@ -360,16 +445,19 @@ function AuthField({
 
 function PinInput({
   autoComplete = "current-password",
+  autoFocus = false,
   onChange,
   value,
 }: {
   autoComplete?: string;
+  autoFocus?: boolean;
   onChange: (value: string) => void;
   value: string;
 }) {
   return (
     <Input
       autoComplete={autoComplete}
+      autoFocus={autoFocus}
       data-ltr="true"
       inputMode="numeric"
       maxLength={4}

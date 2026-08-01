@@ -134,6 +134,7 @@ export type RentalAppApi = {
     lock: () => Promise<AuthState>;
     unlock: (input: UnlockInput) => Promise<AuthState>;
     changePassword: (input: ChangePasswordInput) => Promise<AuthState>;
+    listLoginUsers: () => Promise<{ id: number; username: string; fullName: string }[]>;
   };
   users: {
     list: () => Promise<UserListRecord[]>;

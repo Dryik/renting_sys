@@ -145,6 +145,7 @@ import {
   createUser,
   deactivateUser,
   getAuthState,
+  listActiveUsersForLogin,
   listUsers,
   lockApp,
   login,
@@ -550,6 +551,7 @@ app.whenReady().then(() => {
   });
 
   handle("auth:get-state", () => getAuthState());
+  handle("auth:list-login-users", () => listActiveUsersForLogin());
   handle("auth:setup-owner", (_event, input: unknown) =>
     setupFirstOwner(input),
   );

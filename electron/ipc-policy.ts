@@ -9,6 +9,7 @@ export const ipcAccessPolicy = {
   "auth:lock": { requiresWriteAccess: false },
   "auth:unlock": { requiresWriteAccess: false },
   "auth:change-password": { requiresWriteAccess: false },
+  "auth:list-login-users": { requiresWriteAccess: false },
   "users:list": { requiresWriteAccess: false },
   "users:create": { requiresWriteAccess: true },
   "users:update": { requiresWriteAccess: true },

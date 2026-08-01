@@ -386,6 +386,16 @@ export function listUsers(): UserListRecord[] {
     .map(toUserListRecord);
 }
 
+/** Returns active users for the login screen — no authentication required. */
+export function listActiveUsersForLogin(): { id: number; username: string; fullName: string }[] {
+  return getDatabase()
+    .select({ id: users.id, username: users.username, fullName: users.fullName })
+    .from(users)
+    .where(eq(users.isActive, true))
+    .orderBy(asc(users.fullName), asc(users.username))
+    .all();
+}
+
 export function createUser(input: unknown): UserListRecord {
   try {
     requirePermissionForCurrentSession("users.create");

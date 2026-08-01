@@ -19,6 +19,7 @@ const api: RentalAppApi = {
     unlock: (input) => ipcRenderer.invoke("auth:unlock", input),
     changePassword: (input) =>
       ipcRenderer.invoke("auth:change-password", input),
+    listLoginUsers: () => ipcRenderer.invoke("auth:list-login-users"),
   },
   users: {
     list: () => ipcRenderer.invoke("users:list"),
