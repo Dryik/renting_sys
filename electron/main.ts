@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent } from "electron";
 import pkg from "electron-updater";
 const { autoUpdater } = pkg;
+import fs from "node:fs";
 import path from "node:path";
 import {
   createCustomer,
@@ -317,13 +318,31 @@ function attachCloseConfirmation(window: BrowserWindow): void {
   });
 }
 
+function getAppIconPath(): string {
+  const candidates = [
+    path.join(__dirname, "../../build/icon.ico"),
+    path.join(__dirname, "../../build/icon.png"),
+    path.join(app.getAppPath(), "build/icon.ico"),
+    path.join(app.getAppPath(), "build/icon.png"),
+  ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return path.join(__dirname, "../../build/icon.ico");
+}
+
 function createMainWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 1024,
     minHeight: 680,
-    title: "Rental Desk",
+    title: "ARAK Rental Desk",
+    icon: getAppIconPath(),
     show: false,
     backgroundColor: "#f7f7f8",
     webPreferences: {

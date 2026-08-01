@@ -1,6 +1,6 @@
 {
   "name": "arak-rental-desk",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "ARAK Rental Desk desktop product for small car and motorcycle rental shops.",
   "author": "ARAK Communication & IT Services",
   "private": true,
@@ -65,6 +65,7 @@
   "build": {
     "appId": "ly.arak.rentaldesk",
     "productName": "ARAK Rental Desk",
+    "icon": "build/icon.ico",
     "directories": {
       "output": "release"
     },
@@ -77,6 +78,7 @@
     ],
     "files": [
       "out/**/*",
+      "build/**/*",
       "package.json"
     ],
     "win": {
