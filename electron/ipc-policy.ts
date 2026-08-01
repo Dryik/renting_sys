@@ -121,6 +121,7 @@ export const ipcAccessPolicy = {
   "security:set-owner-pin": { requiresWriteAccess: true },
   "security:clear-owner-pin": { requiresWriteAccess: true },
   "security:approve-sensitive-action": { requiresWriteAccess: true },
+  "app:restart-and-install-update": { requiresWriteAccess: false },
 } as const satisfies Record<string, { requiresWriteAccess: boolean }>;
 
 export type IpcChannel = keyof typeof ipcAccessPolicy;

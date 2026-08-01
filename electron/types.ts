@@ -331,4 +331,8 @@ export type RentalAppApi = {
     clearOwnerPin: (input?: { approvalToken?: string }) => Promise<void>;
     approveSensitiveAction: (input: SensitiveApprovalInput) => Promise<SensitiveApproval>;
   };
+  updates?: {
+    onDownloaded: (callback: (info: { version: string }) => void) => () => void;
+    restartAndInstall: () => Promise<void>;
+  };
 };

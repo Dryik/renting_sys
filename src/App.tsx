@@ -240,6 +240,8 @@ export default function App() {
     }
   }, []);
 
+  const [downloadedUpdateVersion, setDownloadedUpdateVersion] = useState<string | null>(null);
+
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       void refreshAuth();
@@ -248,6 +250,13 @@ export default function App() {
 
     return () => window.clearTimeout(timeout);
   }, [refreshAuth, refreshLicense]);
+
+  useEffect(() => {
+    const unsub = window.rentalApp?.updates?.onDownloaded((info) => {
+      setDownloadedUpdateVersion(info.version);
+    });
+    return () => unsub?.();
+  }, []);
 
   const accessibleNavigation = useMemo(() => {
     const currentUser = authState?.currentUser;
@@ -391,6 +400,30 @@ export default function App() {
           />
 
           <section className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-6 lg:px-8">
+            {downloadedUpdateVersion ? (
+              <div className="mb-4 flex items-center justify-between rounded-lg border border-primary/40 bg-primary/10 p-4 text-primary shadow-sm">
+                <div className="flex items-center gap-3">
+                  <span className="text-xl">🚀</span>
+                  <div>
+                    <h4 className="font-bold text-sm">
+                      {t("New Version {{version}} Ready!", { version: downloadedUpdateVersion })}
+                    </h4>
+                    <p className="text-xs opacity-90">
+                      {t("A new update has been downloaded. Restart the application to apply changes.")}
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={() => {
+                    void window.rentalApp?.updates?.restartAndInstall();
+                  }}
+                >
+                  {t("Restart & Update")}
+                </Button>
+              </div>
+            ) : null}
             <LicenseBanner
               status={licenseStatus}
               onOpenLicense={() => setActivePage("license")}

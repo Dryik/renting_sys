@@ -1391,6 +1391,9 @@ const ar: Record<string, string> = {
   "Void Repayment": "إلغاء السداد",
   "Sales Representative": "موظف المبيعات",
   "Default (Logged-in user)": "افتراضي (المستخدم الحالي)",
+  "New Version {{version}} Ready!": "إصدار جديد {{version}} جاهز!",
+  "A new update has been downloaded. Restart the application to apply changes.": "تم تنزيل تحديث جديد. أعد تشغيل التطبيق لتطبيق التغييرات.",
+  "Restart & Update": "إعادة التشغيل والتحديث",
 };
 
 export function translate(

@@ -201,6 +201,17 @@ const api: RentalAppApi = {
     approveSensitiveAction: (input) =>
       ipcRenderer.invoke("security:approve-sensitive-action", input),
   },
+  updates: {
+    onDownloaded: (callback) => {
+      const handler = (
+        _event: unknown,
+        info: { version: string },
+      ) => callback(info);
+      electronIpcRenderer.on("update:downloaded", handler);
+      return () => electronIpcRenderer.removeListener("update:downloaded", handler);
+    },
+    restartAndInstall: () => ipcRenderer.invoke("app:restart-and-install-update"),
+  },
 };
 
 contextBridge.exposeInMainWorld("rentalApp", api);

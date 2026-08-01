@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent } from "electron";
+import { autoUpdater } from "electron-updater";
 import path from "node:path";
 import {
   createCustomer,
@@ -436,6 +437,27 @@ app.whenReady().then(() => {
   };
   setAuthAppVersion(appInfo.appVersion);
   checkAndRunScheduledAutoBackup();
+
+  if (app.isPackaged && !isSmokeTest) {
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.on("update-downloaded", (info) => {
+      mainWindow?.webContents.send("update:downloaded", {
+        version: info.version,
+      });
+    });
+    autoUpdater.on("error", (error) => {
+      console.error("AutoUpdater error:", error);
+    });
+    void autoUpdater.checkForUpdatesAndNotify().catch(() => {
+      // Suppress network check errors gracefully when offline
+    });
+  }
+
+  handle("app:restart-and-install-update", () => {
+    isAppQuitting = true;
+    autoUpdater.quitAndInstall(false, true);
+  });
 
   handle("auth:get-state", () => getAuthState());
   handle("auth:setup-owner", (_event, input: unknown) =>
