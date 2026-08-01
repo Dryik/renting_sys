@@ -99,6 +99,7 @@ function getRentalListFields(nowIso: string) {
     remainingAmount: rentals.remainingAmount,
     cancelledAt: rentals.cancelledAt,
     cancelReason: rentals.cancelReason,
+    salesUserId: rentals.salesUserId,
     createdAt: rentals.createdAt,
     updatedAt: rentals.updatedAt,
   };
@@ -1849,7 +1850,8 @@ function toRentalInsert(
   actorId: number | null,
 ) {
   const settings = getShopSettings();
-  const salesUserId = values.salesUserId ?? actorId;
+  const salesUserId =
+    values.salesUserId && values.salesUserId > 0 ? values.salesUserId : actorId;
   let commissionRatePerDay = 0;
   let commissionAmount = 0;
 
