@@ -1389,6 +1389,8 @@ const ar: Record<string, string> = {
   "Remaining Amount": "المبلغ المتبقي",
   "Void Loan": "إلغاء السلفة",
   "Void Repayment": "إلغاء السداد",
+  "Sales Representative": "موظف المبيعات",
+  "Default (Logged-in user)": "افتراضي (المستخدم الحالي)",
 };
 
 export function translate(

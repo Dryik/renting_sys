@@ -241,6 +241,16 @@ export function getRentalFormOptions(): RentalFormOptions {
       .orderBy(asc(vehicles.plateNumber))
       .all(),
     accessories: loadRentalFormAccessories(),
+    salesUsers: db
+      .select({
+        id: users.id,
+        fullName: users.fullName,
+        username: users.username,
+      })
+      .from(users)
+      .where(eq(users.isActive, true))
+      .orderBy(asc(users.fullName))
+      .all(),
   };
 }
 
@@ -1839,7 +1849,7 @@ function toRentalInsert(
   actorId: number | null,
 ) {
   const settings = getShopSettings();
-  const salesUserId = actorId;
+  const salesUserId = values.salesUserId ?? actorId;
   let commissionRatePerDay = 0;
   let commissionAmount = 0;
 

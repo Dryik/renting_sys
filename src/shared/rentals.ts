@@ -199,6 +199,7 @@ export const rentalActivationInputSchema = z
     mileageOut: z.number().int().min(0).nullable(),
     fuelOut: z.string().trim().max(40).nullable(),
     notesOut: z.string().trim().max(500).nullable(),
+    salesUserId: z.number().int().positive().nullable().optional(),
     accessories: z.array(rentalAccessoryInputSchema).default([]),
     collateralItems: z.array(rentalCollateralInputSchema).default([]),
   })
@@ -230,6 +231,7 @@ export type RentalFormValues = {
   mileageOut: string;
   fuelOut: string;
   notesOut: string;
+  salesUserId: string;
 };
 
 export const returnVehicleStatusValues = ["available", "maintenance"] as const;
@@ -346,6 +348,7 @@ export const rentalFormSchema = z
     mileageOut: optionalIntegerField("Mileage out"),
     fuelOut: optionalTextField(40),
     notesOut: optionalTextField(500),
+    salesUserId: optionalIntegerField("Sales representative"),
   })
   .transform((values) => rentalActivationInputSchema.parse(values));
 
@@ -414,6 +417,8 @@ export type RentalListRecord = {
   remainingAmount: number;
   cancelledAt: string | null;
   cancelReason: string | null;
+  salesUserId?: number | null;
+  salesUserName?: string | null;
   createdAt: string;
   updatedAt: string;
   accessories?: RentalAccessoryRecord[];
@@ -440,6 +445,7 @@ export type RentalFormOptions = {
   customers: RentalCustomerOption[];
   vehicles: RentalVehicleOption[];
   accessories: AccessoryRecord[];
+  salesUsers: { id: number; fullName: string; username: string }[];
 };
 
 export function getDefaultRentalFormValues(): RentalFormValues {
@@ -457,6 +463,7 @@ export function getDefaultRentalFormValues(): RentalFormValues {
     mileageOut: "",
     fuelOut: "",
     notesOut: "",
+    salesUserId: "",
   };
 }
 

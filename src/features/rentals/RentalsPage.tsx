@@ -99,6 +99,7 @@ export function RentalsPage({
     accessories: [],
     customers: [],
     vehicles: [],
+    salesUsers: [],
   });
   const [queue, setQueue] = useState<RentalQueue>("active");
   const [search, setSearch] = useState("");

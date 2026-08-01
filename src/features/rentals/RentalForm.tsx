@@ -314,6 +314,22 @@ export function RentalForm({
               <input type="hidden" {...register("depositPaid")} defaultValue="0" />
             </>
           )}
+
+          {settings.enableSalesCommission ? (
+            <Field label="Sales Representative" error={errors.salesUserId?.message}>
+              <select
+                className="h-10 rounded-md border bg-background px-3 text-sm font-medium"
+                {...register("salesUserId")}
+              >
+                <option value="">{t("Default (Logged-in user)")}</option>
+                {options.salesUsers?.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.fullName} ({user.username})
+                  </option>
+                ))}
+              </select>
+            </Field>
+          ) : null}
         </div>
       </WorkflowSection>
 
