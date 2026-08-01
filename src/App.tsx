@@ -252,6 +252,12 @@ export default function App() {
   }, [refreshAuth, refreshLicense]);
 
   useEffect(() => {
+    void window.rentalApp?.updates?.getPendingUpdate?.().then((info) => {
+      if (info?.version) {
+        setDownloadedUpdateVersion(info.version);
+      }
+    });
+
     const unsub = window.rentalApp?.updates?.onDownloaded((info) => {
       setDownloadedUpdateVersion(info.version);
     });

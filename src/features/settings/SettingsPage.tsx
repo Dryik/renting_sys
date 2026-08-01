@@ -22,6 +22,7 @@ import {
   MapPin,
   Phone,
   ReceiptText,
+  RefreshCw,
   Save,
   Settings,
   ShieldCheck,
@@ -985,6 +986,7 @@ export function SettingsPage({
         {can("accessories.view") ? (
           <AccessoryManager canEdit={can("accessories.create") || can("accessories.edit")} />
         ) : null}
+        <SoftwareUpdateCard />
         <Card className="h-fit overflow-hidden">
           <CardHeader className="border-b border-border/70 bg-muted">
             <div className="flex items-center gap-3">
@@ -1450,5 +1452,111 @@ function SupportLine({
         </p>
       </div>
     </div>
+  );
+}
+
+function SoftwareUpdateCard({ currentVersion }: { currentVersion?: string }) {
+  const { t } = useI18n();
+  const [appVersion, setAppVersion] = useState<string>(currentVersion || "");
+  const [checking, setChecking] = useState(false);
+  const [statusText, setStatusText] = useState<string | null>(null);
+  const [downloadedVersion, setDownloadedVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!appVersion) {
+      window.rentalApp?.diagnostics?.getStatus?.().then((diag) => {
+        if (diag?.appVersion) setAppVersion(diag.appVersion);
+      }).catch(() => {});
+    }
+
+    void window.rentalApp?.updates?.getPendingUpdate?.().then((info) => {
+      if (info?.version) {
+        setDownloadedVersion(info.version);
+      }
+    });
+
+    const unsub = window.rentalApp?.updates?.onDownloaded?.((info) => {
+      setDownloadedVersion(info.version);
+    });
+    return () => unsub?.();
+  }, [appVersion]);
+
+  async function handleCheckForUpdates() {
+    setChecking(true);
+    setStatusText(null);
+    try {
+      const res = await window.rentalApp?.updates?.checkForUpdates?.();
+      if (res?.status === "update-available") {
+        setStatusText(t("A new version is available and downloading..."));
+      } else if (res?.status === "up-to-date") {
+        setStatusText(t("Your app is completely up to date."));
+      } else if (res?.message) {
+        setStatusText(res.message);
+      } else {
+        setStatusText(t("Your app is up to date."));
+      }
+    } catch {
+      setStatusText(t("Could not check for updates. Check internet connection."));
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  async function handleRestartAndInstall() {
+    await window.rentalApp?.updates?.restartAndInstall?.();
+  }
+
+  return (
+    <Card className="h-fit overflow-hidden">
+      <CardHeader className="border-b border-border/70 bg-muted">
+        <div className="flex items-center gap-3">
+          <div className="flex size-10 items-center justify-center rounded-xl bg-accent text-primary">
+            <RefreshCw className="size-5" />
+          </div>
+          <div>
+            <CardTitle>{t("Software Updates")}</CardTitle>
+            <CardDescription>
+              {t("Check for software updates and install latest release.")}
+            </CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3 text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
+          <div>
+            <p className="text-xs text-muted-foreground">{t("Current Version")}</p>
+            <p className="font-mono text-base font-bold text-foreground">v{appVersion || currentVersion || "0.2.2"}</p>
+          </div>
+          {downloadedVersion ? (
+            <Button
+              type="button"
+              size="sm"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2"
+              onClick={handleRestartAndInstall}
+            >
+              <RefreshCw className="size-4 animate-spin" />
+              {t("Restart & Update (v{{version}})", { version: downloadedVersion })}
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={checking}
+              onClick={handleCheckForUpdates}
+              className="gap-2"
+            >
+              {checking ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+              {t("Check for Updates")}
+            </Button>
+          )}
+        </div>
+        {statusText ? (
+          <p className="rounded-md border border-primary/20 bg-accent/40 px-3 py-2 text-xs font-medium text-foreground">
+            {statusText}
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }

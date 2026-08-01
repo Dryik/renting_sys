@@ -458,21 +458,40 @@ app.whenReady().then(() => {
   setAuthAppVersion(appInfo.appVersion);
   checkAndRunScheduledAutoBackup();
 
+  let pendingUpdateInfo: { version: string } | null = null;
+  autoUpdater.logger = console;
+
   if (app.isPackaged && !isSmokeTest) {
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;
     autoUpdater.on("update-downloaded", (info) => {
-      mainWindow?.webContents.send("update:downloaded", {
-        version: info.version,
-      });
+      pendingUpdateInfo = { version: info.version };
+      mainWindow?.webContents.send("update:downloaded", pendingUpdateInfo);
     });
     autoUpdater.on("error", (error) => {
       console.error("AutoUpdater error:", error);
     });
-    void autoUpdater.checkForUpdatesAndNotify().catch(() => {
-      // Suppress network check errors gracefully when offline
+    void autoUpdater.checkForUpdatesAndNotify().catch((error) => {
+      console.warn("AutoUpdater check error:", error);
     });
   }
+
+  handle("app:get-pending-update", () => pendingUpdateInfo);
+  handle("app:check-for-updates", async () => {
+    if (!app.isPackaged) {
+      return { status: "up-to-date", message: "Auto-updater runs in packaged builds." };
+    }
+    try {
+      const result = await autoUpdater.checkForUpdates();
+      if (result?.updateInfo?.version && result.updateInfo.version !== app.getVersion()) {
+        return { status: "update-available", version: result.updateInfo.version };
+      }
+      return { status: "up-to-date" };
+    } catch (error) {
+      console.error("Manual check-for-updates error:", error);
+      return { status: "error", message: String(error) };
+    }
+  });
 
   handle("app:restart-and-install-update", () => {
     isAppQuitting = true;

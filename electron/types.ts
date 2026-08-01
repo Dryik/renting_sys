@@ -334,5 +334,7 @@ export type RentalAppApi = {
   updates?: {
     onDownloaded: (callback: (info: { version: string }) => void) => () => void;
     restartAndInstall: () => Promise<void>;
+    getPendingUpdate: () => Promise<{ version: string } | null>;
+    checkForUpdates: () => Promise<{ status: "update-available" | "up-to-date" | "error"; version?: string; message?: string }>;
   };
 };

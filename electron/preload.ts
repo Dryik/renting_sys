@@ -211,6 +211,8 @@ const api: RentalAppApi = {
       return () => electronIpcRenderer.removeListener("update:downloaded", handler);
     },
     restartAndInstall: () => ipcRenderer.invoke("app:restart-and-install-update"),
+    getPendingUpdate: () => ipcRenderer.invoke("app:get-pending-update"),
+    checkForUpdates: () => ipcRenderer.invoke("app:check-for-updates"),
   },
 };
 
