@@ -124,6 +124,7 @@ export const ipcAccessPolicy = {
   "app:restart-and-install-update": { requiresWriteAccess: false },
   "app:check-for-updates": { requiresWriteAccess: false },
   "app:get-pending-update": { requiresWriteAccess: false },
+  "app:get-update-state": { requiresWriteAccess: false },
 } as const satisfies Record<string, { requiresWriteAccess: boolean }>;
 
 export type IpcChannel = keyof typeof ipcAccessPolicy;

@@ -210,8 +210,17 @@ const api: RentalAppApi = {
       electronIpcRenderer.on("update:downloaded", handler);
       return () => electronIpcRenderer.removeListener("update:downloaded", handler);
     },
+    onStatusChange: (callback) => {
+      const handler = (
+        _event: unknown,
+        state: any,
+      ) => callback(state);
+      electronIpcRenderer.on("update:status-change", handler);
+      return () => electronIpcRenderer.removeListener("update:status-change", handler);
+    },
     restartAndInstall: () => ipcRenderer.invoke("app:restart-and-install-update"),
     getPendingUpdate: () => ipcRenderer.invoke("app:get-pending-update"),
+    getUpdateState: () => ipcRenderer.invoke("app:get-update-state"),
     checkForUpdates: () => ipcRenderer.invoke("app:check-for-updates"),
   },
 };

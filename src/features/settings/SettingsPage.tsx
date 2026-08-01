@@ -1475,28 +1475,53 @@ function SoftwareUpdateCard({ currentVersion }: { currentVersion?: string }) {
       }
     });
 
-    const unsub = window.rentalApp?.updates?.onDownloaded?.((info) => {
+    const unsubDownloaded = window.rentalApp?.updates?.onDownloaded?.((info) => {
       setDownloadedVersion(info.version);
+      setStatusText(t("Update ready! Click Restart & Update to install."));
     });
-    return () => unsub?.();
-  }, [appVersion]);
+
+    const unsubStatus = window.rentalApp?.updates?.onStatusChange?.((state) => {
+      if (state.status === "checking") {
+        setChecking(true);
+        setStatusText(t("Checking for updates..."));
+      } else if (state.status === "available") {
+        setChecking(true);
+        setStatusText(t("A new version (v{{version}}) is available and downloading...", { version: state.version ?? "" }));
+      } else if (state.status === "downloading") {
+        setChecking(true);
+        setStatusText(t("Downloading update... {{percent}}%", { percent: state.percent ?? 0 }));
+      } else if (state.status === "downloaded") {
+        setChecking(false);
+        if (state.version) setDownloadedVersion(state.version);
+        setStatusText(t("Update ready! Click Restart & Update to install."));
+      } else if (state.status === "error") {
+        setChecking(false);
+        if (state.error?.includes("404")) {
+          setStatusText(t("Could not access update server (404 Not Found). Repository may be private."));
+        } else {
+          setStatusText(state.error || t("Could not check for updates. Check internet connection."));
+        }
+      } else if (state.status === "idle") {
+        setChecking(false);
+      }
+    });
+
+    return () => {
+      unsubDownloaded?.();
+      unsubStatus?.();
+    };
+  }, [appVersion, t]);
 
   async function handleCheckForUpdates() {
     setChecking(true);
     setStatusText(null);
     try {
       const res = await window.rentalApp?.updates?.checkForUpdates?.();
-      if (res?.status === "update-available") {
-        setStatusText(t("A new version is available and downloading..."));
-      } else if (res?.status === "up-to-date") {
+      if (res?.status === "idle" && !downloadedVersion) {
         setStatusText(t("Your app is completely up to date."));
-      } else if (res?.message) {
-        setStatusText(res.message);
-      } else {
-        setStatusText(t("Your app is up to date."));
       }
-    } catch {
-      setStatusText(t("Could not check for updates. Check internet connection."));
+    } catch (err) {
+      setStatusText(err instanceof Error ? err.message : t("Could not check for updates. Check internet connection."));
     } finally {
       setChecking(false);
     }

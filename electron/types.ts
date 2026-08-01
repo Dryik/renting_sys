@@ -333,8 +333,17 @@ export type RentalAppApi = {
   };
   updates?: {
     onDownloaded: (callback: (info: { version: string }) => void) => () => void;
+    onStatusChange: (callback: (state: UpdateStatusState) => void) => () => void;
     restartAndInstall: () => Promise<void>;
     getPendingUpdate: () => Promise<{ version: string } | null>;
-    checkForUpdates: () => Promise<{ status: "update-available" | "up-to-date" | "error"; version?: string; message?: string }>;
+    getUpdateState: () => Promise<UpdateStatusState>;
+    checkForUpdates: () => Promise<UpdateStatusState>;
   };
+};
+
+export type UpdateStatusState = {
+  status: "idle" | "checking" | "available" | "downloading" | "downloaded" | "error";
+  version?: string;
+  percent?: number;
+  error?: string;
 };

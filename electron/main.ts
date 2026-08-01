@@ -3,6 +3,8 @@ import pkg from "electron-updater";
 const { autoUpdater } = pkg;
 import fs from "node:fs";
 import path from "node:path";
+
+app.setName("ARAK Rental Desk");
 import {
   createCustomer,
   deactivateCustomer,
@@ -460,37 +462,85 @@ app.whenReady().then(() => {
   checkAndRunScheduledAutoBackup();
 
   let pendingUpdateInfo: { version: string } | null = null;
+  let updateState: {
+    status: "idle" | "checking" | "available" | "downloading" | "downloaded" | "error";
+    version?: string;
+    percent?: number;
+    error?: string;
+  } = { status: "idle" };
+
+  function broadcastUpdateState(next: typeof updateState) {
+    updateState = next;
+    mainWindow?.webContents.send("update:status-change", updateState);
+  }
+
   autoUpdater.logger = console;
 
   if (app.isPackaged && !isSmokeTest) {
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;
+
+    autoUpdater.on("checking-for-update", () => {
+      broadcastUpdateState({ status: "checking" });
+    });
+
+    autoUpdater.on("update-available", (info) => {
+      broadcastUpdateState({ status: "available", version: info.version });
+    });
+
+    autoUpdater.on("update-not-available", () => {
+      broadcastUpdateState({ status: "idle" });
+    });
+
+    autoUpdater.on("download-progress", (progress) => {
+      broadcastUpdateState({
+        status: "downloading",
+        percent: Math.round(progress.percent),
+      });
+    });
+
     autoUpdater.on("update-downloaded", (info) => {
       pendingUpdateInfo = { version: info.version };
+      broadcastUpdateState({ status: "downloaded", version: info.version });
       mainWindow?.webContents.send("update:downloaded", pendingUpdateInfo);
     });
+
     autoUpdater.on("error", (error) => {
       console.error("AutoUpdater error:", error);
+      broadcastUpdateState({
+        status: "error",
+        error: error instanceof Error ? error.message : String(error),
+      });
     });
+
     void autoUpdater.checkForUpdatesAndNotify().catch((error) => {
       console.warn("AutoUpdater check error:", error);
     });
   }
 
   handle("app:get-pending-update", () => pendingUpdateInfo);
+  handle("app:get-update-state", () => updateState);
   handle("app:check-for-updates", async () => {
     if (!app.isPackaged) {
-      return { status: "up-to-date", message: "Auto-updater runs in packaged builds." };
+      return { status: "idle", error: "Auto-updater runs in packaged builds." };
     }
     try {
+      broadcastUpdateState({ status: "checking" });
       const result = await autoUpdater.checkForUpdates();
       if (result?.updateInfo?.version && result.updateInfo.version !== app.getVersion()) {
-        return { status: "update-available", version: result.updateInfo.version };
+        broadcastUpdateState({ status: "available", version: result.updateInfo.version });
+        void autoUpdater.downloadUpdate().catch((err) => {
+          broadcastUpdateState({ status: "error", error: String(err) });
+        });
+        return { status: "available", version: result.updateInfo.version };
       }
-      return { status: "up-to-date" };
+      broadcastUpdateState({ status: "idle" });
+      return { status: "idle" };
     } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
       console.error("Manual check-for-updates error:", error);
-      return { status: "error", message: String(error) };
+      broadcastUpdateState({ status: "error", error: errMsg });
+      return { status: "error", error: errMsg };
     }
   });
 
