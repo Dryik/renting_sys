@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent } from "electron";
-import { autoUpdater } from "electron-updater";
+import pkg from "electron-updater";
+const { autoUpdater } = pkg;
 import path from "node:path";
 import {
   createCustomer,
