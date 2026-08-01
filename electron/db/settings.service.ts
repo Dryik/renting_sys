@@ -349,18 +349,26 @@ function getImageDataUrl(imagePath: string | null): string | null {
     return null;
   }
 
-  const extension = path.extname(imagePath).toLowerCase();
-  const mimeType =
-    extension === ".svg"
-      ? "image/svg+xml"
-      : extension === ".webp"
-        ? "image/webp"
-        : extension === ".jpg" || extension === ".jpeg"
-          ? "image/jpeg"
-          : "image/png";
-  const bytes = fs.readFileSync(imagePath);
+  try {
+    if (!fs.existsSync(imagePath)) {
+      return null;
+    }
+    const extension = path.extname(imagePath).toLowerCase();
+    const mimeType =
+      extension === ".svg"
+        ? "image/svg+xml"
+        : extension === ".webp"
+          ? "image/webp"
+          : extension === ".jpg" || extension === ".jpeg"
+            ? "image/jpeg"
+            : "image/png";
+    const bytes = fs.readFileSync(imagePath);
 
-  return `data:${mimeType};base64,${bytes.toString("base64")}`;
+    return `data:${mimeType};base64,${bytes.toString("base64")}`;
+  } catch (error) {
+    console.error("Failed to read image data URL:", error);
+    return null;
+  }
 }
 
 function normalizePositiveInteger(value: string | undefined, fallback: number): number {

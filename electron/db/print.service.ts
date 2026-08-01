@@ -484,7 +484,7 @@ export async function printRentalContract(
       <title>${escapeHtml(tr("Rental Contract"))} - ${escapeHtml(rental.contractNo)}</title>
       <style>
         body {
-          font-family: Cairo, "Noto Sans Arabic", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Tahoma, Arial, sans-serif;
+          font-family: "Segoe UI", Tahoma, Arial, "Noto Sans Arabic", Cairo, sans-serif;
           color: #000000;
           line-height: 1.45;
           margin: 0;
