@@ -17,6 +17,7 @@ import {
 import { getShopSettings } from "./settings.service";
 import { escapeHtml } from "../../src/shared/html";
 import { translate } from "../../src/shared/i18n";
+import { defaultMotorcycleDiagramDataUri } from "./motorcycle-diagram";
 import {
   getDirectionForLanguage,
   getLocaleForLanguage,
@@ -93,7 +94,7 @@ function getMotorcycleDiagramHtml(
   diagramDataUri?: string,
   logoDataUrl?: string | null,
 ): string {
-  const imgSrc = diagramDataUri || "";
+  const imgSrc = diagramDataUri || defaultMotorcycleDiagramDataUri;
   const logoHtml = logoDataUrl ? `<img src="${logoDataUrl}" class="landscape-logo-img" alt="${escapeHtml(tr("Shop Logo"))}">` : "";
   return `
     <div class="page-break-landscape">
@@ -299,7 +300,7 @@ export async function printRentalContract(
     .all();
 
   const currency = settings.defaultCurrency;
-  const language = resolvePrintLanguage(settings.language, languageOverride);
+  const language = languageOverride === "en" ? "en" : "ar";
   const direction = getDirectionForLanguage(language);
   const alignEnd = direction === "rtl" ? "left" : "right";
   const tr = (key: string) => translate(language, key);
@@ -477,19 +478,20 @@ export async function printRentalContract(
       <style>
         body {
           font-family: Cairo, "Noto Sans Arabic", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Tahoma, Arial, sans-serif;
-          color: #0F2B3D;
+          color: #000000;
           line-height: 1.45;
           margin: 0;
           padding: 18px;
           font-size: 12.5px;
           direction: ${direction};
           text-align: ${direction === "rtl" ? "right" : "left"};
+          background-color: #ffffff;
         }
         .header {
           display: flex;
           justify-content: space-between;
           gap: 24px;
-          border-bottom: 3px solid #1D97D7;
+          border-bottom: 3px solid #000000;
           padding-bottom: 12px;
           margin-bottom: 14px;
         }
@@ -506,11 +508,12 @@ export async function printRentalContract(
         .shop-info h1 {
           font-size: 22px;
           margin: 0 0 4px 0;
-          font-weight: 700;
+          font-weight: 800;
+          color: #000000;
         }
         .shop-info p {
           margin: 2px 0;
-          color: #435b6a;
+          color: #000000;
         }
         .contract-title {
           text-align: ${alignEnd};
@@ -519,23 +522,24 @@ export async function printRentalContract(
         .contract-title h2 {
           font-size: 20px;
           margin: 0 0 5px 0;
-          color: #0F2B3D;
+          color: #000000;
+          font-weight: 800;
         }
         .contract-title p {
           margin: 2px 0;
           font-size: 16px;
-          font-weight: 600;
-          color: #1D97D7;
+          font-weight: 700;
+          color: #000000;
         }
         .section-title {
-          font-size: 14px;
-          font-weight: 700;
+          font-size: 13.5px;
+          font-weight: 800;
           text-transform: uppercase;
           letter-spacing: 0.05em;
-          border-bottom: 1px solid #B8E6FE;
+          border-bottom: 2px solid #000000;
           padding-bottom: 4px;
           margin: 16px 0 8px 0;
-          color: #0F2B3D;
+          color: #000000;
         }
         .grid {
           display: grid;
