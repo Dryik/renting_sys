@@ -95,6 +95,10 @@ type SettingsPageProps = {
   onOpenUsers: () => void;
 };
 
+import { cn } from "@/lib/utils";
+
+type SettingsTab = "profile" | "localization" | "contract" | "operations" | "security";
+
 export function SettingsPage({
   onOpenActivityLog,
   onOpenAppLicense,
@@ -102,6 +106,7 @@ export function SettingsPage({
 }: SettingsPageProps) {
   const { can } = useAuth();
   const { t } = useI18n();
+  const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [currentSettings, setCurrentSettings] = useState<ShopSettings | null>(null);
@@ -472,217 +477,232 @@ export function SettingsPage({
         </div>
       </section>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
+      <div className="flex flex-wrap gap-2 rounded-2xl border border-border/80 bg-card p-2 shadow-sm">
+        <button
+          type="button"
+          onClick={() => setActiveTab("profile")}
+          className={cn(
+            "flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-all",
+            activeTab === "profile"
+              ? "bg-primary text-primary-foreground shadow-sm"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground",
+          )}
+        >
+          <Building2 className="size-4" />
+          {t("Shop Profile")}
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("localization")}
+          className={cn(
+            "flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-all",
+            activeTab === "localization"
+              ? "bg-primary text-primary-foreground shadow-sm"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground",
+          )}
+        >
+          <Languages className="size-4" />
+          {t("Language & Currency")}
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("contract")}
+          className={cn(
+            "flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-all",
+            activeTab === "contract"
+              ? "bg-primary text-primary-foreground shadow-sm"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground",
+          )}
+        >
+          <FileText className="size-4" />
+          {t("Contract & Terms")}
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("operations")}
+          className={cn(
+            "flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-all",
+            activeTab === "operations"
+              ? "bg-primary text-primary-foreground shadow-sm"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground",
+          )}
+        >
+          <Settings className="size-4" />
+          {t("Operations & Accessories")}
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("security")}
+          className={cn(
+            "flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-all",
+            activeTab === "security"
+              ? "bg-primary text-primary-foreground shadow-sm"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground",
+          )}
+        >
+          <ShieldCheck className="size-4" />
+          {t("Security & System")}
+        </button>
+      </div>
+
       <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-6">
-        <Card className="overflow-hidden">
-          <CardHeader className="border-b border-border/70 bg-muted">
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-xl bg-success/10 text-success">
-                <Building2 className="size-5" />
-              </div>
-              <div>
-                <CardTitle>{t("Shop Profile")}</CardTitle>
-                <CardDescription>
-                  {t("Details printed on local contracts and receipts.")}
-                </CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-6 pt-5">
-            {isSaving ? (
-              <StatusBanner
-                icon={<Loader2 className="size-5 animate-spin" />}
-                message={t("Shop details used on contracts and receipts.")}
-                title={t("Save Settings")}
-                tone="info"
-              />
-            ) : status.type ? (
-              <StatusBanner
-                icon={
-                  status.type === "success" ? (
-                    <CheckCircle2 className="size-5" />
-                  ) : (
-                    <AlertTriangle className="size-5" />
-                  )
-                }
-                message={
-                  status.type === "success"
-                    ? t("Shop details used on contracts and receipts.")
-                    : status.message
-                }
-                title={
-                  status.type === "success"
-                    ? t("Settings saved successfully.")
-                    : t("Operation Failed")
-                }
-                tone={status.type}
-              />
-            ) : null}
+        {isSaving ? (
+          <StatusBanner
+            icon={<Loader2 className="size-5 animate-spin" />}
+            message={t("Shop details used on contracts and receipts.")}
+            title={t("Save Settings")}
+            tone="info"
+          />
+        ) : status.type ? (
+          <StatusBanner
+            icon={
+              status.type === "success" ? (
+                <CheckCircle2 className="size-5" />
+              ) : (
+                <AlertTriangle className="size-5" />
+              )
+            }
+            message={
+              status.type === "success"
+                ? t("Shop details used on contracts and receipts.")
+                : status.message
+            }
+            title={
+              status.type === "success"
+                ? t("Settings saved successfully.")
+                : t("Operation Failed")
+            }
+            tone={status.type}
+          />
+        ) : null}
 
-            <div className="grid gap-4 md:grid-cols-2">
+        {activeTab === "profile" && (
+          <Card className="overflow-hidden">
+            <CardHeader className="border-b border-border/70 bg-muted">
+              <div className="flex items-center gap-3">
+                <div className="flex size-10 items-center justify-center rounded-xl bg-success/10 text-success">
+                  <Building2 className="size-5" />
+                </div>
+                <div>
+                  <CardTitle>{t("Shop Profile")}</CardTitle>
+                  <CardDescription>
+                    {t("Details printed on local contracts and receipts.")}
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-6 pt-5">
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="flex flex-col gap-2 text-sm font-medium">
+                  <span>{t("Shop Name")} <span className="text-destructive">*</span></span>
+                  <Input
+                    {...register("shopName")}
+                    placeholder={t("e.g. Metro Car Rental")}
+                    aria-invalid={Boolean(errors.shopName)}
+                  />
+                  {errors.shopName && (
+                    <span className="text-xs text-destructive">{t(errors.shopName.message ?? "")}</span>
+                  )}
+                </label>
+
+                <label className="flex flex-col gap-2 text-sm font-medium">
+                  <span>{t("Contact Phone")} <span className="text-destructive">*</span></span>
+                  <Input
+                    {...register("shopPhone")}
+                    data-ltr="true"
+                    placeholder={t("e.g. +218 92 000 0000")}
+                    aria-invalid={Boolean(errors.shopPhone)}
+                  />
+                  {errors.shopPhone && (
+                    <span className="text-xs text-destructive">{t(errors.shopPhone.message ?? "")}</span>
+                  )}
+                </label>
+              </div>
+
               <label className="flex flex-col gap-2 text-sm font-medium">
-                <span>{t("Shop Name")} <span className="text-destructive">*</span></span>
+                <span>{t("Business Address")} <span className="text-destructive">*</span></span>
                 <Input
-                  {...register("shopName")}
-                  placeholder={t("e.g. Metro Car Rental")}
-                  aria-invalid={Boolean(errors.shopName)}
+                  {...register("shopAddress")}
+                  placeholder={t("e.g. Tripoli, Libya")}
+                  aria-invalid={Boolean(errors.shopAddress)}
                 />
-                {errors.shopName && (
-                  <span className="text-xs text-destructive">{t(errors.shopName.message ?? "")}</span>
+                {errors.shopAddress && (
+                  <span className="text-xs text-destructive">{t(errors.shopAddress.message ?? "")}</span>
                 )}
               </label>
 
-              <label className="flex flex-col gap-2 text-sm font-medium">
-                <span>{t("Contact Phone")} <span className="text-destructive">*</span></span>
-                <Input
-                  {...register("shopPhone")}
-                  data-ltr="true"
-                  placeholder={t("e.g. +218 92 000 0000")}
-                  aria-invalid={Boolean(errors.shopPhone)}
-                />
-                {errors.shopPhone && (
-                  <span className="text-xs text-destructive">{t(errors.shopPhone.message ?? "")}</span>
-                )}
-              </label>
-            </div>
-
-            <div className="rounded-2xl border border-border/80 bg-muted p-4">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border bg-card text-muted-foreground shadow-xs">
+              <div className="rounded-2xl border border-border/80 bg-muted p-4">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-16 w-28 shrink-0 items-center justify-center overflow-hidden rounded-xl border bg-card text-muted-foreground shadow-xs">
+                      {currentSettings?.shopLogoDataUrl ? (
+                        <img
+                          alt={t("Shop Logo")}
+                          className="max-h-14 max-w-24 object-contain"
+                          src={currentSettings.shopLogoDataUrl}
+                        />
+                      ) : (
+                        <Image className="size-5" />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-semibold">{t("Shop Logo")}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {t("Printed on the header of rental contracts and payment receipts.")}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={isSaving || !can("settings.edit")}
+                      onClick={() => void handleSelectLogo()}
+                    >
+                      <Upload data-icon="inline-start" />
+                      {t("Choose Logo")}
+                    </Button>
                     {currentSettings?.shopLogoDataUrl ? (
-                      <img
-                        alt={t("Shop Logo")}
-                        className="max-h-14 max-w-14 object-contain"
-                        src={currentSettings.shopLogoDataUrl}
-                      />
-                    ) : (
-                      <Image className="size-5" />
-                    )}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        disabled={isSaving || !can("settings.edit")}
+                        onClick={() => void handleClearLogo()}
+                      >
+                        <Trash2 data-icon="inline-start" />
+                        {t("Remove Logo")}
+                      </Button>
+                    ) : null}
                   </div>
-                  <div className="min-w-0">
-                    <p className="font-semibold">{t("Shop Logo")}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {t("Shop logo help")}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={isSaving || !can("settings.edit")}
-                    onClick={() => void handleSelectLogo()}
-                  >
-                    <Upload data-icon="inline-start" />
-                    {t("Choose Logo")}
-                  </Button>
-                  {currentSettings?.shopLogoDataUrl ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      disabled={isSaving || !can("settings.edit")}
-                      onClick={() => void handleClearLogo()}
-                    >
-                      <Trash2 data-icon="inline-start" />
-                      {t("Remove Logo")}
-                    </Button>
-                  ) : null}
                 </div>
               </div>
-            </div>
 
-            <div className="rounded-2xl border border-border/80 bg-muted p-4">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="flex h-16 w-28 shrink-0 items-center justify-center overflow-hidden rounded-xl border bg-card text-muted-foreground shadow-xs">
-                    {currentSettings?.ownerSignatureDataUrl ? (
-                      <img
-                        alt={t("Owner Signature")}
-                        className="max-h-14 max-w-24 object-contain"
-                        src={currentSettings.ownerSignatureDataUrl}
-                      />
-                    ) : (
-                      <Image className="size-5" />
-                    )}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="font-semibold">{t("Owner Signature")}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {t("Printed above the employee finalizer line on rental contracts.")}
-                    </p>
-                  </div>
+              <div className="flex justify-end border-t border-border/70 pt-4">
+                <Button type="submit" size="lg" aria-busy={isSaving} disabled={isSaving || !can("settings.edit")}>
+                  {isSaving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+                  {t("Save Settings")}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {activeTab === "localization" && (
+          <Card className="overflow-hidden">
+            <CardHeader className="border-b border-border/70 bg-muted">
+              <div className="flex items-center gap-3">
+                <div className="flex size-10 items-center justify-center rounded-xl bg-accent text-primary">
+                  <Languages className="size-5" />
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={isSaving || !can("settings.edit")}
-                    onClick={() => void handleSelectOwnerSignature()}
-                  >
-                    <Upload data-icon="inline-start" />
-                    {t("Choose Signature")}
-                  </Button>
-                  {currentSettings?.ownerSignatureDataUrl ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      disabled={isSaving || !can("settings.edit")}
-                      onClick={() => void handleClearOwnerSignature()}
-                    >
-                      <Trash2 data-icon="inline-start" />
-                      {t("Remove Signature")}
-                    </Button>
-                  ) : null}
+                <div>
+                  <CardTitle>{t("Language & Currency")}</CardTitle>
+                  <CardDescription>
+                    {t("Choose app language, currency, and receipt behavior.")}
+                  </CardDescription>
                 </div>
               </div>
-            </div>
-
-            <label className="flex flex-col gap-2 text-sm font-medium">
-              <span>{t("Business Address")} <span className="text-destructive">*</span></span>
-              <Input
-                {...register("shopAddress")}
-                placeholder={t("e.g. Tripoli, Libya")}
-                aria-invalid={Boolean(errors.shopAddress)}
-              />
-              {errors.shopAddress && (
-                <span className="text-xs text-destructive">{t(errors.shopAddress.message ?? "")}</span>
-              )}
-            </label>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <label className="flex flex-col gap-2 text-sm font-medium">
-                <span>{t("Default Currency")} <span className="text-destructive">*</span></span>
-                <Input
-                  {...register("defaultCurrency")}
-                  data-ltr="true"
-                  placeholder={t("e.g. LYD")}
-                  aria-invalid={Boolean(errors.defaultCurrency)}
-                />
-                {errors.defaultCurrency && (
-                  <span className="text-xs text-destructive">{t(errors.defaultCurrency.message ?? "")}</span>
-                )}
-              </label>
-
-              <label className="flex flex-col gap-2 text-sm font-medium">
-                <span>{t("Default Late Fee (Per Day)")} <span className="text-destructive">*</span></span>
-                <Input
-                  {...register("defaultLateFee")}
-                  data-ltr="true"
-                  placeholder="e.g. 15.00"
-                  aria-invalid={Boolean(errors.defaultLateFee)}
-                />
-                {errors.defaultLateFee && (
-                  <span className="text-xs text-destructive">{t(errors.defaultLateFee.message ?? "")}</span>
-                )}
-              </label>
-            </div>
-
-            <SettingBlock
-              icon={<Languages className="size-5" />}
-              title={t("Language and receipts")}
-              description={t("Choose app language and receipt behavior for this computer.")}
-            >
+            </CardHeader>
+            <CardContent className="flex flex-col gap-6 pt-5">
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="flex flex-col gap-2 text-sm font-medium">
                   <span>{t("Application Language")} <span className="text-destructive">*</span></span>
@@ -694,6 +714,22 @@ export function SettingsPage({
                     <option value="en">{t("English")}</option>
                   </select>
                 </label>
+
+                <label className="flex flex-col gap-2 text-sm font-medium">
+                  <span>{t("Default Currency")} <span className="text-destructive">*</span></span>
+                  <Input
+                    {...register("defaultCurrency")}
+                    data-ltr="true"
+                    placeholder={t("e.g. LYD")}
+                    aria-invalid={Boolean(errors.defaultCurrency)}
+                  />
+                  {errors.defaultCurrency && (
+                    <span className="text-xs text-destructive">{t(errors.defaultCurrency.message ?? "")}</span>
+                  )}
+                </label>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
                 <label className="flex flex-col gap-2 text-sm font-medium">
                   <span>{t("Default Print Language")}</span>
                   <select
@@ -724,302 +760,422 @@ export function SettingsPage({
                   </span>
                 </span>
               </label>
-            </SettingBlock>
 
-            <SettingBlock
-              icon={<CircleDollarSign className="size-5" />}
-              title={t("Rental defaults")}
-              description={t("Simple defaults used when staff create new rentals.")}
-            >
-              <label className="flex items-start gap-3 rounded-lg border bg-card p-4 text-sm shadow-xs">
-                <input
-                  type="checkbox"
-                  className="mt-1 size-4 accent-primary"
-                  {...register("enableClientDeposit")}
-                />
-                <span className="min-w-0">
-                  <span className="block font-medium">{t("Enable client deposit")}</span>
-                  <span className="mt-1 block text-muted-foreground">
-                    {t("Client deposit setting help")}
-                  </span>
-                </span>
-              </label>
-            </SettingBlock>
+              <div className="flex justify-end border-t border-border/70 pt-4">
+                <Button type="submit" size="lg" aria-busy={isSaving} disabled={isSaving || !can("settings.edit")}>
+                  {isSaving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+                  {t("Save Settings")}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
-            <SettingBlock
-              icon={<Banknote className="size-5" />}
-              title={t("Cash count")}
-              description={t("Optional end-of-day drawer count for shops that need it.")}
-            >
-              <label className="flex items-start gap-3 rounded-lg border bg-card p-4 text-sm shadow-xs">
-                <input
-                  type="checkbox"
-                  className="mt-1 size-4 accent-primary"
-                  {...register("dailyClosingEnabled")}
-                />
-                <span className="min-w-0">
-                  <span className="block font-medium">{t("Show Close Day")}</span>
-                  <span className="mt-1 block text-muted-foreground">
-                    {t("Shows the Today tab and Close Day cash count in Accounting.")}
-                  </span>
-                </span>
-              </label>
-            </SettingBlock>
-
-            <SettingBlock
-              icon={<Coins className="size-5" />}
-              title={t("Sales Commission")}
-              description={t("Auto calculate fixed daily commission for sales employees.")}
-            >
-              <div className="space-y-4">
-                <label className="flex items-start gap-3 rounded-lg border bg-card p-4 text-sm shadow-xs">
-                  <input
-                    type="checkbox"
-                    className="mt-1 size-4 accent-primary"
-                    {...register("enableSalesCommission")}
-                  />
-                  <span className="min-w-0">
-                    <span className="block font-medium">{t("Enable sales commission calculation")}</span>
-                    <span className="mt-1 block text-muted-foreground">
-                      {t("Auto calculate fixed daily commission for sales employees.")}
-                    </span>
-                  </span>
-                </label>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">
-                    {t("Default Daily Commission (Dinars)")}
-                  </label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    className="w-full rounded-md border p-2 text-sm"
-                    {...register("defaultDailyCommissionRate")}
-                  />
+        {activeTab === "contract" && (
+          <Card className="overflow-hidden">
+            <CardHeader className="border-b border-border/70 bg-muted">
+              <div className="flex items-center gap-3">
+                <div className="flex size-10 items-center justify-center rounded-xl bg-accent text-primary">
+                  <FileText className="size-5" />
+                </div>
+                <div>
+                  <CardTitle>{t("Contract & Terms")}</CardTitle>
+                  <CardDescription>
+                    {t("Owner signature, terms and conditions, and footer printed on rental contracts.")}
+                  </CardDescription>
                 </div>
               </div>
-            </SettingBlock>
-
-            <SettingBlock
-              icon={<LockKeyhole className="size-5" />}
-              title={t("Owner PIN prompts")}
-              description={t("Use a local owner PIN for sensitive actions on this computer.")}
-            >
-              <div className="rounded-lg border bg-card p-4 text-sm shadow-xs">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <span>
-                    <span className="block font-medium">{t("Owner PIN prompts")}</span>
-                    <span className="mt-1 block text-muted-foreground">
-                      {currentSettings?.ownerPinEnabled ? t("Enabled") : t("Disabled")}
-                    </span>
-                  </span>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-6 pt-5">
+              <div className="rounded-2xl border border-border/80 bg-muted p-4">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-16 w-28 shrink-0 items-center justify-center overflow-hidden rounded-xl border bg-card text-muted-foreground shadow-xs">
+                      {currentSettings?.ownerSignatureDataUrl ? (
+                        <img
+                          alt={t("Owner Signature")}
+                          className="max-h-14 max-w-24 object-contain"
+                          src={currentSettings.ownerSignatureDataUrl}
+                        />
+                      ) : (
+                        <Image className="size-5" />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-semibold">{t("Owner Signature")}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {t("Printed above the employee finalizer line on rental contracts.")}
+                      </p>
+                    </div>
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     <Button
                       type="button"
-                      size="sm"
                       variant="outline"
                       disabled={isSaving || !can("settings.edit")}
-                      onClick={() => void handleSetOwnerPin()}
+                      onClick={() => void handleSelectOwnerSignature()}
                     >
-                      {t("Set PIN")}
+                      <Upload data-icon="inline-start" />
+                      {t("Choose Signature")}
                     </Button>
-                    {currentSettings?.ownerPinEnabled ? (
+                    {currentSettings?.ownerSignatureDataUrl ? (
                       <Button
                         type="button"
-                        size="sm"
                         variant="ghost"
                         disabled={isSaving || !can("settings.edit")}
-                        onClick={() => void handleClearOwnerPin()}
+                        onClick={() => void handleClearOwnerSignature()}
                       >
-                        {t("Disable")}
+                        <Trash2 data-icon="inline-start" />
+                        {t("Remove Signature")}
                       </Button>
                     ) : null}
                   </div>
                 </div>
               </div>
-            </SettingBlock>
 
-            <SettingBlock
-              icon={<Clock className="size-5" />}
-              title={t("Reminders")}
-              description={t("Local reminders for renewals and backup checks.")}
-            >
-              <div className="flex items-start gap-3 rounded-lg border bg-card p-4 text-sm shadow-xs">
-                <span>
-                  <span className="block font-medium">{t("Manual Backup Only")}</span>
-                  <span className="mt-1 block text-muted-foreground">
-                    {t("Create backups manually from the Backup screen.")}
-                  </span>
-                </span>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-                <label className="flex flex-col gap-2 text-sm font-medium">
-                  <span>{t("Mandatory insurance warning days")}</span>
-                  <Input data-ltr="true" inputMode="numeric" {...register("insuranceWarningDays")} />
-                </label>
-                <label className="flex flex-col gap-2 text-sm font-medium">
-                  <span>{t("Vehicle license warning days")}</span>
-                  <Input data-ltr="true" inputMode="numeric" {...register("registrationWarningDays")} />
-                </label>
-                <label className="flex flex-col gap-2 text-sm font-medium">
-                  <span>{t("Technical inspection warning days")}</span>
-                  <Input data-ltr="true" inputMode="numeric" {...register("technicalInspectionWarningDays")} />
-                </label>
-                <label className="flex flex-col gap-2 text-sm font-medium">
-                  <span>{t("License warning days")}</span>
-                  <Input data-ltr="true" inputMode="numeric" {...register("licenseWarningDays")} />
-                </label>
-                <label className="flex flex-col gap-2 text-sm font-medium">
-                  <span>{t("Backup reminder days")}</span>
-                  <Input data-ltr="true" inputMode="numeric" {...register("backupReminderDays")} />
-                </label>
-              </div>
-            </SettingBlock>
-
-            <SettingBlock
-              icon={<FileText className="size-5" />}
-              title={t("Print & Contract Customizer")}
-              description={t("Header subtitle, terms and conditions, and footer printed on rental contracts.")}
-            >
-              <div className="flex flex-col gap-4">
-                <label className="flex flex-col gap-2 text-sm font-medium">
-                  <span>{t("Header Subtitle")}</span>
-                  <Input {...register("printHeaderSubtitle")} placeholder={t("e.g. Car & Motorcycle Rental Agreement")} />
-                </label>
-
-                <label className="flex flex-col gap-2 text-sm font-medium">
-                  <span>{t("Contract Terms & Conditions")}</span>
-                  <Textarea
-                    {...register("printTermsAndConditions")}
-                    className="min-h-28"
-                    placeholder={t("Enter custom shop rental terms & conditions clause here...")}
-                  />
-                </label>
-
-                <label className="flex flex-col gap-2 text-sm font-medium">
-                  <span>{t("Contract Agreement Footer")}</span>
-                  <Textarea
-                    {...register("contractFooter")}
-                    className="min-h-20"
-                    placeholder={t("Enter contract agreement note here...")}
-                  />
-                </label>
-              </div>
-            </SettingBlock>
-
-            <SettingBlock
-              icon={<Clock className="size-5" />}
-              title={t("Auto-Backup")}
-              description={t("Automated daily local backup configuration.")}
-            >
-              <label className="flex items-start gap-3 rounded-lg border bg-card p-4 text-sm shadow-xs">
-                <input
-                  type="checkbox"
-                  className="mt-1 size-4 accent-primary"
-                  {...register("scheduledBackupEnabled")}
-                />
-                <span className="min-w-0">
-                  <span className="block font-medium">{t("Automated Daily Backup")}</span>
-                  <span className="mt-1 block text-muted-foreground">
-                    {t("Automatically saves a local backup ZIP into app data folder on application launch.")}
-                  </span>
-                </span>
+              <label className="flex flex-col gap-2 text-sm font-medium">
+                <span>{t("Header Subtitle")}</span>
+                <Input {...register("printHeaderSubtitle")} placeholder={t("e.g. Car & Motorcycle Rental Agreement")} />
               </label>
-            </SettingBlock>
 
+              <label className="flex flex-col gap-2 text-sm font-medium">
+                <span>{t("Contract Terms & Conditions")}</span>
+                <Textarea
+                  {...register("printTermsAndConditions")}
+                  className="min-h-28"
+                  placeholder={t("Enter custom shop rental terms & conditions clause here...")}
+                />
+              </label>
+
+              <label className="flex flex-col gap-2 text-sm font-medium">
+                <span>{t("Contract Agreement Footer")}</span>
+                <Textarea
+                  {...register("contractFooter")}
+                  className="min-h-20"
+                  placeholder={t("Enter contract agreement note here...")}
+                />
+              </label>
+
+              <div className="flex justify-end border-t border-border/70 pt-4">
+                <Button type="submit" size="lg" aria-busy={isSaving} disabled={isSaving || !can("settings.edit")}>
+                  {isSaving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+                  {t("Save Settings")}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {activeTab === "operations" && (
+          <div className="flex flex-col gap-6">
+            <Card className="overflow-hidden">
+              <CardHeader className="border-b border-border/70 bg-muted">
+                <div className="flex items-center gap-3">
+                  <div className="flex size-10 items-center justify-center rounded-xl bg-accent text-primary">
+                    <Settings className="size-5" />
+                  </div>
+                  <div>
+                    <CardTitle>{t("Operations & Reminders")}</CardTitle>
+                    <CardDescription>
+                      {t("Rental defaults, deposits, commissions, and renewal reminder days.")}
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-6 pt-5">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="flex flex-col gap-2 text-sm font-medium">
+                    <span>{t("Default Late Fee (Per Day)")} <span className="text-destructive">*</span></span>
+                    <Input
+                      {...register("defaultLateFee")}
+                      data-ltr="true"
+                      placeholder="e.g. 15.00"
+                      aria-invalid={Boolean(errors.defaultLateFee)}
+                    />
+                    {errors.defaultLateFee && (
+                      <span className="text-xs text-destructive">{t(errors.defaultLateFee.message ?? "")}</span>
+                    )}
+                  </label>
+                </div>
+
+                <SettingBlock
+                  icon={<CircleDollarSign className="size-5" />}
+                  title={t("Rental defaults")}
+                  description={t("Simple defaults used when staff create new rentals.")}
+                >
+                  <label className="flex items-start gap-3 rounded-lg border bg-card p-4 text-sm shadow-xs">
+                    <input
+                      type="checkbox"
+                      className="mt-1 size-4 accent-primary"
+                      {...register("enableClientDeposit")}
+                    />
+                    <span>
+                      <span className="block font-medium">{t("Require security deposit by default")}</span>
+                      <span className="mt-1 block text-muted-foreground">
+                        {t("Pre-fills deposit field when creating new contracts.")}
+                      </span>
+                    </span>
+                  </label>
+                </SettingBlock>
+
+                <SettingBlock
+                  icon={<Banknote className="size-5" />}
+                  title={t("Cash count")}
+                  description={t("Optional end-of-day drawer count for shops that need it.")}
+                >
+                  <label className="flex items-start gap-3 rounded-lg border bg-card p-4 text-sm shadow-xs">
+                    <input
+                      type="checkbox"
+                      className="mt-1 size-4 accent-primary"
+                      {...register("dailyClosingEnabled")}
+                    />
+                    <span className="min-w-0">
+                      <span className="block font-medium">{t("Show Close Day")}</span>
+                      <span className="mt-1 block text-muted-foreground">
+                        {t("Shows the Today tab and Close Day cash count in Accounting.")}
+                      </span>
+                    </span>
+                  </label>
+                </SettingBlock>
+
+                <SettingBlock
+                  icon={<Coins className="size-5" />}
+                  title={t("Sales Commission")}
+                  description={t("Auto calculate fixed daily commission for sales employees.")}
+                >
+                  <div className="space-y-4">
+                    <label className="flex items-start gap-3 rounded-lg border bg-card p-4 text-sm shadow-xs">
+                      <input
+                        type="checkbox"
+                        className="mt-1 size-4 accent-primary"
+                        {...register("enableSalesCommission")}
+                      />
+                      <span className="min-w-0">
+                        <span className="block font-medium">{t("Enable sales commission calculation")}</span>
+                        <span className="mt-1 block text-muted-foreground">
+                          {t("Auto calculate fixed daily commission for sales employees.")}
+                        </span>
+                      </span>
+                    </label>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">
+                        {t("Default Daily Commission (Dinars)")}
+                      </label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        className="w-full rounded-md border p-2 text-sm"
+                        {...register("defaultDailyCommissionRate")}
+                      />
+                    </div>
+                  </div>
+                </SettingBlock>
+
+                <SettingBlock
+                  icon={<Clock className="size-5" />}
+                  title={t("Reminders")}
+                  description={t("Local reminders for renewals and backup checks.")}
+                >
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                    <label className="flex flex-col gap-2 text-sm font-medium">
+                      <span>{t("Mandatory insurance warning days")}</span>
+                      <Input data-ltr="true" inputMode="numeric" {...register("insuranceWarningDays")} />
+                    </label>
+                    <label className="flex flex-col gap-2 text-sm font-medium">
+                      <span>{t("Vehicle license warning days")}</span>
+                      <Input data-ltr="true" inputMode="numeric" {...register("registrationWarningDays")} />
+                    </label>
+                    <label className="flex flex-col gap-2 text-sm font-medium">
+                      <span>{t("Technical inspection warning days")}</span>
+                      <Input data-ltr="true" inputMode="numeric" {...register("technicalInspectionWarningDays")} />
+                    </label>
+                    <label className="flex flex-col gap-2 text-sm font-medium">
+                      <span>{t("License warning days")}</span>
+                      <Input data-ltr="true" inputMode="numeric" {...register("licenseWarningDays")} />
+                    </label>
+                    <label className="flex flex-col gap-2 text-sm font-medium">
+                      <span>{t("Backup reminder days")}</span>
+                      <Input data-ltr="true" inputMode="numeric" {...register("backupReminderDays")} />
+                    </label>
+                  </div>
+                </SettingBlock>
+
+                <div className="flex justify-end border-t border-border/70 pt-4">
+                  <Button type="submit" size="lg" aria-busy={isSaving} disabled={isSaving || !can("settings.edit")}>
+                    {isSaving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+                    {t("Save Settings")}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
             <AccessoriesManagement />
+          </div>
+        )}
 
-            <div className="flex justify-end border-t border-border/70 bg-muted px-1 pt-4">
-              <Button type="submit" size="lg" aria-busy={isSaving} disabled={isSaving || !can("settings.edit")}>
-                {isSaving ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Save className="size-4" />
-                )}
-                {t("Save Settings")}
-              </Button>
+        {activeTab === "security" && (
+          <div className="flex flex-col gap-6">
+            <Card className="overflow-hidden">
+              <CardHeader className="border-b border-border/70 bg-muted">
+                <div className="flex items-center gap-3">
+                  <div className="flex size-10 items-center justify-center rounded-xl bg-accent text-primary">
+                    <ShieldCheck className="size-5" />
+                  </div>
+                  <div>
+                    <CardTitle>{t("Security & System")}</CardTitle>
+                    <CardDescription>
+                      {t("Owner PIN prompts, automated daily backups, and admin tools.")}
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-6 pt-5">
+                <SettingBlock
+                  icon={<LockKeyhole className="size-5" />}
+                  title={t("Owner PIN prompts")}
+                  description={t("Use a local owner PIN for sensitive actions on this computer.")}
+                >
+                  <div className="rounded-lg border bg-card p-4 text-sm shadow-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <span>
+                        <span className="block font-medium">{t("Owner PIN prompts")}</span>
+                        <span className="mt-1 block text-muted-foreground">
+                          {currentSettings?.ownerPinEnabled ? t("Enabled") : t("Disabled")}
+                        </span>
+                      </span>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={isSaving || !can("settings.edit")}
+                          onClick={() => void handleSetOwnerPin()}
+                        >
+                          {t("Set PIN")}
+                        </Button>
+                        {currentSettings?.ownerPinEnabled ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            disabled={isSaving || !can("settings.edit")}
+                            onClick={() => void handleClearOwnerPin()}
+                          >
+                            {t("Disable")}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                </SettingBlock>
+
+                <SettingBlock
+                  icon={<Clock className="size-5" />}
+                  title={t("Auto-Backup")}
+                  description={t("Automated daily local backup configuration.")}
+                >
+                  <label className="flex items-start gap-3 rounded-lg border bg-card p-4 text-sm shadow-xs">
+                    <input
+                      type="checkbox"
+                      className="mt-1 size-4 accent-primary"
+                      {...register("scheduledBackupEnabled")}
+                    />
+                    <span className="min-w-0">
+                      <span className="block font-medium">{t("Automated Daily Backup")}</span>
+                      <span className="mt-1 block text-muted-foreground">
+                        {t("Automatically saves a local backup ZIP into app data folder on application launch.")}
+                      </span>
+                    </span>
+                  </label>
+                </SettingBlock>
+
+                <div className="flex justify-end border-t border-border/70 pt-4">
+                  <Button type="submit" size="lg" aria-busy={isSaving} disabled={isSaving || !can("settings.edit")}>
+                    {isSaving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+                    {t("Save Settings")}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="grid gap-6 md:grid-cols-2">
+              <Card className="h-fit overflow-hidden">
+                <CardHeader className="border-b border-border/70 bg-muted">
+                  <div className="flex items-center gap-3">
+                    <div className="flex size-10 items-center justify-center rounded-xl bg-accent text-primary">
+                      <Settings className="size-5" />
+                    </div>
+                    <div>
+                      <CardTitle>{t("Administration shortcuts")}</CardTitle>
+                      <CardDescription>
+                        {t("Open local admin screens from here.")}
+                      </CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-3">
+                  {can("users.view") ? (
+                    <AdminShortcut
+                      description={t("Manage local staff accounts.")}
+                      icon={<ShieldCheck className="size-4" />}
+                      label={t("Users")}
+                      onClick={onOpenUsers}
+                    />
+                  ) : null}
+                  {can("audit.view") ? (
+                    <AdminShortcut
+                      description={t("Review important staff actions.")}
+                      icon={<History className="size-4" />}
+                      label={t("Activity Log")}
+                      onClick={onOpenActivityLog}
+                    />
+                  ) : null}
+                  <AdminShortcut
+                    description={t("Offline activation and trial status.")}
+                    icon={<KeyRound className="size-4" />}
+                    label={t("App License")}
+                    onClick={onOpenAppLicense}
+                  />
+                </CardContent>
+              </Card>
+
+              <Card className="h-fit overflow-hidden">
+                <CardHeader className="border-b border-border/70 bg-muted">
+                  <div className="flex items-center gap-3">
+                    <div className="flex size-10 items-center justify-center rounded-xl bg-accent text-primary">
+                      <Globe2 className="size-5" />
+                    </div>
+                    <div>
+                      <CardTitle>{t("About")}</CardTitle>
+                      <CardDescription>
+                        {t("Support contacts")}
+                      </CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-4 text-sm">
+                  <SupportLine icon={<Globe2 className="size-4" />} label={t("Website")} value="arak.ly" valueMode="ltr" />
+                  <SupportLine icon={<Phone className="size-4" />} label={t("Phone")} value="+218 92 782 8080" valueMode="ltr" />
+                  <SupportLine icon={<Mail className="size-4" />} label={t("Sales Email")} value="sales@arak.ly" valueMode="ltr" />
+                  <SupportLine icon={<Mail className="size-4" />} label={t("Email")} value="info@arak.ly" valueMode="ltr" />
+                  <SupportLine
+                    icon={<MapPin className="size-4" />}
+                    label={t("Office Address")}
+                    value={t("Khalifa Al-Zaidi Street, Al-Madina Building, 7th Floor, Office 702, Tripoli")}
+                  />
+                  <SupportLine icon={<Clock className="size-4" />} label={t("Hours")} value={t("Sun-Thu: 9AM-6PM")} />
+                  <div className="rounded-xl border border-success/20 bg-success/10 p-3 font-medium text-success">
+                    {t("Developed by ARAK Communication & IT Services")}
+                  </div>
+                </CardContent>
+              </Card>
             </div>
-          </CardContent>
-        </Card>
+
+            <SoftwareUpdateCard />
+            <DiagnosticsPanel />
+          </div>
+        )}
       </form>
-      <div className="flex flex-col gap-6">
-        <Card className="h-fit overflow-hidden">
-          <CardHeader className="border-b border-border/70 bg-muted">
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-xl bg-accent text-primary">
-                <Settings className="size-5" />
-              </div>
-              <div>
-                <CardTitle>{t("Administration shortcuts")}</CardTitle>
-                <CardDescription>
-                  {t("Open local admin screens from here.")}
-                </CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            {can("users.view") ? (
-              <AdminShortcut
-                description={t("Manage local staff accounts.")}
-                icon={<ShieldCheck className="size-4" />}
-                label={t("Users")}
-                onClick={onOpenUsers}
-              />
-            ) : null}
-            {can("audit.view") ? (
-              <AdminShortcut
-                description={t("Review important staff actions.")}
-                icon={<History className="size-4" />}
-                label={t("Activity Log")}
-                onClick={onOpenActivityLog}
-              />
-            ) : null}
-            <AdminShortcut
-              description={t("Offline activation and trial status.")}
-              icon={<KeyRound className="size-4" />}
-              label={t("App License")}
-              onClick={onOpenAppLicense}
-            />
-          </CardContent>
-        </Card>
-        {can("accessories.view") ? (
-          <AccessoryManager canEdit={can("accessories.create") || can("accessories.edit")} />
-        ) : null}
-        <SoftwareUpdateCard />
-        <Card className="h-fit overflow-hidden">
-          <CardHeader className="border-b border-border/70 bg-muted">
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-xl bg-accent text-primary">
-                <Globe2 className="size-5" />
-              </div>
-              <div>
-                <CardTitle>{t("About")}</CardTitle>
-                <CardDescription>
-                  {t("Support contacts")}
-                </CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4 text-sm">
-            <SupportLine icon={<Globe2 className="size-4" />} label={t("Website")} value="arak.ly" valueMode="ltr" />
-            <SupportLine icon={<Phone className="size-4" />} label={t("Phone")} value="+218 92 782 8080" valueMode="ltr" />
-            <SupportLine icon={<Mail className="size-4" />} label={t("Sales Email")} value="sales@arak.ly" valueMode="ltr" />
-            <SupportLine icon={<Mail className="size-4" />} label={t("Email")} value="info@arak.ly" valueMode="ltr" />
-            <SupportLine
-              icon={<MapPin className="size-4" />}
-              label={t("Office Address")}
-              value={t("Khalifa Al-Zaidi Street, Al-Madina Building, 7th Floor, Office 702, Tripoli")}
-            />
-            <SupportLine icon={<Clock className="size-4" />} label={t("Hours")} value={t("Sun-Thu: 9AM-6PM")} />
-            <div className="rounded-xl border border-success/20 bg-success/10 p-3 font-medium text-success">
-              {t("Developed by ARAK Communication & IT Services")}
-            </div>
-          </CardContent>
-        </Card>
-        <DiagnosticsPanel />
-      </div>
-      </div>
       <SensitiveActionDialog
         action="settings.edit"
         open={Boolean(pendingSettings)}

@@ -24,12 +24,14 @@ import { ReturnedRentalsReport } from "./ReturnedRentalsReport";
 import { CustomerRentalHistoryReport } from "./CustomerRentalHistoryReport";
 import { OperationalReport } from "./OperationalReport";
 import { CommissionReport } from "./CommissionReport";
+import { PaymentReceiptsReport } from "./PaymentReceiptsReport";
 
 type ReportTab =
   | "active"
   | "overdue"
   | "returned"
   | "daily"
+  | "receipts"
   | "income"
   | "customer"
   | "outstanding"
@@ -64,6 +66,7 @@ const reportCategories: ReportCategory[] = [
       { id: "active", label: "Active Rentals", description: "Open contracts currently on the road.", icon: CalendarCheck },
       { id: "overdue", label: "Overdue Rentals", description: "Active contracts past the expected return time.", icon: AlertTriangle },
       { id: "daily", label: "Daily Payments", description: "Payments recorded on a selected date.", icon: CreditCard },
+      { id: "receipts", label: "Payment Receipts", description: "Cash vouchers and payment receipt vouchers.", icon: ReceiptText },
       { id: "customer", label: "Customer History", description: "Rental history for one customer.", icon: User },
     ],
   },
@@ -180,6 +183,7 @@ export function ReportsPage() {
           {visibleActiveTab === "overdue" && <OverdueRentalsReport />}
           {visibleActiveTab === "returned" && <ReturnedRentalsReport />}
           {visibleActiveTab === "daily" && <DailyPaymentsReport />}
+          {visibleActiveTab === "receipts" && <PaymentReceiptsReport />}
           {visibleActiveTab === "income" && <VehicleIncomeReport />}
           {visibleActiveTab === "customer" && <CustomerRentalHistoryReport />}
           {visibleActiveTab === "outstanding" && <OperationalReport type="outstandingBalances" />}

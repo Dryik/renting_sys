@@ -625,6 +625,17 @@ export async function printPaymentReceipt(
             : ""
         }
 
+        <div class="signatures-section" style="display: flex; justify-content: space-between; margin-top: 30px; padding-top: 15px; border-top: 1px dashed #B8E6FE;">
+          <div style="text-align: center; width: 45%;">
+            <div style="font-weight: 700; color: #435b6a; font-size: 12px;">${escapeHtml(tr("Receiver Signature"))}</div>
+            <div style="height: 40px; margin-top: 5px; border-bottom: 1px dashed #94a3b8;"></div>
+          </div>
+          <div style="text-align: center; width: 45%;">
+            <div style="font-weight: 700; color: #435b6a; font-size: 12px;">${escapeHtml(tr("Shop Stamp & Signature"))}</div>
+            <div style="height: 40px; margin-top: 5px; border-bottom: 1px dashed #94a3b8;"></div>
+          </div>
+        </div>
+
         <div class="footer">
           <p>${escapeHtml(tr("Thank you for your business!"))}</p>
           <p style="font-size: 10px; margin-top: 15px; color: #94a3b8;">${escapeHtml(tr("Receipt generated automatically on"))} ${escapeHtml(formatPrintDate(new Date().toISOString(), language))}</p>

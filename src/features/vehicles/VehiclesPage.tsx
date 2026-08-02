@@ -65,8 +65,6 @@ const statusFilters: { value: VehicleStatusFilter; label: string }[] = [
 const rowClassName =
   "group transition-colors hover:bg-muted/35 focus-within:bg-muted/40";
 
-import { VehicleAvailabilityTimeline } from "../dashboard/VehicleAvailabilityTimeline";
-
 export function VehiclesPage() {
   const { can } = useAuth();
   const { formatCurrency, language, settings, t } = useI18n();
@@ -225,8 +223,6 @@ export function VehiclesPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <VehicleAvailabilityTimeline />
-
       <ListToolbar
         actions={can("vehicles.create") ? (
           <Button className="w-full sm:w-auto" size="lg" onClick={openCreateForm}>
