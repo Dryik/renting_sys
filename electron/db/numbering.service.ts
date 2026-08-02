@@ -47,7 +47,7 @@ export function getNextSequenceValue(
 }
 
 function formatSequence(prefix: string, value: number, padding: number): string {
-  const normalizedPrefix = prefix.trim() || "ARAK";
+  const normalizedPrefix = prefix.trim() || "CNT";
 
   return `${normalizedPrefix}-${String(value).padStart(padding, "0")}`;
 }

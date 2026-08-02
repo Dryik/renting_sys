@@ -366,7 +366,7 @@ export function buildRentalContractHtml(input: RentalContractDocumentInput): str
 
       <section>
         <h2>${escapeHtml(tr("Customer Details"))}</h2>
-        <div class="fields two">
+        <div class="fields three">
           ${labelValue("Full Name", rental.customerName)}
           ${labelValue("Phone", ltr(rental.customerPhone), true)}
           ${labelValue("National ID/Pass", ltr(optional(rental.customerNationalId)), true)}
@@ -378,7 +378,7 @@ export function buildRentalContractHtml(input: RentalContractDocumentInput): str
 
       <section>
         <h2>${escapeHtml(tr("Vehicle Details"))}</h2>
-        <div class="fields two">
+        <div class="fields three">
           ${labelValue("Vehicle Type", formatVehicleType(rental.vehicleType, primaryLanguage))}
           ${labelValue("Brand / Model", `${rental.vehicleBrand} ${rental.vehicleModel}`)}
           ${labelValue("Plate Number", ltr(rental.vehiclePlateNumber), true)}
@@ -426,9 +426,8 @@ export function buildRentalContractHtml(input: RentalContractDocumentInput): str
 
     <article class="page terms-page">
       ${buildHeader(logoHtml, settings, headerSubtitle, tr)}
-      <div class="document-heading"><div><h1>${escapeHtml(tr("Contract Terms & Conditions"))}</h1><div class="contract-number">${ltr(rental.contractNo)}</div></div><div>${escapeHtml(rental.customerName)}</div></div>
-      <ol class="terms-list">${termsHtml}</ol>
-      ${motorcycleTermsHtml}
+      <div class="document-heading"><div><h1>${escapeHtml(tr(rental.vehicleType === "motorcycle" ? "Detailed Motorcycle Rental Terms & Conditions" : "Contract Terms & Conditions"))}</h1><div class="contract-number">${ltr(rental.contractNo)}</div></div><div>${escapeHtml(rental.customerName)}</div></div>
+      ${rental.vehicleType === "motorcycle" ? motorcycleTermsHtml : `<ol class="terms-list">${termsHtml}</ol>`}
       ${footer ? `<div class="contract-footer">${formatMultiline(footer)}</div>` : ""}
       <div class="terms-signature avoid-break"><span>${escapeHtml(tr("The customer acknowledges reading and agreeing to all detailed terms above."))}</span><span>${escapeHtml(tr("Customer Signature"))}: ____________________</span></div>
     </article>
@@ -473,35 +472,36 @@ function buildContractCss(direction: "rtl" | "ltr"): string {
     .document-heading h1, .inspection-title h1 { margin: 0; font-size: 16pt; }
     .contract-number { margin-top: 1mm; font-size: 12pt; font-weight: 700; }
     .print-meta { display: flex; flex-direction: column; gap: 1mm; font-size: 8.5pt; }
-    section { margin-top: 4mm; }
-    h2 { margin: 0 0 2mm; padding-bottom: 1mm; border-bottom: 1.5px solid #000; font-size: 11.5pt; }
-    .fields { display: grid; gap: 1.8mm; }
+    section { margin-top: 3mm; }
+    h2 { margin: 0 0 1.5mm; padding-bottom: 0.8mm; border-bottom: 1.5px solid #000; font-size: 11pt; }
+    .fields { display: grid; gap: 1.2mm; }
     .fields.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .fields.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .fields.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .field { border: 1px solid #000; min-width: 0; }
-    .field-label { padding: 1.2mm 1.8mm; border-bottom: 1px solid #000; background: #eee; font-size: 7.8pt; font-weight: 700; }
-    .field-value { padding: 1.5mm 1.8mm; min-height: 8mm; overflow-wrap: anywhere; }
+    .field-label { padding: 0.8mm 1.5mm; border-bottom: 1px solid #000; background: #eee; font-size: 7.5pt; font-weight: 700; }
+    .field-value { padding: 1mm 1.5mm; min-height: 6.5mm; overflow-wrap: anywhere; font-size: 9.5pt; }
     .ltr { direction: ltr; unicode-bidi: isolate; display: inline-block; text-align: left; }
-    .notes { min-height: 14mm; padding: 2.5mm; border: 1px solid #000; white-space: normal; overflow-wrap: anywhere; }
+    .notes { min-height: 10mm; padding: 2mm; border: 1px solid #000; white-space: normal; overflow-wrap: anywhere; }
     table { width: 100%; border-collapse: collapse; font-size: 8.5pt; }
-    th, td { border: 1px solid #000; padding: 1.5mm; vertical-align: top; overflow-wrap: anywhere; }
+    th, td { border: 1px solid #000; padding: 1.2mm; vertical-align: top; overflow-wrap: anywhere; }
     th { background: #eee; font-weight: 700; }
     .subtext { margin-top: 1mm; font-size: 7.5pt; }
-    .signatures { margin-top: 5mm; }
-    .signature-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5mm; }
-    .signature-card { border: 1px solid #000; padding: 3mm; text-align: center; }
-    .signature-space { height: 20mm; display: flex; align-items: center; justify-content: center; }
-    .signature-image { max-width: 55mm; max-height: 17mm; object-fit: contain; }
-    .placeholder { color: #555; font-size: 8.5pt; }
-    .signature-line { padding-top: 1.5mm; border-top: 1px dashed #000; font-weight: 700; }
-    .signature-card small { display: block; margin-top: 1mm; }
-    .terms-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 2.5mm; }
-    .terms-list li { display: grid; grid-template-columns: 8mm 1fr; gap: 1mm; padding: 2.2mm; border: 1px solid #000; break-inside: avoid; }
+    .signatures { margin-top: 3.5mm; }
+    .signature-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4mm; }
+    .signature-card { border: 1px solid #000; padding: 2.5mm; text-align: center; }
+    .signature-space { height: 13mm; display: flex; align-items: center; justify-content: center; }
+    .signature-image { max-width: 50mm; max-height: 12mm; object-fit: contain; }
+    .placeholder { color: #555; font-size: 8pt; }
+    .signature-line { padding-top: 1.2mm; border-top: 1px dashed #000; font-weight: 700; font-size: 8.5pt; }
+    .signature-card small { display: block; margin-top: 0.8mm; font-size: 7.8pt; }
+    .terms-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 2.2mm; }
+    .terms-list li { display: grid; grid-template-columns: 8mm 1fr; gap: 1mm; padding: 1.8mm 2mm; border: 1px solid #000; break-inside: avoid; font-size: 8.5pt; }
     .term-number { font-weight: 700; }
-    .motorcycle-terms { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2mm; font-size: 8pt; }
-    .term-card { padding: 2mm; border: 1px solid #000; break-inside: avoid; overflow-wrap: anywhere; }
-    .contract-footer { margin-top: 4mm; padding: 3mm; border: 1.5px solid #000; font-weight: 700; }
-    .terms-signature { display: flex; justify-content: space-between; gap: 8mm; margin-top: 5mm; padding-top: 3mm; border-top: 1.5px solid #000; font-weight: 700; }
+    .motorcycle-terms { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5mm; font-size: 7.5pt; }
+    .term-card { padding: 1.5mm 2mm; border: 1px solid #000; break-inside: avoid; overflow-wrap: anywhere; }
+    .contract-footer { margin-top: 3mm; padding: 2.5mm; border: 1.5px solid #000; font-weight: 700; font-size: 8.5pt; }
+    .terms-signature { display: flex; justify-content: space-between; gap: 8mm; margin-top: 4mm; padding-top: 2.5mm; border-top: 1.5px solid #000; font-weight: 700; font-size: 8.5pt; }
     .inspection-title { display: flex; justify-content: space-between; gap: 8mm; margin-bottom: 3mm; }
     .inspection-title p { margin: 1mm 0 0; font-size: 9pt; }
     .inspection-meta { font-weight: 700; }
@@ -513,7 +513,7 @@ function buildContractCss(direction: "rtl" | "ltr"): string {
     .writing-lines { height: 28mm; margin-top: 2mm; background: repeating-linear-gradient(to bottom, transparent, transparent 6mm, #000 6.2mm); }
     .signature-small { display: flex; flex-direction: column; justify-content: space-between; text-align: center; }
     .signature-small span { border-top: 1px dashed #000; padding-top: 1mm; }
-    @media (max-width: 700px) { .fields.four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 700px) { .fields.four, .fields.three { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   `;
 }
 

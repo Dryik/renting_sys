@@ -138,6 +138,20 @@ describe("rental contract document", () => {
     expect(html).toContain("يقر العميل بأنه قرأ جميع الشروط التفصيلية");
   });
 
+  it("renders 3-column field grid and deduplicates terms for motorcycles", () => {
+    const base = createInput();
+    const carHtml = buildRentalContractHtml(base);
+    expect(carHtml).toContain('class="fields three"');
+    expect(carHtml).toContain("Contract Terms");
+
+    const motoHtml = buildRentalContractHtml({
+      ...base,
+      rental: { ...base.rental, vehicleType: "motorcycle" },
+    });
+    expect(motoHtml).toContain("Detailed Motorcycle Rental Terms");
+    expect(motoHtml).not.toContain("Contract Terms &amp; Conditions");
+  });
+
   it("honors app, explicit, and bilingual print language settings", () => {
     expect(
       resolveContractPrintLanguage({ language: "ar", printLanguage: "app" }),

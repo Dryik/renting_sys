@@ -79,15 +79,15 @@ async function printHTML(
   printToPDF: boolean,
   documentType: "rental_contract" | "payment_receipt" | "vehicle_sale_receipt",
 ): Promise<PrintDocumentResult> {
-  let pdfBuffer: Buffer;
-  try {
-    pdfBuffer = await renderHtmlToA4Pdf(htmlContent);
-  } catch (error) {
-    logPrintEvent(documentType, "render_failed", getErrorText(error));
-    throw error;
-  }
-
   if (printToPDF) {
+    let pdfBuffer: Buffer;
+    try {
+      pdfBuffer = await renderHtmlToA4Pdf(htmlContent);
+    } catch (error) {
+      logPrintEvent(documentType, "render_failed", getErrorText(error));
+      throw error;
+    }
+
     try {
       const { filePath } = await dialog.showSaveDialog({
         title: "Export PDF",
@@ -109,32 +109,40 @@ async function printHTML(
     }
   }
 
-  return printPdfBuffer(pdfBuffer, documentType);
+  return printDirectHTML(htmlContent, documentType);
 }
 
-async function printPdfBuffer(
-  pdfBuffer: Buffer,
+async function printDirectHTML(
+  htmlContent: string,
   documentType: "rental_contract" | "payment_receipt" | "vehicle_sale_receipt",
 ): Promise<PrintDocumentResult> {
   const tempDirectory = path.join(
     fs.realpathSync.native(app.getPath("temp")),
-    "arak-rental-print",
+    "rental-print",
   );
-  const tempPdfPath = path.join(tempDirectory, `${randomUUID()}.pdf`);
+  const tempHtmlPath = path.join(tempDirectory, `${randomUUID()}.html`);
   fs.mkdirSync(tempDirectory, { recursive: true });
-  fs.writeFileSync(tempPdfPath, pdfBuffer);
+  fs.writeFileSync(tempHtmlPath, htmlContent, "utf8");
 
   const printWindow = new BrowserWindow({
     show: false,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      plugins: true,
     },
   });
 
   try {
-    await printWindow.loadFile(tempPdfPath);
+    await printWindow.loadFile(tempHtmlPath);
+    await printWindow.webContents.executeJavaScript(
+      `Promise.all([
+        document.fonts ? document.fonts.ready : Promise.resolve(),
+        ...Array.from(document.images).map((img) =>
+          img.complete ? Promise.resolve() : new Promise((r) => { img.onload = r; img.onerror = r; })
+        )
+      ])`,
+    );
+
     const outcome = await new Promise<{ success: boolean; reason: string }>((resolve) => {
       let settled = false;
       const finish = (success: boolean, reason: string): void => {
@@ -184,7 +192,7 @@ async function printPdfBuffer(
       }
       printWindow.destroy();
     }
-    await removeTemporaryPrintFile(tempPdfPath, documentType);
+    await removeTemporaryPrintFile(tempHtmlPath, documentType);
   }
 }
 

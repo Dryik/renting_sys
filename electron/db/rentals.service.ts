@@ -336,7 +336,7 @@ export function activateRental(input: unknown): RentalListRecord {
         throw new Error("Mileage out cannot be less than current vehicle mileage.");
       }
 
-      const contractNo = getNextSequenceValue(tx, "contract", "ARAK");
+      const contractNo = getNextSequenceValue(tx, "contract", "CNT");
       const insertedRental = tx
         .insert(rentals)
         .values({
@@ -496,7 +496,7 @@ export function createDraftRental(input: unknown): RentalListRecord {
 
       assertRentalAccessoriesKnown(tx, values.accessories);
 
-      const contractNo = getNextSequenceValue(tx, "contract", "ARAK");
+      const contractNo = getNextSequenceValue(tx, "contract", "CNT");
       const insertedRental = tx
         .insert(rentals)
         .values({

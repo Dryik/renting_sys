@@ -1117,7 +1117,7 @@ function addColumnIfMissing(
 
 function seedNumberSequences(database: Database.Database, now: string): void {
   const sequences = [
-    { name: "contract", prefix: "ARAK", nextNumber: 1, padding: 6 },
+    { name: "contract", prefix: "CNT", nextNumber: 1, padding: 6 },
     { name: "receipt", prefix: "RCP", nextNumber: 1, padding: 6 },
     { name: "vehicle_sale", prefix: "SALE", nextNumber: 1, padding: 6 },
     { name: "employee_loan", prefix: "LOAN", nextNumber: 1, padding: 6 },
@@ -1138,6 +1138,12 @@ function seedNumberSequences(database: Database.Database, now: string): void {
         now,
       );
   }
+
+  database
+    .prepare(
+      `update number_sequences set prefix = 'CNT' where name = 'contract' and prefix = 'ARAK'`,
+    )
+    .run();
 }
 
 function seedMoneyLocations(database: Database.Database, now: string): void {

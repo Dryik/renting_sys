@@ -111,7 +111,7 @@ function createFixture(
 app.whenReady().then(async () => {
   const outputDirectory = process.env.RENTAL_PRINT_QA_OUTPUT_DIR
     ? path.resolve(process.env.RENTAL_PRINT_QA_OUTPUT_DIR)
-    : path.join(app.getPath("temp"), "arak-rental-print-qa");
+    : path.join(app.getPath("temp"), "rental-print-qa");
   fs.mkdirSync(outputDirectory, { recursive: true });
 
   try {
