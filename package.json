@@ -93,7 +93,7 @@
       "perMachine": false,
       "differentialPackage": true
     },
-    "artifactName": "ARAK Rental Desk Setup ${version}.${ext}"
+    "artifactName": "ARAK-Rental-Desk-Setup-${version}.${ext}"
   },
   "overrides": {
     "uuid": "11.1.1"

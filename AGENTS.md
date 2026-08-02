@@ -172,3 +172,14 @@ A task is not complete unless:
 - the changed screen works
 - no TypeScript errors remain
 - no obvious broken UI remains
+
+## Release & Auto-Updater Rules
+
+When creating a new application release:
+
+1. **Artifact Naming**: `package.json` MUST use hyphenated `artifactName` (`ARAK-Rental-Desk-Setup-${version}.${ext}`). Do NOT use spaces in `artifactName`. Spaces cause GitHub CLI to sanitize asset filenames differently than `latest.yml`, which breaks `electron-updater` with HTTP 404 errors (`is the repository private or release draft?`).
+2. **Release Assets**: Every GitHub Release MUST publish 3 exact matching assets:
+   - `ARAK-Rental-Desk-Setup-${version}.exe`
+   - `ARAK-Rental-Desk-Setup-${version}.exe.blockmap`
+   - `latest.yml`
+3. **Verification**: Always verify asset filenames on GitHub (`gh release view v${version}`) match the `url` and `path` entries in `latest.yml` character-for-character before declaring a release finished.
