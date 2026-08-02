@@ -10,6 +10,10 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, "electron/main.ts"),
+          "contract-print-smoke": resolve(
+            __dirname,
+            "electron/contract-print-smoke.ts",
+          ),
         },
       },
     },

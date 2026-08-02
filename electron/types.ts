@@ -1,5 +1,6 @@
 import type { CustomerInput, CustomerListRequest, CustomerRecord } from "../src/shared/customers";
 import type { PageResult } from "../src/shared/pagination";
+import type { PrintDocumentResult } from "../src/shared/printing";
 import type { PaymentInput, PaymentListRecord, PaymentListRequest, PaymentRecord } from "../src/shared/payments";
 import type { PaymentCorrectionInput, PaymentVoidInput } from "../src/shared/payments";
 import type {
@@ -186,7 +187,7 @@ export type RentalAppApi = {
     }>;
     cancel: (input: number | RentalCancelInput) => Promise<RentalListRecord>;
     findOpenByPlate: (plateNumber: string) => Promise<RentalListRecord>;
-    printContract: (rentalId: number, printToPDF: boolean, language?: "ar" | "en" | "both") => Promise<void>;
+    printContract: (rentalId: number, printToPDF: boolean, language?: "ar" | "en" | "both") => Promise<PrintDocumentResult>;
   };
   payments: {
     list: (request?: PaymentListRequest) => Promise<PageResult<PaymentListRecord>>;

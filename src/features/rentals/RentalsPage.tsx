@@ -110,6 +110,7 @@ export function RentalsPage({
   const [paymentRecords, setPaymentRecords] = useState<PaymentRecord[]>([]);
   const [listError, setListError] = useState<string | null>(null);
   const [panelError, setPanelError] = useState<string | null>(null);
+  const [panelNotice, setPanelNotice] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [contractPrintAction, setContractPrintAction] = useState<PrintAction | null>(null);
@@ -244,6 +245,7 @@ export function RentalsPage({
     setIsSaving(true);
     setListError(null);
     setPanelError(null);
+    setPanelNotice(null);
 
     try {
       const activated = await window.rentalApp.rentals.activateDraft(rental.id);
@@ -406,6 +408,7 @@ export function RentalsPage({
 
   async function openDetailPanel(rental: RentalListRecord) {
     setPanelError(null);
+    setPanelNotice(null);
     setPaymentRecords([]);
     await loadPayments(rental.id);
     setPanelState({ mode: "detail", rental });
@@ -436,9 +439,17 @@ export function RentalsPage({
   async function handlePrintContract(rentalId: number, printToPDF: boolean) {
     setContractPrintAction(printToPDF ? "pdf" : "print");
     setPanelError(null);
+    setPanelNotice(null);
 
     try {
-      await window.rentalApp.rentals.printContract(rentalId, printToPDF);
+      const result = await window.rentalApp.rentals.printContract(rentalId, printToPDF);
+      setPanelNotice(
+        result.status === "printed"
+          ? "Contract sent to printer."
+          : result.status === "saved"
+            ? "Contract PDF saved successfully."
+            : "Printing was cancelled.",
+      );
     } catch (error) {
       setPanelError(getErrorMessage(error, t("Operation Failed")));
     } finally {
@@ -540,6 +551,7 @@ export function RentalsPage({
             isSaving={isSaving}
             contractPrintAction={contractPrintAction}
             panelError={panelError}
+            panelNotice={panelNotice}
             paymentError={paymentError}
             payments={paymentRecords}
             rental={panelState.rental}
@@ -844,6 +856,7 @@ function RentalDetailPanel({
   onRecordPayment,
   onReturnVehicle,
   panelError,
+  panelNotice,
   paymentError,
   payments,
   rental,
@@ -860,6 +873,7 @@ function RentalDetailPanel({
   onRecordPayment?: () => void;
   onReturnVehicle?: () => void;
   panelError: string | null;
+  panelNotice: string | null;
   paymentError: string | null;
   payments: PaymentRecord[];
   rental: RentalListRecord;
@@ -873,6 +887,12 @@ function RentalDetailPanel({
       {panelError ? (
         <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {t(panelError)}
+        </div>
+      ) : null}
+
+      {panelNotice ? (
+        <div className="rounded-md border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
+          {t(panelNotice)}
         </div>
       ) : null}
 

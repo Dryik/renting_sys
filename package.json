@@ -1,6 +1,6 @@
 {
   "name": "arak-rental-desk",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "ARAK Rental Desk desktop product for small car and motorcycle rental shops.",
   "author": "ARAK Communication & IT Services",
   "private": true,
@@ -16,6 +16,7 @@
     "license:app": "electron scripts/generate-license-app.mjs",
     "capture:visual-qa": "node scripts/capture-visual-qa.mjs",
     "perf:stress": "electron scripts/perf-stress.cjs",
+    "qa:contract-print": "npm run build && electron out/main/contract-print-smoke.js",
     "clean:release": "node scripts/clean-release.mjs",
     "build": "npm run typecheck && electron-vite build",
     "rebuild:native": "electron-builder install-app-deps",
