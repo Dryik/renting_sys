@@ -137,7 +137,7 @@ $env:RENTAL_PRINT_QA_OUTPUT_DIR = "C:\path\to\qa-output"
 npm run qa:contract-print
 ```
 
-The smoke entry is included as a separate Electron Vite main-process entry. It is test tooling only and is not called by the normal application startup path.
+The smoke entry is included as a separate Electron Vite main-process entry. It is test tooling only, is excluded from packaged customer installers, and is not called by the normal application startup path.
 
 ## Files Changed and Why
 
@@ -148,13 +148,14 @@ The smoke entry is included as a separate Electron Vite main-process entry. It i
 | `electron/db/print.service.ts` | PDF-first save/print orchestration, awaited print result, cleanup, and diagnostics. |
 | `electron/db/rental-contract-document.test.ts` | Focused renderer, language, content, and self-contained-resource tests. |
 | `electron/contract-print-smoke.ts` | Production-path car and motorcycle PDF fixtures. |
+| `electron/packaging.test.ts` | Verifies the QA launcher and internal tooling stay out of customer installers. |
 | `electron.vite.config.ts` | Builds the standalone contract print smoke entry. |
 | `electron/assets.d.ts` | Types inline WOFF2 font imports used by the main-process renderer. |
 | `src/shared/printing.ts` | Shared explicit result type for print actions. |
 | `electron/types.ts` | Updates the preload-facing rental print API result. |
 | `src/features/rentals/RentalsPage.tsx` | Displays printed, saved, cancelled, and failure outcomes. |
 | `src/shared/i18n.ts` | Completes Arabic labels used by the contract, terms, tables, and signatures. |
-| `package.json` | Adds the print QA command and bumps the release to v0.3.2. |
+| `package.json` | Adds the print QA command, excludes its launcher from customer installers, and bumps the release to v0.3.2. |
 | `package-lock.json` | Aligns root package metadata with v0.3.2. |
 
 ## Verification Evidence
@@ -174,10 +175,9 @@ The following checks were completed on Windows 11:
 - All 8 generated PDF pages were rendered to PNG and visually inspected.
 - No clipped headings, broken Arabic shaping, missing sections, missing diagram, or page-edge overflow remained after correction.
 
-Repository-wide baseline checks also found:
+Repository-wide checks found:
 
-- Full tests: 126 passed and 1 failed.
-- The remaining failure is the pre-existing packaging guardrail test, which expects the package file list to omit `build/**/*`; the existing release configuration intentionally includes `build/**/*` for icons and installer resources.
+- Full tests: 127 passed.
 - Full lint reports 40 pre-existing errors in unrelated files and legacy scripts. Focused lint for all files changed by this work is clean.
 
 ## Release and Operational Notes
@@ -186,8 +186,21 @@ Repository-wide baseline checks also found:
 - Temporary print files are stored under the operating-system temporary directory, not the project or production data directory.
 - Generated QA fixtures use invented values only.
 - No dependency was added.
+- On the restricted Windows build host, Electron Builder's verified helper archive could not create two unrelated macOS library symbolic links. The release build cache was completed from the already downloaded archive without those macOS-only links; all required Windows resource-editing and signing-helper files remained present.
 - A real physical printer was not available during implementation. The Windows system dialog path is implemented and exercised up to PDF generation/loading, but final acceptance should include one printed car contract and one printed motorcycle contract on representative client printers.
 - Page count is content-dependent. Do not reintroduce assumptions that every contract must contain exactly three pages.
+
+### Final v0.3.2 artifact verification
+
+- Packaged executable file version: `0.3.2`; product version: `0.3.2.0`.
+- Packaged startup smoke passed with an isolated user-data directory and created the expected database and trial files.
+- The packaged preload API was available and the first-use renderer loaded successfully.
+- The packaged application contains the production PDF renderer and excludes `contract-print-smoke.js`.
+- No source maps or private-key/secret filenames were found in `out` or the release output.
+- Installer SHA-256: `A7C366B47E675DD0877A844AECA8BCFDCCF0D050B8AE1414C660962BE598CAB5`.
+- Blockmap SHA-256: `DE4745E90934870F285BB4224495866D69AD344297B8F62B52D94CFB4AF43CC1`.
+- Update metadata SHA-256: `9A717B50F35B0D5B5A9B3323CBB0DD9A489D2D4237C92167F829CA8BFC0AC4AA`.
+- The installer is not Authenticode-signed because no signing certificate is configured. No signing secret was added to the repository or build environment.
 
 ## Guardrails for Future Changes
 

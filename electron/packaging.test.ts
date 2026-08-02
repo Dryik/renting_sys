@@ -2,12 +2,17 @@ import fs from "node:fs";
 import { describe, expect, it } from "vitest";
 
 describe("packaging guardrails", () => {
-  it("does not package internal license generator tooling", () => {
+  it("packages production runtime and required installer resources only", () => {
     const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8")) as {
       build?: { files?: string[] };
     };
 
-    expect(packageJson.build?.files).toEqual(["out/**/*", "package.json"]);
+    expect(packageJson.build?.files).toEqual([
+      "out/**/*",
+      "!out/main/contract-print-smoke.js",
+      "build/**/*",
+      "package.json",
+    ]);
     expect(packageJson.build?.files?.join("\n")).not.toContain("scripts");
     expect(packageJson.build?.files?.join("\n")).not.toContain("docs");
   });

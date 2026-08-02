@@ -79,6 +79,7 @@
     ],
     "files": [
       "out/**/*",
+      "!out/main/contract-print-smoke.js",
       "build/**/*",
       "package.json"
     ],
