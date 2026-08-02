@@ -27,6 +27,7 @@ export type ShopSettings = {
   contractFooter: string;
   printHeaderSubtitle: string;
   printTermsAndConditions: string;
+  enableContractWatermark: boolean;
   lastAutoBackupAt: string | null;
   language: LanguageCode;
 };
@@ -60,6 +61,7 @@ export const defaultShopSettings: ShopSettings = {
   printHeaderSubtitle: "عقد تأجير سيارات ومحركات",
   printTermsAndConditions:
     "1. يتعهد المستأجر بالحفاظ على المركبة وتسليمها في الموعد المحدد.\n2. يتحمل المستأجر مسؤوليته الكاملة عن أي أضرار أو مخالفات مرورية خلال فترة التأجير.\n3. لا يحق للمستأجر تسليم المركبة للغير دون موافقة خطية من المكتب.",
+  enableContractWatermark: true,
   lastAutoBackupAt: null,
   language: "ar",
 };

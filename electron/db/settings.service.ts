@@ -100,6 +100,10 @@ export function getShopSettings(): ShopSettings {
       settingsMap.get("print_header_subtitle") ?? defaultShopSettings.printHeaderSubtitle,
     printTermsAndConditions:
       settingsMap.get("print_terms_and_conditions") ?? defaultShopSettings.printTermsAndConditions,
+    enableContractWatermark:
+      settingsMap.get("enable_contract_watermark") === undefined
+        ? defaultShopSettings.enableContractWatermark
+        : settingsMap.get("enable_contract_watermark") === "true",
     lastAutoBackupAt: settingsMap.get("last_auto_backup_at") || null,
     language: normalizeLanguage(
       settingsMap.get("app_language") ?? defaultShopSettings.language,
@@ -166,6 +170,7 @@ export function saveShopSettings(settings: Partial<ShopSettings>): ShopSettings 
     { key: "contract_footer", value: updated.contractFooter },
     { key: "print_header_subtitle", value: updated.printHeaderSubtitle },
     { key: "print_terms_and_conditions", value: updated.printTermsAndConditions },
+    { key: "enable_contract_watermark", value: String(updated.enableContractWatermark) },
     { key: "last_auto_backup_at", value: updated.lastAutoBackupAt ?? "" },
     { key: "app_language", value: normalizeLanguage(updated.language) },
   ];

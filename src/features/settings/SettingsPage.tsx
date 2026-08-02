@@ -84,6 +84,7 @@ const settingsFormSchema = z.object({
   contractFooter: z.string().trim().max(1000, "Footer text is too long."),
   printHeaderSubtitle: z.string().trim().max(200, "Header subtitle is too long."),
   printTermsAndConditions: z.string().trim().max(2000, "Terms text is too long."),
+  enableContractWatermark: z.boolean(),
   language: z.enum(languageValues),
 });
 
@@ -151,6 +152,7 @@ export function SettingsPage({
       scheduledBackupEnabled: false,
       ownerPinEnabled: false,
       contractFooter: "",
+      enableContractWatermark: true,
       language: "ar",
     },
   });
@@ -207,6 +209,7 @@ export function SettingsPage({
           contractFooter: data.contractFooter,
           printHeaderSubtitle: data.printHeaderSubtitle,
           printTermsAndConditions: data.printTermsAndConditions,
+          enableContractWatermark: data.enableContractWatermark,
           language: data.language,
         });
       } catch {
@@ -845,6 +848,20 @@ export function SettingsPage({
                   className="min-h-28"
                   placeholder={t("Enter custom shop rental terms & conditions clause here...")}
                 />
+              </label>
+
+              <label className="flex items-start gap-3 rounded-lg border bg-card p-4 text-sm shadow-xs">
+                <input
+                  type="checkbox"
+                  className="mt-1 size-4 accent-primary"
+                  {...register("enableContractWatermark")}
+                />
+                <span className="min-w-0">
+                  <span className="block font-medium">{t("Contract Watermark")}</span>
+                  <span className="mt-1 block text-muted-foreground">
+                    {t("Displays a faint, centered logo watermark in the background of contract pages.")}
+                  </span>
+                </span>
               </label>
 
               <label className="flex flex-col gap-2 text-sm font-medium">
@@ -1524,6 +1541,9 @@ function buildSettingsPayload(values: SettingsFormInput): Partial<ShopSettings> 
     scheduledBackupEnabled: values.scheduledBackupEnabled,
     ownerPinEnabled: values.ownerPinEnabled,
     contractFooter: values.contractFooter,
+    printHeaderSubtitle: values.printHeaderSubtitle,
+    printTermsAndConditions: values.printTermsAndConditions,
+    enableContractWatermark: values.enableContractWatermark,
     language: values.language,
   };
 }

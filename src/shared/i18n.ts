@@ -1035,6 +1035,8 @@ const ar: Record<string, string> = {
   "Shop Stamp & Signature": "ختم وتوقيع المحل",
   "Language & Currency": "اللغة والعملة",
   "Contract & Terms": "العقد والشروط",
+  "Contract Watermark": "علامة مائية لشعار المحل",
+  "Displays a faint, centered logo watermark in the background of contract pages.": "عرض شعار المحل بشكل باهت في خلفية جميع صفحات العقد.",
   "Operations & Accessories": "التأجير والملحقات",
   "Security & System": "الأمان والنظام",
   "Contract Number": "رقم العقد",

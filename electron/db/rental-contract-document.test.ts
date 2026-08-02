@@ -167,4 +167,27 @@ describe("rental contract document", () => {
       ),
     ).toBe("both");
   });
+
+  it("renders centered logo watermark on contract pages when configured", () => {
+    const base = createInput();
+    const htmlWithWatermark = buildRentalContractHtml({
+      ...base,
+      settings: {
+        ...base.settings,
+        shopLogoDataUrl: "data:image/png;base64,fakeLogoData",
+        enableContractWatermark: true,
+      },
+    });
+    expect(htmlWithWatermark).toContain('class="page-watermark"');
+
+    const htmlWithoutWatermark = buildRentalContractHtml({
+      ...base,
+      settings: {
+        ...base.settings,
+        shopLogoDataUrl: "data:image/png;base64,fakeLogoData",
+        enableContractWatermark: false,
+      },
+    });
+    expect(htmlWithoutWatermark).not.toContain('class="page-watermark"');
+  });
 });

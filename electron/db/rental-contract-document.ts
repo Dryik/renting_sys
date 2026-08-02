@@ -322,11 +322,16 @@ export function buildRentalContractHtml(input: RentalContractDocumentInput): str
   const ownerSignatureHtml = settings.ownerSignatureDataUrl
     ? `<img class="signature-image" src="${escapeHtml(settings.ownerSignatureDataUrl)}" alt="${escapeHtml(tr("Owner Signature"))}">`
     : "";
+  const watermarkHtml =
+    settings.enableContractWatermark !== false && settings.shopLogoDataUrl
+      ? `<img class="page-watermark" src="${escapeHtml(settings.shopLogoDataUrl)}" alt="" />`
+      : "";
   const headerSubtitle = settings.printHeaderSubtitle.trim();
   const footer = settings.contractFooter.trim();
   const diagramHtml = rental.vehicleType === "motorcycle"
     ? `
       <article class="page inspection-page">
+        ${watermarkHtml}
         ${buildHeader(logoHtml, settings, headerSubtitle, tr)}
         <div class="inspection-title">
           <div><h1>${escapeHtml(tr("Motorcycle Condition Diagram"))}</h1><p>${escapeHtml(tr("Mark scratches, dents, and damage directly on the diagram before signing."))}</p></div>
@@ -351,6 +356,7 @@ export function buildRentalContractHtml(input: RentalContractDocumentInput): str
   </head>
   <body>
     <article class="page contract-page">
+      ${watermarkHtml}
       ${buildHeader(logoHtml, settings, headerSubtitle, tr)}
       <div class="document-heading">
         <div><h1>${escapeHtml(tr("RENTAL CONTRACT"))}</h1><div class="contract-number">${ltr(rental.contractNo)}</div></div>
@@ -412,6 +418,7 @@ export function buildRentalContractHtml(input: RentalContractDocumentInput): str
     </article>
 
     <article class="page terms-page">
+      ${watermarkHtml}
       ${buildHeader(logoHtml, settings, headerSubtitle, tr)}
       <div class="document-heading"><div><h1>${escapeHtml(tr(rental.vehicleType === "motorcycle" ? "Detailed Motorcycle Rental Terms & Conditions" : "Contract Terms & Conditions"))}</h1><div class="contract-number">${ltr(rental.contractNo)}</div></div><div>${escapeHtml(rental.customerName)}</div></div>
       ${rental.vehicleType === "motorcycle" ? motorcycleTermsHtml : `<ol class="terms-list">${termsHtml}</ol>`}
@@ -446,7 +453,9 @@ function buildContractCss(direction: "rtl" | "ltr"): string {
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; background: #fff; }
     body { color: #000; font-family: "Rental Cairo", "Segoe UI", Tahoma, Arial, sans-serif; font-size: 10.5pt; line-height: 1.45; direction: ${direction}; text-align: ${direction === "rtl" ? "right" : "left"}; }
-    .page { break-after: page; page-break-after: always; min-height: 277mm; }
+    .page { break-after: page; page-break-after: always; min-height: 277mm; position: relative; overflow: hidden; }
+    .page-watermark { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 65%; max-width: 420px; max-height: 420px; object-fit: contain; opacity: 0.08; pointer-events: none; z-index: 0; }
+    .page > *:not(.page-watermark) { position: relative; z-index: 1; }
     .page:last-child { break-after: auto; page-break-after: auto; }
     .avoid-break { break-inside: avoid; page-break-inside: avoid; }
     .shop-header { display: flex; justify-content: space-between; align-items: center; gap: 12mm; border-bottom: 2px solid #000; padding-bottom: 4mm; margin-bottom: 5mm; }
