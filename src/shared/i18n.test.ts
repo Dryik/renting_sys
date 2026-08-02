@@ -45,7 +45,7 @@ describe("language and formatting helpers", () => {
     expect(translate("ar", "Customer Photo")).toBe("صورة العميل");
     expect(translate("ar", "Vehicle Booklet")).toBe("كتيب المركبة");
     expect(translate("ar", "Mandatory Insurance")).toBe("التأمين الإجباري");
-    expect(translate("ar", "Vehicle Circulation License")).toBe("رخصة تسيير المركبة");
+    expect(translate("ar", "Vehicle Circulation License")).toBe("رخصة تجول المركبة");
     expect(translate("ar", "Technical Inspection")).toBe("الفحص الفني");
     expect(translate("ar", "No camera detected")).toBe("لم يتم العثور على كاميرا متصلة");
     expect(translate("ar", "Camera permission denied")).toBe("تم رفض إذن استخدام الكاميرا");

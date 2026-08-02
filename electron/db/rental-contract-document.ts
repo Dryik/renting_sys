@@ -238,8 +238,6 @@ export function buildRentalContractHtml(input: RentalContractDocumentInput): str
           <thead><tr>
             <th>${escapeHtml(tr("Accessory"))}</th>
             <th>${escapeHtml(tr("Quantity"))}</th>
-            <th>${escapeHtml(tr("Unit Charge"))}</th>
-            <th>${escapeHtml(tr("Line Total"))}</th>
             <th>${escapeHtml(tr("Returned / Missing"))}</th>
           </tr></thead>
           <tbody>${accessories
@@ -247,8 +245,6 @@ export function buildRentalContractHtml(input: RentalContractDocumentInput): str
               (accessory) => `<tr>
                 <td>${escapeHtml(accessory.name)}${accessory.notes ? `<div class="subtext">${escapeHtml(accessory.notes)}</div>` : ""}</td>
                 <td>${ltr(accessory.quantity)}</td>
-                <td>${ltr(money(accessory.unitCharge))}</td>
-                <td>${ltr(money(accessory.quantity * accessory.unitCharge))}</td>
                 <td>${ltr(`${accessory.returnedQuantity} / ${accessory.missingQuantity}`)}</td>
               </tr>`,
             )
@@ -266,7 +262,6 @@ export function buildRentalContractHtml(input: RentalContractDocumentInput): str
             <th>${escapeHtml(tr("Type"))}</th>
             <th>${escapeHtml(tr("Description"))}</th>
             <th>${escapeHtml(tr("Reference"))}</th>
-            <th>${escapeHtml(tr("Estimated Value"))}</th>
             <th>${escapeHtml(tr("Status"))}</th>
           </tr></thead>
           <tbody>${collateralItems
@@ -275,7 +270,6 @@ export function buildRentalContractHtml(input: RentalContractDocumentInput): str
                 <td>${escapeHtml(formatCollateralType(item.type, primaryLanguage))}</td>
                 <td>${escapeHtml(item.description)}${item.notes ? `<div class="subtext">${escapeHtml(item.notes)}</div>` : ""}</td>
                 <td>${ltr(optional(item.referenceNumber))}</td>
-                <td>${item.estimatedValue === null ? escapeHtml(fallback) : ltr(money(item.estimatedValue, item.currency ?? currency))}</td>
                 <td>${escapeHtml(tr(item.status === "returned" ? "Returned" : "Held"))}</td>
               </tr>`,
             )
@@ -289,13 +283,10 @@ export function buildRentalContractHtml(input: RentalContractDocumentInput): str
       <section class="avoid-break">
         <h2>${escapeHtml(tr("Return Acknowledgment"))}</h2>
         <div class="fields four">
-          ${labelValue("Actual Return", dateTime(rental.actualReturnDatetime))}
+          ${labelValue("Actual Return", dateOnly(rental.actualReturnDatetime))}
           ${labelValue("Returned By", optional(rental.returnedByName))}
           ${labelValue("Mileage In", rental.mileageIn === null ? fallback : `${rental.mileageIn} ${tr("km")}`)}
           ${labelValue("Fuel In", optional(rental.fuelIn))}
-          ${labelValue("Extra Charges", ltr(money(rental.extraCharges)), true)}
-          ${labelValue("Accessory Charges", ltr(money(rental.accessoryCharges)), true)}
-          ${labelValue("Discount", ltr(money(rental.discount)), true)}
         </div>
         <div class="notes">${formatMultiline([rental.damageNotes, rental.notesIn].filter(Boolean).join(" — ") || tr("No return notes."))}</div>
       </section>`
@@ -328,7 +319,7 @@ export function buildRentalContractHtml(input: RentalContractDocumentInput): str
     : "";
   const ownerSignatureHtml = settings.ownerSignatureDataUrl
     ? `<img class="signature-image" src="${escapeHtml(settings.ownerSignatureDataUrl)}" alt="${escapeHtml(tr("Owner Signature"))}">`
-    : `<span class="placeholder">${escapeHtml(tr("Owner Signature"))}</span>`;
+    : "";
   const headerSubtitle = settings.printHeaderSubtitle.trim();
   const footer = settings.contractFooter.trim();
   const diagramHtml = rental.vehicleType === "motorcycle"
@@ -393,16 +384,10 @@ export function buildRentalContractHtml(input: RentalContractDocumentInput): str
       </section>
 
       <section class="avoid-break">
-        <h2>${escapeHtml(tr("Rental Terms & Pricing"))}</h2>
-        <div class="fields four">
-          ${labelValue("Start Date & Time", dateTime(rental.startDatetime))}
-          ${labelValue("Expected Return Date & Time", dateTime(rental.expectedReturnDatetime))}
-          ${labelValue("Estimated Days", `${estimatedDays} ${tr("days")}`)}
-          ${labelValue("Daily Rate", ltr(money(rental.dailyPrice)), true)}
-          ${labelValue("Deposit Paid / Required", ltr(`${money(rental.depositPaid)} / ${money(rental.depositRequired)}`), true)}
-          ${labelValue("Total Rental Charge", ltr(money(rental.totalAmount)), true)}
-          ${labelValue("Paid Amount", ltr(money(rental.paidAmount)), true)}
-          ${labelValue("Remaining Amount", ltr(money(rental.remainingAmount)), true)}
+        <h2>${escapeHtml(tr("Rental Period"))}</h2>
+        <div class="fields two">
+          ${labelValue("Start Date", dateOnly(rental.startDatetime))}
+          ${labelValue("Return Date", dateOnly(rental.expectedReturnDatetime))}
         </div>
       </section>
 
@@ -418,8 +403,8 @@ export function buildRentalContractHtml(input: RentalContractDocumentInput): str
       <section class="signatures avoid-break">
         <h2>${escapeHtml(tr("Signatures & Authorization"))}</h2>
         <div class="signature-grid">
-          <div class="signature-card"><strong>${escapeHtml(tr("Customer Approval"))}</strong><div class="signature-space"><span class="placeholder">${escapeHtml(tr("Handwritten Signature"))}</span></div><div class="signature-line">${escapeHtml(tr("Customer Signature"))}</div><small>${escapeHtml(rental.customerName)}</small></div>
-          <div class="signature-card"><strong>${escapeHtml(tr("Shop Representative"))}</strong><div class="signature-space">${ownerSignatureHtml}</div><div class="signature-line">${escapeHtml(tr("Owner / Authorized Representative"))}</div><small>${escapeHtml(settings.shopName)}${input.issuedByName ? ` — ${escapeHtml(tr("Issued By"))}: ${escapeHtml(input.issuedByName)}` : ""}${input.issuedByUsername ? ` (${escapeHtml(input.issuedByUsername)})` : ""}</small></div>
+          <div class="signature-card"><strong>${escapeHtml(tr("Customer Approval"))}</strong><div class="signature-space"></div><div class="signature-line"></div><small>${escapeHtml(rental.customerName)}</small></div>
+          <div class="signature-card"><strong>${escapeHtml(tr("Shop Representative"))}</strong><div class="signature-space">${ownerSignatureHtml}</div><div class="signature-line"></div><small>${escapeHtml(settings.shopName)}${input.issuedByName ? ` — ${escapeHtml(tr("Issued By"))}: ${escapeHtml(input.issuedByName)}` : ""}${input.issuedByUsername ? ` (${escapeHtml(input.issuedByUsername)})` : ""}</small></div>
         </div>
       </section>
     </article>

@@ -134,7 +134,8 @@ describe("rental contract document", () => {
 
     expect(html).toContain("الملحقات المسلّمة");
     expect(html).toContain("التوقيعات والاعتماد");
-    expect(html).toContain("إجمالي رسوم التأجير");
+    expect(html).toContain("فترة الإيجار");
+    expect(html).not.toContain("إجمالي رسوم التأجير");
     expect(html).toContain("يقر العميل بأنه قرأ جميع الشروط التفصيلية");
   });
 
