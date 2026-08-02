@@ -40,6 +40,19 @@ export function AppShell<TId extends string>({
           : "grid-cols-[17rem_minmax(0,1fr)]",
       )}
     >
+      {shopLogoDataUrl ? (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none fixed inset-0 z-0 flex items-center justify-center overflow-hidden p-8 select-none"
+        >
+          <img
+            src={shopLogoDataUrl}
+            alt=""
+            className="max-h-[520px] max-w-[520px] w-2/5 object-contain opacity-[0.045] dark:opacity-[0.065] transition-opacity duration-300"
+          />
+        </div>
+      ) : null}
+
       <aside
         dir={dir}
         className={cn(
