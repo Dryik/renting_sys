@@ -238,14 +238,16 @@ export function buildRentalContractHtml(input: RentalContractDocumentInput): str
           <thead><tr>
             <th>${escapeHtml(tr("Accessory"))}</th>
             <th>${escapeHtml(tr("Quantity"))}</th>
-            <th>${escapeHtml(tr("Returned / Missing"))}</th>
+            ${rental.actualReturnDatetime ? `<th>${escapeHtml(tr("Returned / Missing"))}</th>` : ""}
+            <th>${escapeHtml(tr("Notes"))}</th>
           </tr></thead>
           <tbody>${accessories
             .map(
               (accessory) => `<tr>
-                <td>${escapeHtml(accessory.name)}${accessory.notes ? `<div class="subtext">${escapeHtml(accessory.notes)}</div>` : ""}</td>
+                <td>${escapeHtml(accessory.name)}</td>
                 <td>${ltr(accessory.quantity)}</td>
-                <td>${ltr(`${accessory.returnedQuantity} / ${accessory.missingQuantity}`)}</td>
+                ${rental.actualReturnDatetime ? `<td>${ltr(`${accessory.returnedQuantity} / ${accessory.missingQuantity}`)}</td>` : ""}
+                <td>${accessory.notes ? escapeHtml(accessory.notes) : escapeHtml(fallback)}</td>
               </tr>`,
             )
             .join("")}</tbody>
@@ -404,7 +406,7 @@ export function buildRentalContractHtml(input: RentalContractDocumentInput): str
         <h2>${escapeHtml(tr("Signatures & Authorization"))}</h2>
         <div class="signature-grid">
           <div class="signature-card"><strong>${escapeHtml(tr("Customer Approval"))}</strong><div class="signature-space"></div><div class="signature-line"></div><small>${escapeHtml(rental.customerName)}</small></div>
-          <div class="signature-card"><strong>${escapeHtml(tr("Shop Representative"))}</strong><div class="signature-space">${ownerSignatureHtml}</div><div class="signature-line"></div><small>${escapeHtml(settings.shopName)}${input.issuedByName ? ` — ${escapeHtml(tr("Issued By"))}: ${escapeHtml(input.issuedByName)}` : ""}${input.issuedByUsername ? ` (${escapeHtml(input.issuedByUsername)})` : ""}</small></div>
+          <div class="signature-card"><strong>${escapeHtml(tr("Shop Representative"))}</strong><div class="signature-space">${ownerSignatureHtml}</div><div class="signature-line"></div><small>${escapeHtml(settings.shopName)}${input.issuedByName ? ` — ${escapeHtml(tr("Issued By"))}: ${escapeHtml(input.issuedByName)}` : ""}</small></div>
         </div>
       </section>
     </article>

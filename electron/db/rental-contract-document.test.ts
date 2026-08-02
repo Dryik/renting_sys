@@ -105,7 +105,7 @@ describe("rental contract document", () => {
     expect(html).toContain("Return Acknowledgment");
     expect(html).toContain("Return the vehicle on time.");
     expect(html).toContain("Thank you for choosing Test Rental Shop.");
-    expect(html).toContain("Customer Signature");
+    expect(html).not.toContain("(test.clerk)");
     expect(html).not.toContain("https://");
   });
 
