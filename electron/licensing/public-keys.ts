@@ -2,6 +2,6 @@
 // outside the app bundle, and outside client machines.
 export const licensePublicKeys: Record<string, string> = {
   "arak-license-key-2026-01": `-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEAQ8J5UoswAyqx6J8M4dfM+Z0UlUxfLKHfmiGa4Ym7Lpk=
+MCowBQYDK2VwAyEAveyXNmxiEP+bHdg7kw82chf5+II3DYDih+9aWySSd30=
 -----END PUBLIC KEY-----`,
 };
