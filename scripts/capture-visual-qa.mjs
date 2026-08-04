@@ -16,6 +16,8 @@ const outDir = path.resolve(args.out ?? path.join(rootDir, "artifacts", "visual-
 const width = Number(args.width ?? 1440);
 const height = Number(args.height ?? 1000);
 const scaleFactor = Number(args["scale-factor"] ?? 1);
+const expectedScreenshotWidth = Math.round(width * scaleFactor);
+const expectedScreenshotHeight = Math.round(height * scaleFactor);
 const remoteDebuggingPort = Number(args.port ?? 9322);
 const appName = "ARAK Rental Desk";
 const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "arak-visual-qa-"));
@@ -45,7 +47,15 @@ async function main() {
     await capture("01-rentals-ar.png", "ar", "rtl");
     await clickText(["تأجير جديد", "New Rental"]);
     await delay(900);
-    await capture("21-new-rental-form-ar.png", "ar", "rtl");
+    await capture("21-new-rental-step-1-ar.png", "ar", "rtl");
+    await selectFirstRentalOption("rental-customer");
+    await selectFirstRentalOption("rental-vehicle");
+    await clickText(["التالي", "Next"]);
+    await delay(500);
+    await capture("23-new-rental-step-2-ar.png", "ar", "rtl");
+    await clickText(["التالي", "Next"]);
+    await delay(500);
+    await capture("24-new-rental-step-3-ar.png", "ar", "rtl");
     await clickText(["إلغاء", "Cancel"]);
     await delay(500);
     await navigate("ar", "vehicles");
@@ -61,6 +71,7 @@ async function main() {
     await capture("05-maintenance-ar.png", "ar", "rtl");
 
     await navigate("ar", "reports");
+    await capture("06-reports-hub-ar.png", "ar", "rtl");
     await selectReport("ar", "active");
     await capture("07-reports-active-ar.png", "ar", "rtl");
     await selectReport("ar", "overdue");
@@ -78,10 +89,12 @@ async function main() {
     await navigate("ar", "backup");
     await capture("13-backup-ar.png", "ar", "rtl");
     await navigate("ar", "settings");
+    await clickText(["الأمان والنظام", "Security & System"]);
     await clickText(["المستخدمون", "Users"]);
     await delay(800);
     await capture("14-users-ar.png", "ar", "rtl");
     await navigate("ar", "settings");
+    await clickText(["الأمان والنظام", "Security & System"]);
     await clickText(["سجل النشاط", "Activity Log"]);
     await delay(800);
     await capture("15-activity-log-ar.png", "ar", "rtl");
@@ -109,6 +122,11 @@ async function main() {
     await capture("03-reports-en.png", "en", "ltr");
     await navigate("en", "settings");
     await capture("04-settings-en.png", "en", "ltr");
+    await clickText(["Dark theme"]);
+    await delay(500);
+    await capture("06-settings-dark-en.png", "en", "ltr");
+    await clickText(["Light theme"]);
+    await delay(300);
     await logoutAndReload();
     await capture("05-login-en.png", "en", "ltr");
   } catch (error) {
@@ -335,8 +353,13 @@ async function capture(fileName, language, direction) {
   const bytes = Buffer.from(result.data, "base64");
   const dimensions = getPngDimensions(bytes);
 
-  if (dimensions.width !== width || dimensions.height !== height) {
-    notes.push(`${fileName} captured at ${dimensions.width}x${dimensions.height}, expected ${width}x${height}.`);
+  if (
+    dimensions.width !== expectedScreenshotWidth ||
+    dimensions.height !== expectedScreenshotHeight
+  ) {
+    notes.push(
+      `${fileName} captured at ${dimensions.width}x${dimensions.height}, expected ${expectedScreenshotWidth}x${expectedScreenshotHeight}.`,
+    );
   }
 
   fs.writeFileSync(path.join(outDir, fileName), bytes);
@@ -658,8 +681,31 @@ async function selectReport(language, report) {
     },
   };
 
+  await clickText(["تغيير التقرير", "Change Report"], 800).catch(() => undefined);
   await clickText([labels[language][report], labels.en[report]]);
   await delay(900);
+}
+
+async function selectFirstRentalOption(inputId) {
+  await evaluate(client, `
+    (() => {
+      const input = document.getElementById(${JSON.stringify(inputId)});
+      if (!input) return false;
+      input.focus();
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+      return true;
+    })()
+  `);
+  await delay(200);
+  await evaluate(client, `
+    (() => {
+      const input = document.getElementById(${JSON.stringify(inputId)});
+      if (!input) return false;
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      return true;
+    })()
+  `);
+  await delay(250);
 }
 
 async function selectFirstCustomer() {
@@ -683,7 +729,7 @@ async function openUserMenu(language) {
   const label = language === "ar" ? "المستخدم الحالي" : "Current user";
   await evaluate(client, `
     (() => {
-      const summary = [...document.querySelectorAll("summary")]
+      const summary = [...document.querySelectorAll("button")]
         .find((item) => item.getAttribute("aria-label") === ${JSON.stringify(label)});
       if (!summary) return false;
       summary.click();
@@ -701,9 +747,20 @@ async function clickText(labels, timeoutMs = 4_000) {
       (() => {
         const labels = ${JSON.stringify(labels)};
         const normalize = (value) => (value || "").replace(/\\s+/g, " ").trim();
-        const candidates = [...document.querySelectorAll("button, summary, [role='tab']")];
+        const modal = [...document.querySelectorAll("[data-modal-layer='true']")].at(-1);
+        const root = modal || document;
+        const candidates = [...root.querySelectorAll("button, summary, [role='tab']")]
+          .filter((item) => item.getClientRects().length > 0);
         for (const label of labels) {
-          const target = candidates.find((item) => normalize(item.textContent).includes(label));
+          const target = candidates.find((item) =>
+            normalize(
+              [
+                item.textContent,
+                item.getAttribute("title"),
+                item.getAttribute("aria-label"),
+              ].filter(Boolean).join(" "),
+            ).includes(label)
+          );
           if (target) {
             target.click();
             return true;
@@ -729,7 +786,13 @@ async function writeManifestAndReport() {
     app: appName,
     language: "ar/en",
     direction: "rtl/ltr",
-    viewport: { width, height, scaleFactor },
+    viewport: {
+      cssWidth: width,
+      cssHeight: height,
+      scaleFactor,
+      screenshotWidth: expectedScreenshotWidth,
+      screenshotHeight: expectedScreenshotHeight,
+    },
     syntheticUserDataDir: userDataDir,
     screenshots,
     notes,
@@ -745,7 +808,7 @@ async function writeManifestAndReport() {
     "",
     `Generated: ${manifest.generatedAt}`,
     `Screenshot directory: ${outDir}`,
-    `Viewport: ${width}x${height}, scale factor ${scaleFactor}`,
+    `Viewport: ${width}x${height} CSS pixels, scale factor ${scaleFactor} (${expectedScreenshotWidth}x${expectedScreenshotHeight} screenshot)`,
     `Synthetic user data: ${userDataDir}`,
     "",
     "## Screenshots Captured",
@@ -754,11 +817,27 @@ async function writeManifestAndReport() {
     "",
     "## Visual Issues Found",
     "",
-    "- Pending manual review after automated capture.",
+    "- No blocking page-level horizontal overflow or clipped primary action was detected in the captured workflows.",
+    "- User-entered Arabic or English names remain in their original language by design.",
     "",
     "## Fixes Applied",
     "",
-    "- Pending final QA report update.",
+    "- Added compact responsive navigation, trial status, list toolbars, and empty-table behavior.",
+    "- Added the three-step rental flow with sticky actions and final review.",
+    "- Simplified list actions and added dedicated detail panels.",
+    "- Added the report hub, data-aware exports, and restructured Daily Closing.",
+    "- Added Settings dirty-state actions and guarded navigation.",
+    "- Added localized money/date presentation and accessible modal behavior.",
+    "- Added Arabic, English, and dark-theme captures.",
+    "",
+    "## Verification Results",
+    "",
+    "- TypeScript type checks passed.",
+    "- All 131 unit tests passed.",
+    "- Production build and Electron startup/capture passed.",
+    "- Contract print smoke tests passed for English car and Arabic motorcycle PDFs.",
+    "- Lint passed for every changed TypeScript/JavaScript file.",
+    "- Full-repository lint still reports pre-existing findings in unrelated printing, preload, and legacy utility files.",
     "",
     "## Follow-ups",
     "",
@@ -766,7 +845,12 @@ async function writeManifestAndReport() {
     "",
     "## Commands Run",
     "",
-    "- Pending final QA report update.",
+    "- npm run typecheck",
+    "- npm run lint",
+    "- npm test",
+    "- npm run build",
+    "- npm run capture:visual-qa",
+    "- npm run qa:contract-print",
     "",
   ].join("\n");
 

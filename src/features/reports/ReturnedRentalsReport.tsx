@@ -89,7 +89,12 @@ export function ReturnedRentalsReport() {
             className="w-40"
           />
         </div>
-        <ReportExportButtons type="returnedRentals" startDate={dateFrom} endDate={dateTo} />
+        <ReportExportButtons
+          type="returnedRentals"
+          disabled={loading || rentalPage.total === 0}
+          startDate={dateFrom}
+          endDate={dateTo}
+        />
       </div>
 
       <DataTable className="min-w-full">

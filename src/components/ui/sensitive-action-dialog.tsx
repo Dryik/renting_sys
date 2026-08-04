@@ -1,10 +1,11 @@
-import { AlertTriangle, Loader2, ShieldCheck } from "lucide-react";
-import { useId, useState, type ReactNode } from "react";
+import { AlertTriangle, Eye, EyeOff, Loader2, ShieldCheck } from "lucide-react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/hooks/useI18n";
+import { useModalBehavior } from "@/hooks/useModalBehavior";
 import type { SensitiveAction } from "@/shared/security";
 import { cn } from "@/lib/utils";
 
@@ -48,8 +49,16 @@ export function SensitiveActionDialog({
   const descriptionId = useId();
   const [reason, setReason] = useState("");
   const [pin, setPin] = useState("");
+  const [showPin, setShowPin] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isApproving, setIsApproving] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalBehavior({
+    closeDisabled: isBusy || isApproving,
+    containerRef: dialogRef,
+    onClose: onCancel,
+    open,
+  });
 
   if (!open) {
     return null;
@@ -58,6 +67,7 @@ export function SensitiveActionDialog({
   function resetFields() {
     setReason("");
     setPin("");
+    setShowPin(false);
     setError(null);
     setIsApproving(false);
   }
@@ -95,12 +105,15 @@ export function SensitiveActionDialog({
       data-motion="overlay"
     >
       <div
+        ref={dialogRef}
         aria-describedby={descriptionId}
         aria-labelledby={titleId}
         aria-modal="true"
         className="w-full max-w-md rounded-lg border border-border bg-card p-5 text-card-foreground shadow-xl"
         data-motion="dialog"
+        data-modal-layer="true"
         role="alertdialog"
+        tabIndex={-1}
       >
         <div className="flex items-start gap-3">
           <div
@@ -146,18 +159,30 @@ export function SensitiveActionDialog({
         {ownerPinRequired ? (
           <label className="mt-4 flex flex-col gap-2 text-sm font-medium">
             <span>{t("Owner PIN")}</span>
-            <Input
-              autoComplete="current-password"
-              data-ltr="true"
-              inputMode="numeric"
-              maxLength={4}
-              pattern="[0-9]{4}"
-              type="password"
-              value={pin}
-              onChange={(event) =>
-                setPin(event.target.value.replace(/\D/g, "").slice(0, 4))
-              }
-            />
+            <span className="relative">
+              <Input
+                autoComplete="current-password"
+                className="pe-11"
+                data-ltr="true"
+                inputMode="numeric"
+                maxLength={4}
+                pattern="[0-9]{4}"
+                type={showPin ? "text" : "password"}
+                value={pin}
+                onChange={(event) =>
+                  setPin(event.target.value.replace(/\D/g, "").slice(0, 4))
+                }
+              />
+              <button
+                type="button"
+                className="absolute end-1 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                aria-label={t(showPin ? "Hide PIN" : "Show PIN")}
+                onClick={() => setShowPin((current) => !current)}
+              >
+                {showPin ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </button>
+            </span>
+            <span className="text-xs font-normal text-muted-foreground">{t("Use a 4-digit PIN.")}</span>
           </label>
         ) : null}
 

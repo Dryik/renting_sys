@@ -16,16 +16,15 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
 import { ListToolbar } from "@/components/ui/list-toolbar";
-import { MetricStrip } from "@/components/ui/metric-strip";
 import { MoneyText } from "@/components/ui/money-text";
 import { PaginationControls } from "@/components/ui/pagination-controls";
 import { SearchInput } from "@/components/ui/search-input";
-import { SectionPanel } from "@/components/ui/section-panel";
 import { SegmentedFilter } from "@/components/ui/segmented-filter";
 import { SidePanel } from "@/components/ui/side-panel";
 import { SensitiveActionDialog } from "@/components/ui/sensitive-action-dialog";
 import { useAuth } from "@/hooks/useAuth";
 import { useI18n } from "@/hooks/useI18n";
+import { useModalBehavior } from "@/hooks/useModalBehavior";
 import { cn } from "@/lib/utils";
 import { normalizeDigits } from "@/shared/numerals";
 import type { PageResult } from "@/shared/pagination";
@@ -93,7 +92,7 @@ export function RentalsPage({
   workflowRequestKey,
 }: RentalsPageProps = {}) {
   const { can } = useAuth();
-  const { formatCurrency, formatDateTime, locale, settings, t } = useI18n();
+  const { formatCurrency, formatDateTime, settings, t } = useI18n();
   const [rentalPage, setRentalPage] = useState(emptyRentalPage);
   const [options, setOptions] = useState<RentalFormOptions>({
     accessories: [],
@@ -207,6 +206,20 @@ export function RentalsPage({
   }, [openCreateForm, workflowRequest, workflowRequestKey]);
 
   const summary = rentalPage.summary ?? emptySummary;
+  const countedQueueTabs = queueTabs.map((tab) => ({
+    ...tab,
+    count:
+      tab.value === "active"
+        ? summary.active
+        : tab.value === "overdue"
+          ? summary.overdue
+          : tab.value === "returned"
+            ? summary.returned
+            : tab.value === "all"
+              ? summary.total
+              : undefined,
+    tone: tab.value === "overdue" ? ("danger" as const) : ("default" as const),
+  }));
 
   async function handleActivateRental(input: RentalActivationInput) {
     setIsSaving(true);
@@ -518,7 +531,7 @@ export function RentalsPage({
 
       <div className="flex flex-wrap gap-2">
         <SegmentedFilter
-          options={queueTabs}
+          options={countedQueueTabs}
           t={t}
           value={queue}
           onChange={handleQueueChange}
@@ -604,29 +617,14 @@ export function RentalsPage({
         ) : null}
       </SidePanel>
 
-      <MetricStrip
-        columns={5}
-        items={[
-          { label: t("Total Rentals"), value: <BidiValue value={new Intl.NumberFormat(locale).format(summary.total)} /> },
-          { label: t("Active"), value: <BidiValue value={new Intl.NumberFormat(locale).format(summary.active)} /> },
-          { label: t("Overdue"), tone: "danger", value: <BidiValue value={new Intl.NumberFormat(locale).format(summary.overdue)} /> },
-          { label: t("Returned"), value: <BidiValue value={new Intl.NumberFormat(locale).format(summary.returned)} /> },
-          { label: t("Rent Total"), value: <BidiValue value={formatCurrency(summary.amount)} /> },
-        ]}
-      />
-
-      <SectionPanel
-        title={t("Rental List")}
-        description={t("Search by contract number, customer name, or plate number.")}
-        badge={t("{{count}} shown", { count: rentalPage.total })}
-      >
+      <section className="overflow-hidden rounded-2xl border border-border/40 bg-card/75 shadow-xs">
         {listError ? (
-          <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <div className="m-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {t(listError)}
           </div>
         ) : null}
 
-        <DataTable className="min-w-[900px]" containerClassName="min-h-[22rem]">
+        <DataTable className="min-w-[900px]" containerClassName="rounded-none border-0 shadow-none">
           <thead className="bg-muted text-muted-foreground">
             <tr>
               <Th>{t("Contract")}</Th>
@@ -706,16 +704,6 @@ export function RentalsPage({
                               {t("Return Vehicle")}
                             </Button>
                           ) : null}
-                          {can("payments.create") ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => void openPaymentPanel(rental)}
-                            >
-                              <CreditCard data-icon="inline-start" />
-                              {t("Record Payment")}
-                            </Button>
-                          ) : null}
                         </>
                       ) : null}
                       {rental.status === "draft" && can("rentals.create") ? (
@@ -744,7 +732,7 @@ export function RentalsPage({
           </tbody>
         </DataTable>
         <PaginationControls page={rentalPage} t={t} onPageChange={setPage} />
-      </SectionPanel>
+      </section>
 
       <SensitiveActionDialog
         action="rentals.cancel"
@@ -1034,7 +1022,7 @@ function RentalDetailPanel({
         </div>
       </div>
 
-      <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="sticky bottom-0 z-10 -mx-5 -mb-5 flex flex-col gap-3 border-t bg-card px-5 py-4 shadow-[0_-8px_20px_rgba(15,23,42,0.04)] sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap gap-2">
           {canOperate && onReturnVehicle ? (
             <Button onClick={onReturnVehicle}>
@@ -1116,6 +1104,14 @@ function ReturnByPlateDialog({
   plateNumber: string;
   t: (key: string) => string;
 }) {
+  const dialogRef = useRef<HTMLFormElement>(null);
+  useModalBehavior({
+    closeDisabled: isBusy,
+    containerRef: dialogRef,
+    onClose: onCancel,
+    open,
+  });
+
   if (!open) {
     return null;
   }
@@ -1126,10 +1122,13 @@ function ReturnByPlateDialog({
       data-motion="overlay"
     >
       <form
+        ref={dialogRef}
         aria-modal="true"
         className="w-full max-w-md rounded-lg border border-border bg-card p-5 text-card-foreground shadow-xl"
         data-motion="dialog"
+        data-modal-layer="true"
         role="dialog"
+        tabIndex={-1}
         onSubmit={(event) => {
           event.preventDefault();
           onConfirm();
@@ -1190,6 +1189,13 @@ function FinalPaymentDialog({
 }) {
   const [amountText, setAmountText] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLFormElement>(null);
+  useModalBehavior({
+    closeDisabled: isBusy,
+    containerRef: dialogRef,
+    onClose: cancel,
+    open,
+  });
 
   if (!open) {
     return null;
@@ -1227,10 +1233,13 @@ function FinalPaymentDialog({
       data-motion="overlay"
     >
       <form
+        ref={dialogRef}
         aria-modal="true"
         className="w-full max-w-md rounded-lg border border-border bg-card p-5 text-card-foreground shadow-xl"
         data-motion="dialog"
+        data-modal-layer="true"
         role="dialog"
+        tabIndex={-1}
         onSubmit={(event) => {
           event.preventDefault();
           void submit();

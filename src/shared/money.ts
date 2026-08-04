@@ -9,15 +9,21 @@ const currencyDisplayMap: Record<string, { symbol: string; position: "prefix" | 
 export function formatMoney(
   value: number,
   currency = "USD",
-  _locale?: string,
+  locale = "en-US",
 ): string {
-  void _locale;
-
   const amount = Number.isFinite(value) ? value : 0;
   const normalizedCurrency = currency.trim();
   const upperCurrency = normalizedCurrency.toUpperCase();
 
   if (/^[A-Z]{3}$/.test(upperCurrency)) {
+    if (upperCurrency === "LYD") {
+      const formattedAmount = formatNumber(amount);
+
+      return locale.toLowerCase().startsWith("ar")
+        ? `${formattedAmount} د.ل`
+        : `LYD ${formattedAmount}`;
+    }
+
     const displayCurrency = currencyDisplayMap[upperCurrency];
 
     if (displayCurrency) {

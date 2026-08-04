@@ -21,6 +21,7 @@ type SearchableSelectProps = {
   disabled?: boolean;
   emptyMessage: string;
   invalid?: boolean;
+  inputId?: string;
   maxVisibleOptions?: number;
   moreResultsMessage?: (count: number) => string;
   onValueChange: (value: string) => void;
@@ -35,6 +36,7 @@ export function SearchableSelect({
   disabled = false,
   emptyMessage,
   invalid = false,
+  inputId,
   maxVisibleOptions = 10,
   moreResultsMessage,
   onValueChange,
@@ -149,13 +151,14 @@ export function SearchableSelect({
       <div className="relative">
         <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <input
+          id={inputId}
           ref={inputRef}
           aria-autocomplete="list"
           aria-controls={isOpen ? listboxId : undefined}
           aria-expanded={isOpen}
           aria-invalid={invalid}
           aria-label={ariaLabel}
-          className="h-11 w-full rounded-md border border-input bg-card py-2 pe-16 ps-10 text-center text-sm shadow-xs outline-none transition-[border-color,box-shadow,background-color] duration-150 placeholder:text-muted-foreground aria-invalid:border-destructive aria-invalid:ring-destructive/20 focus-visible:border-ring focus-visible:ring-ring/45 focus-visible:ring-[3px] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
+          className="h-11 w-full rounded-md border border-input bg-card py-2 pe-16 ps-10 text-start text-sm shadow-xs outline-none transition-[border-color,box-shadow,background-color] duration-150 placeholder:text-muted-foreground aria-invalid:border-destructive aria-invalid:ring-destructive/20 focus-visible:border-ring focus-visible:ring-ring/45 focus-visible:ring-[3px] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
           disabled={disabled}
           placeholder={placeholder}
           role="combobox"

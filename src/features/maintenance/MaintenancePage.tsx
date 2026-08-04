@@ -1,5 +1,5 @@
-import { Archive, CheckCircle2, Edit, Plus } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { Archive, CheckCircle2, Edit, Eye, Plus } from "lucide-react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
@@ -64,6 +64,7 @@ export function MaintenancePage() {
   const [listError, setListError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [formState, setFormState] = useState<FormState>(null);
+  const [detailsRecord, setDetailsRecord] = useState<MaintenanceRecordWithVehicle | null>(null);
   const [recordToComplete, setRecordToComplete] = useState<MaintenanceRecordWithVehicle | null>(null);
   const [recordToArchive, setRecordToArchive] = useState<MaintenanceRecordWithVehicle | null>(null);
 
@@ -140,6 +141,7 @@ export function MaintenancePage() {
       endDate: today,
     });
     setRecordToComplete(null);
+    setDetailsRecord(null);
   }
 
   async function handleArchiveWithReason(
@@ -155,6 +157,7 @@ export function MaintenancePage() {
         reason,
       });
       await Promise.all([loadMaintenance(page), loadVehicles()]);
+      setDetailsRecord(null);
     } catch (error) {
       setListError(getErrorMessage(error, t("Maintenance record could not be archived.")));
     } finally {
@@ -234,18 +237,38 @@ export function MaintenancePage() {
         />
       </SidePanel>
 
-      <SectionPanel
-        title={t("Maintenance")}
+      <SidePanel
+        open={Boolean(detailsRecord)}
+        title={t("Maintenance Details")}
         description={t("Record repairs, service, and maintenance costs by vehicle.")}
-        badge={t("{{count}} shown", { count: maintenancePage.total })}
+        width="md"
+        onClose={() => setDetailsRecord(null)}
       >
+        {detailsRecord ? (
+          <MaintenanceDetails
+            formatCurrency={formatCurrency}
+            formatDate={formatDate}
+            record={detailsRecord}
+            t={t}
+            onArchive={can("maintenance.archive") ? () => setRecordToArchive(detailsRecord) : undefined}
+            onComplete={!detailsRecord.endDate && can("maintenance.complete") ? () => setRecordToComplete(detailsRecord) : undefined}
+            onEdit={can("maintenance.edit") ? () => {
+              const record = detailsRecord;
+              setDetailsRecord(null);
+              setFormState({ mode: "edit", record });
+            } : undefined}
+          />
+        ) : null}
+      </SidePanel>
+
+      <SectionPanel className="overflow-hidden p-0">
         {listError ? (
-          <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <div className="m-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {t(listError)}
           </div>
         ) : null}
 
-        <DataTable className="min-w-[820px]" containerClassName="min-h-[22rem]">
+        <DataTable className="min-w-[820px]" containerClassName="rounded-none border-0 shadow-none">
           <thead className="bg-muted/70 text-muted-foreground">
             <tr>
               <Th>{t("Vehicle")}</Th>
@@ -297,20 +320,9 @@ export function MaintenancePage() {
                   </Td>
                   <Td className="text-end">
                     <div className="flex flex-wrap justify-end gap-2">
-                      {can("maintenance.edit") ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setFormState({ mode: "edit", record })}
-                        >
-                          <Edit data-icon="inline-start" />
-                          {t("Edit")}
-                        </Button>
-                      ) : null}
                       {!record.endDate && can("maintenance.complete") ? (
                         <Button
                           size="sm"
-                          variant="outline"
                           disabled={isSaving}
                           onClick={() => setRecordToComplete(record)}
                         >
@@ -318,18 +330,10 @@ export function MaintenancePage() {
                           {t("Mark Complete")}
                         </Button>
                       ) : null}
-                      {can("maintenance.archive") ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                          disabled={isSaving}
-                          onClick={() => setRecordToArchive(record)}
-                        >
-                          <Archive data-icon="inline-start" />
-                          {t("Archive")}
-                        </Button>
-                      ) : null}
+                      <Button size="sm" variant="outline" onClick={() => setDetailsRecord(record)}>
+                        <Eye data-icon="inline-start" />
+                        {t("Details")}
+                      </Button>
                     </div>
                   </Td>
                 </tr>
@@ -371,6 +375,83 @@ export function MaintenancePage() {
           }
         }}
       />
+    </div>
+  );
+}
+
+function MaintenanceDetails({
+  formatCurrency,
+  formatDate,
+  onArchive,
+  onComplete,
+  onEdit,
+  record,
+  t,
+}: {
+  formatCurrency: (value: number) => string;
+  formatDate: (value: string | Date) => string;
+  onArchive?: () => void;
+  onComplete?: () => void;
+  onEdit?: () => void;
+  record: MaintenanceRecordWithVehicle;
+  t: (key: string) => string;
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <DetailValue label={t("Vehicle")} value={`${record.vehicleBrand} ${record.vehicleModel}`} />
+        <DetailValue label={t("Plate")} value={<BidiValue value={record.vehiclePlateNumber} />} />
+        <DetailValue label={t("Service")} value={record.title} />
+        <DetailValue
+          label={t("Status")}
+          value={<Badge variant={record.endDate ? "secondary" : "outline"}>{record.endDate ? t("Completed") : t("Ongoing")}</Badge>}
+        />
+        <DetailValue label={t("Start")} value={<BidiValue value={formatDate(record.startDate)} />} />
+        <DetailValue label={t("Completed")} value={record.endDate ? <BidiValue value={formatDate(record.endDate)} /> : t("No date")} />
+        <DetailValue label={t("Cost")} value={<BidiValue value={formatCurrency(record.cost)} />} />
+      </div>
+      {record.description ? (
+        <div className="rounded-xl border bg-muted/25 p-4 text-sm">
+          <div className="font-semibold">{t("Description")}</div>
+          <p className="mt-1 text-muted-foreground" dir="auto">{record.description}</p>
+        </div>
+      ) : null}
+      <div className="sticky bottom-0 -mx-5 -mb-5 flex flex-wrap items-center justify-between gap-3 border-t bg-card px-5 py-4">
+        <div className="flex flex-wrap gap-2">
+          {onComplete ? (
+            <Button type="button" onClick={onComplete}>
+              <CheckCircle2 data-icon="inline-start" />
+              {t("Mark Complete")}
+            </Button>
+          ) : null}
+          {onEdit ? (
+            <Button type="button" variant="outline" onClick={onEdit}>
+              <Edit data-icon="inline-start" />
+              {t("Edit")}
+            </Button>
+          ) : null}
+        </div>
+        {onArchive ? (
+          <Button
+            type="button"
+            variant="outline"
+            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+            onClick={onArchive}
+          >
+            <Archive data-icon="inline-start" />
+            {t("Archive")}
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function DetailValue({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="rounded-xl border bg-muted/20 p-3 text-sm">
+      <div className="text-xs font-semibold text-muted-foreground">{label}</div>
+      <div className="mt-1 font-semibold">{value}</div>
     </div>
   );
 }

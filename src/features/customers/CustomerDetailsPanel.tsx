@@ -1,6 +1,7 @@
-import { IdCard, Phone } from "lucide-react";
+import { Edit, IdCard, Phone } from "lucide-react";
 import type { ReactNode } from "react";
 import { BidiValue } from "@/components/ui/bidi-value";
+import { Button } from "@/components/ui/button";
 import { CustomerPhotoAvatar } from "@/components/ui/customer-photo-avatar";
 import { DocumentPhotoSection } from "@/components/ui/document-photo-section";
 import { useI18n } from "@/hooks/useI18n";
@@ -8,9 +9,10 @@ import type { CustomerRecord } from "@/shared/customers";
 
 type CustomerDetailsPanelProps = {
   customer: CustomerRecord;
+  onEdit?: () => void;
 };
 
-export function CustomerDetailsPanel({ customer }: CustomerDetailsPanelProps) {
+export function CustomerDetailsPanel({ customer, onEdit }: CustomerDetailsPanelProps) {
   const { formatDate, t } = useI18n();
 
   return (
@@ -23,12 +25,18 @@ export function CustomerDetailsPanel({ customer }: CustomerDetailsPanelProps) {
             customerId={customer.id}
             iconClassName="size-6"
           />
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <h3 className="text-lg font-bold tracking-normal">{customer.fullName}</h3>
             <p className="mt-1 text-sm text-muted-foreground">
               {t("Added")} <BidiValue value={formatDate(customer.createdAt)} />
             </p>
           </div>
+          {onEdit ? (
+            <Button type="button" size="sm" variant="outline" onClick={onEdit}>
+              <Edit data-icon="inline-start" />
+              {t("Edit")}
+            </Button>
+          ) : null}
         </div>
 
         <div className="mt-5 grid gap-3 md:grid-cols-2">

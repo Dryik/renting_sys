@@ -76,7 +76,11 @@ export function DailyPaymentsReport() {
             className="w-40"
           />
         </div>
-        <ReportExportButtons type="dailyPayments" date={date} />
+        <ReportExportButtons
+          type="dailyPayments"
+          date={date}
+          disabled={loading || paymentPage.total === 0}
+        />
       </div>
 
       <DataTable className="min-w-full">

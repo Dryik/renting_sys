@@ -16,10 +16,11 @@ import {
   Users,
   Wrench,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CustomersPage } from "@/features/customers/CustomersPage";
 import { RentalsPage } from "@/features/rentals/RentalsPage";
 import { ReportsPage } from "@/features/reports/ReportsPage";
@@ -208,6 +209,9 @@ export default function App() {
   const [authState, setAuthState] = useState<AuthState | null>(null);
   const [licenseStatus, setLicenseStatus] = useState<LicenseStatus | null>(null);
   const [activePage, setActivePage] = useState<PageId>("rentals");
+  const [settingsDirty, setSettingsDirty] = useState(false);
+  const [pendingPage, setPendingPage] = useState<PageId | null>(null);
+  const contentRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     document.documentElement.lang = language;
@@ -295,6 +299,23 @@ export default function App() {
     activePageForRender,
     authState?.currentUser?.permissions ?? [],
   );
+
+  useEffect(() => {
+    contentRef.current?.scrollTo({ top: 0 });
+  }, [activePageForRender]);
+
+  function handleNavigate(pageId: PageId) {
+    if (
+      activePageForRender === "settings" &&
+      settingsDirty &&
+      pageId !== "settings"
+    ) {
+      setPendingPage(pageId);
+      return;
+    }
+
+    setActivePage(pageId);
+  }
 
   function toggleColorTheme() {
     if (typeof document !== "undefined" && "startViewTransition" in document) {
@@ -385,7 +406,7 @@ export default function App() {
         activePage={shellActivePage}
         dir={dir}
         navigation={visibleNavigation}
-        onNavigate={setActivePage}
+        onNavigate={handleNavigate}
         shopLogoDataUrl={settings.shopLogoDataUrl}
         shopName={settings.shopName}
         t={t}
@@ -405,7 +426,10 @@ export default function App() {
             }
           />
 
-          <section className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-6 lg:px-8">
+          <section
+            ref={contentRef}
+            className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-5 py-6 lg:px-8"
+          >
             {downloadedUpdateVersion ? (
               <div className="mb-4 flex items-center justify-between rounded-lg border border-primary/40 bg-primary/10 p-4 text-primary shadow-sm">
                 <div className="flex items-center gap-3">
@@ -432,14 +456,32 @@ export default function App() {
             ) : null}
             <LicenseBanner
               status={licenseStatus}
-              onOpenLicense={() => setActivePage("license")}
+              onOpenLicense={() => handleNavigate("license")}
             />
             {renderActivePage(activePageForRender, {
               licenseStatus,
-              onNavigate: setActivePage,
+              onNavigate: handleNavigate,
               onLicenseStatusChange: setLicenseStatus,
+              onSettingsDirtyChange: setSettingsDirty,
             })}
           </section>
+          <ConfirmDialog
+            open={pendingPage !== null}
+            title={t("Discard unsaved changes?")}
+            description={t("Your unsaved settings changes will be lost.")}
+            cancelLabel={t("Stay")}
+            confirmLabel={t("Discard")}
+            variant="destructive"
+            onCancel={() => setPendingPage(null)}
+            onConfirm={() => {
+              const nextPage = pendingPage;
+              setPendingPage(null);
+              setSettingsDirty(false);
+              if (nextPage) {
+                setActivePage(nextPage);
+              }
+            }}
+          />
         </div>
       </AppShell>
     </AuthProvider>
@@ -518,6 +560,7 @@ function renderActivePage(
     licenseStatus: LicenseStatus;
     onNavigate: (pageId: PageId) => void;
     onLicenseStatusChange: (status: LicenseStatus) => void;
+    onSettingsDirtyChange: (isDirty: boolean) => void;
   },
 ) {
   if (pageId === "vehicles") return <VehiclesPage />;
@@ -529,6 +572,7 @@ function renderActivePage(
   if (pageId === "settings") {
     return (
       <SettingsPage
+        onDirtyChange={context.onSettingsDirtyChange}
         onOpenActivityLog={() => context.onNavigate("activity")}
         onOpenAppLicense={() => context.onNavigate("license")}
         onOpenUsers={() => context.onNavigate("users")}
@@ -559,26 +603,59 @@ function CurrentUserActions({
 }) {
   const { t } = useI18n();
   const user = authState.currentUser;
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
 
   if (!user) {
     return null;
   }
 
   return (
-    <details className="relative">
-      <summary
-        className="flex h-10 max-w-52 cursor-pointer list-none items-center rounded-xl border border-border/80 bg-muted px-3 text-sm font-semibold transition-colors hover:bg-card [&::-webkit-details-marker]:hidden"
+    <div className="relative" ref={menuRef}>
+      <button
+        type="button"
+        className="flex h-10 max-w-52 items-center rounded-xl border border-border/80 bg-muted px-3 text-sm font-semibold transition-colors hover:bg-card"
         aria-label={t("Current user")}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={() => setOpen((current) => !current)}
       >
         <span className="truncate">{user.fullName}</span>
-      </summary>
-      <div className="absolute end-0 z-30 mt-2 min-w-44 rounded-xl border border-border/80 bg-popover p-1.5 shadow-lg">
+      </button>
+      {open ? (
+      <div className="absolute end-0 z-30 mt-2 min-w-44 rounded-xl border border-border/80 bg-popover p-1.5 shadow-lg" role="menu">
         <Button
           type="button"
           size="sm"
           variant="ghost"
           className="w-full justify-start"
           onClick={() => {
+            setOpen(false);
             window.rentalApp.auth.lock().then(onAuthState).catch(() => undefined);
           }}
         >
@@ -591,6 +668,7 @@ function CurrentUserActions({
           variant="ghost"
           className="w-full justify-start"
           onClick={() => {
+            setOpen(false);
             window.rentalApp.auth.logout().then(onAuthState).catch(() => undefined);
           }}
         >
@@ -603,6 +681,7 @@ function CurrentUserActions({
           variant="ghost"
           className="w-full justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
           onClick={() => {
+            setOpen(false);
             window.rentalApp.auth.logout().then(onAuthState).catch(() => undefined);
           }}
         >
@@ -610,6 +689,7 @@ function CurrentUserActions({
           {t("Logout")}
         </Button>
       </div>
-    </details>
+      ) : null}
+    </div>
   );
 }

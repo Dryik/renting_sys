@@ -1,9 +1,10 @@
 import { AlertTriangle, Loader2 } from "lucide-react";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { useModalBehavior } from "@/hooks/useModalBehavior";
 
 type ReasonDialogProps = {
   cancelLabel: string;
@@ -33,6 +34,13 @@ export function ReasonDialog({
   const titleId = useId();
   const descriptionId = useId();
   const [reason, setReason] = useState("");
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalBehavior({
+    closeDisabled: isBusy,
+    containerRef: dialogRef,
+    onClose: onCancel,
+    open,
+  });
 
   if (!open) {
     return null;
@@ -44,12 +52,15 @@ export function ReasonDialog({
       data-motion="overlay"
     >
       <div
+        ref={dialogRef}
         aria-describedby={descriptionId}
         aria-labelledby={titleId}
         aria-modal="true"
         className="w-full max-w-md rounded-lg border border-border bg-card p-5 text-card-foreground shadow-xl"
         data-motion="dialog"
+        data-modal-layer="true"
         role="alertdialog"
+        tabIndex={-1}
       >
         <div className="flex items-start gap-3">
           <div

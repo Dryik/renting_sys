@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
 import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
-import { Input } from "@/components/ui/input";
+import { LocalizedDateInput } from "@/components/ui/localized-date-input";
 import { PaginationControls } from "@/components/ui/pagination-controls";
 import { SearchInput } from "@/components/ui/search-input";
 import { SectionPanel } from "@/components/ui/section-panel";
@@ -73,8 +73,9 @@ export function ActivityLogPage() {
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
             <span>{t("From")}</span>
-            <Input
+            <LocalizedDateInput
               type="date"
+              displayValue={dateFrom}
               value={dateFrom}
               className="w-40"
               onChange={(event) => {
@@ -85,8 +86,9 @@ export function ActivityLogPage() {
           </label>
           <label className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
             <span>{t("To")}</span>
-            <Input
+            <LocalizedDateInput
               type="date"
+              displayValue={dateTo}
               value={dateTo}
               className="w-40"
               onChange={(event) => {
@@ -112,7 +114,7 @@ export function ActivityLogPage() {
             {error}
           </div>
         ) : null}
-        <DataTable className="min-w-[940px]" containerClassName="min-h-[22rem]">
+        <DataTable className="min-w-[940px]">
           <thead>
             <tr>
               <Th>{t("Date & Time")}</Th>
@@ -130,7 +132,18 @@ export function ActivityLogPage() {
               <EmptyTableRow colSpan={6} message={t("No activity yet")} />
             ) : (
               auditPage.rows.map((event) => (
-                <tr key={event.id}>
+                <tr
+                  key={event.id}
+                  className="cursor-pointer"
+                  tabIndex={0}
+                  onClick={() => setSelectedEvent(event)}
+                  onKeyDown={(keyboardEvent) => {
+                    if (keyboardEvent.key === "Enter" || keyboardEvent.key === " ") {
+                      keyboardEvent.preventDefault();
+                      setSelectedEvent(event);
+                    }
+                  }}
+                >
                   <Td className="whitespace-nowrap">
                     <BidiValue value={formatDateTime(event.occurredAt)} />
                   </Td>

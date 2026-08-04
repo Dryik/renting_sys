@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -14,6 +14,8 @@ import {
   Globe2,
   History,
   Image,
+  Eye,
+  EyeOff,
   KeyRound,
   Languages,
   Loader2,
@@ -38,13 +40,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { useI18n } from "@/hooks/useI18n";
 import { notifyShopSettingsUpdated } from "@/hooks/useShopSettings";
-import {
-  accessoryFormSchema,
-  emptyAccessoryFormValues,
-  type AccessoryInput,
-  type AccessoryFormValues,
-  type AccessoryRecord,
-} from "@/shared/accessories";
 import { languageValues } from "@/shared/language";
 import { normalizeDigits } from "@/shared/numerals";
 import type { ShopSettings } from "@/shared/settings";
@@ -91,6 +86,7 @@ const settingsFormSchema = z.object({
 type SettingsFormInput = z.infer<typeof settingsFormSchema>;
 
 type SettingsPageProps = {
+  onDirtyChange?: (isDirty: boolean) => void;
   onOpenActivityLog: () => void;
   onOpenAppLicense: () => void;
   onOpenUsers: () => void;
@@ -101,6 +97,7 @@ import { cn } from "@/lib/utils";
 type SettingsTab = "profile" | "localization" | "contract" | "operations" | "security";
 
 export function SettingsPage({
+  onDirtyChange,
   onOpenActivityLog,
   onOpenAppLicense,
   onOpenUsers,
@@ -124,12 +121,13 @@ export function SettingsPage({
   const [ownerPin, setOwnerPin] = useState("");
   const [confirmOwnerPin, setConfirmOwnerPin] = useState("");
   const [ownerPinError, setOwnerPinError] = useState<string | null>(null);
+  const [showOwnerPin, setShowOwnerPin] = useState(false);
 
   const {
     register,
     handleSubmit,
     reset,
-    formState: { errors },
+    formState: { errors, isDirty },
   } = useForm<SettingsFormInput>({
     resolver: zodResolver(settingsFormSchema),
     defaultValues: {
@@ -180,9 +178,18 @@ export function SettingsPage({
       contractFooter: data.contractFooter,
       printHeaderSubtitle: data.printHeaderSubtitle,
       printTermsAndConditions: data.printTermsAndConditions,
+      enableContractWatermark: data.enableContractWatermark,
       language: data.language,
     });
   }
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
+
+  useEffect(() => {
+    return () => onDirtyChange?.(false);
+  }, [onDirtyChange]);
 
   useEffect(() => {
     async function loadSettings() {
@@ -228,6 +235,13 @@ export function SettingsPage({
   async function onSubmit(values: SettingsFormInput) {
     const payload = buildSettingsPayload(values);
     setPendingSettings(payload);
+  }
+
+  function cancelChanges() {
+    if (currentSettings) {
+      resetSettingsForm(currentSettings);
+    }
+    setStatus({ type: null, message: null });
   }
 
   async function saveSettings(
@@ -680,12 +694,6 @@ export function SettingsPage({
                 </div>
               </div>
 
-              <div className="flex justify-end border-t border-border/70 pt-4">
-                <Button type="submit" size="lg" aria-busy={isSaving} disabled={isSaving || !can("settings.edit")}>
-                  {isSaving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-                  {t("Save Settings")}
-                </Button>
-              </div>
             </CardContent>
           </Card>
         )}
@@ -764,12 +772,6 @@ export function SettingsPage({
                 </span>
               </label>
 
-              <div className="flex justify-end border-t border-border/70 pt-4">
-                <Button type="submit" size="lg" aria-busy={isSaving} disabled={isSaving || !can("settings.edit")}>
-                  {isSaving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-                  {t("Save Settings")}
-                </Button>
-              </div>
             </CardContent>
           </Card>
         )}
@@ -873,12 +875,6 @@ export function SettingsPage({
                 />
               </label>
 
-              <div className="flex justify-end border-t border-border/70 pt-4">
-                <Button type="submit" size="lg" aria-busy={isSaving} disabled={isSaving || !can("settings.edit")}>
-                  {isSaving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-                  {t("Save Settings")}
-                </Button>
-              </div>
             </CardContent>
           </Card>
         )}
@@ -1018,12 +1014,6 @@ export function SettingsPage({
                   </div>
                 </SettingBlock>
 
-                <div className="flex justify-end border-t border-border/70 pt-4">
-                  <Button type="submit" size="lg" aria-busy={isSaving} disabled={isSaving || !can("settings.edit")}>
-                    {isSaving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-                    {t("Save Settings")}
-                  </Button>
-                </div>
               </CardContent>
             </Card>
             <AccessoriesManagement />
@@ -1106,12 +1096,6 @@ export function SettingsPage({
                   </label>
                 </SettingBlock>
 
-                <div className="flex justify-end border-t border-border/70 pt-4">
-                  <Button type="submit" size="lg" aria-busy={isSaving} disabled={isSaving || !can("settings.edit")}>
-                    {isSaving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-                    {t("Save Settings")}
-                  </Button>
-                </div>
               </CardContent>
             </Card>
 
@@ -1192,6 +1176,30 @@ export function SettingsPage({
             <DiagnosticsPanel />
           </div>
         )}
+
+        <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/80 bg-card/95 px-4 py-3 shadow-lg backdrop-blur">
+          <p className="text-sm text-muted-foreground">
+            {isDirty ? t("You have unsaved changes.") : t("All changes are saved.")}
+          </p>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!isDirty || isSaving}
+              onClick={cancelChanges}
+            >
+              {t("Cancel")}
+            </Button>
+            <Button
+              type="submit"
+              aria-busy={isSaving}
+              disabled={!isDirty || isSaving || !can("settings.edit")}
+            >
+              {isSaving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+              {t("Save Changes")}
+            </Button>
+          </div>
+        </div>
       </form>
       <SensitiveActionDialog
         action="settings.edit"
@@ -1267,19 +1275,30 @@ export function SettingsPage({
           <div className="grid gap-3">
             <label className="flex flex-col gap-2 text-sm font-medium">
               <span>{t("New PIN")}</span>
-              <Input
-                autoComplete="new-password"
-                data-ltr="true"
-                inputMode="numeric"
-                maxLength={4}
-                pattern="[0-9]{4}"
-                type="password"
-                value={ownerPin}
-                onChange={(event) => {
-                  setOwnerPin(normalizeDigits(event.target.value).replace(/\D/g, "").slice(0, 4));
-                  setOwnerPinError(null);
-                }}
-              />
+              <span className="relative">
+                <Input
+                  autoComplete="new-password"
+                  className="pe-11"
+                  data-ltr="true"
+                  inputMode="numeric"
+                  maxLength={4}
+                  pattern="[0-9]{4}"
+                  type={showOwnerPin ? "text" : "password"}
+                  value={ownerPin}
+                  onChange={(event) => {
+                    setOwnerPin(normalizeDigits(event.target.value).replace(/\D/g, "").slice(0, 4));
+                    setOwnerPinError(null);
+                  }}
+                />
+                <button
+                  type="button"
+                  className="absolute end-1 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                  aria-label={t(showOwnerPin ? "Hide PIN" : "Show PIN")}
+                  onClick={() => setShowOwnerPin((current) => !current)}
+                >
+                  {showOwnerPin ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </button>
+              </span>
             </label>
             <label className="flex flex-col gap-2 text-sm font-medium">
               <span>{t("Confirm PIN")}</span>
@@ -1289,7 +1308,7 @@ export function SettingsPage({
                 inputMode="numeric"
                 maxLength={4}
                 pattern="[0-9]{4}"
-                type="password"
+                type={showOwnerPin ? "text" : "password"}
                 value={confirmOwnerPin}
                 onChange={(event) => {
                   setConfirmOwnerPin(normalizeDigits(event.target.value).replace(/\D/g, "").slice(0, 4));
@@ -1297,6 +1316,7 @@ export function SettingsPage({
                 }}
               />
             </label>
+            <p className="text-xs text-muted-foreground">{t("Use a 4-digit PIN.")}</p>
             {ownerPinError ? (
               <p className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {ownerPinError}
@@ -1337,186 +1357,6 @@ function AdminShortcut({
         </span>
       </span>
     </Button>
-  );
-}
-
-function AccessoryManager({ canEdit }: { canEdit: boolean }) {
-  const { formatCurrency, t } = useI18n();
-  const [accessories, setAccessories] = useState<AccessoryRecord[]>([]);
-  const [editing, setEditing] = useState<AccessoryRecord | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const {
-    formState: { errors },
-    handleSubmit,
-    register,
-    reset,
-  } = useForm<AccessoryFormValues, undefined, AccessoryInput>({
-    resolver: zodResolver(accessoryFormSchema),
-    defaultValues: emptyAccessoryFormValues,
-  });
-
-  const loadAccessories = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const result = await window.rentalApp.accessories.list({ pageSize: 100 });
-      setAccessories(result.rows);
-    } catch (err) {
-      setError(err instanceof Error ? t(err.message) : t("Accessories could not be loaded."));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [t]);
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      void loadAccessories();
-    }, 0);
-
-    return () => window.clearTimeout(timeout);
-  }, [loadAccessories]);
-
-  async function saveAccessory(input: AccessoryInput) {
-    setIsSaving(true);
-    setError(null);
-
-    try {
-      if (editing) {
-        await window.rentalApp.accessories.update(editing.id, input);
-      } else {
-        await window.rentalApp.accessories.create(input);
-      }
-      setEditing(null);
-      reset(emptyAccessoryFormValues);
-      await loadAccessories();
-    } catch (err) {
-      setError(err instanceof Error ? t(err.message) : t("Accessory could not be saved."));
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  return (
-    <Card className="h-fit overflow-hidden">
-      <CardHeader className="border-b border-border/70 bg-muted">
-        <div className="flex items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-xl bg-accent text-primary">
-            <ReceiptText className="size-5" />
-          </div>
-          <div>
-            <CardTitle>{t("Accessories")}</CardTitle>
-            <CardDescription>
-              {t("Owned quantity and default charge for rental accessories.")}
-            </CardDescription>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        {error ? (
-          <p className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {error}
-          </p>
-        ) : null}
-
-        {canEdit ? (
-          <form className="grid gap-3" onSubmit={handleSubmit(saveAccessory)}>
-            <label className="flex flex-col gap-1 text-sm font-medium">
-              <span>{t("Name")}</span>
-              <Input {...register("name")} />
-              {errors.name ? (
-                <span className="text-xs text-destructive">{t(errors.name.message ?? "")}</span>
-              ) : null}
-            </label>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="flex flex-col gap-1 text-sm font-medium">
-                <span>{t("Owned")}</span>
-                <Input data-ltr="true" inputMode="numeric" {...register("quantityOwned")} />
-              </label>
-              <label className="flex flex-col gap-1 text-sm font-medium">
-                <span>{t("Default Charge")}</span>
-                <Input data-ltr="true" inputMode="decimal" {...register("defaultCharge")} />
-              </label>
-            </div>
-            <label className="flex items-start gap-2 text-sm">
-              <input
-                type="checkbox"
-                className="mt-1 size-4 accent-primary"
-                {...register("isActive")}
-              />
-              <span>{t("Active")}</span>
-            </label>
-            <label className="flex flex-col gap-1 text-sm font-medium">
-              <span>{t("Notes")}</span>
-              <Textarea rows={2} {...register("notes")} />
-            </label>
-            <div className="flex justify-end gap-2">
-              {editing ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setEditing(null);
-                    reset(emptyAccessoryFormValues);
-                  }}
-                >
-                  {t("Cancel")}
-                </Button>
-              ) : null}
-              <Button type="submit" disabled={isSaving}>
-                {isSaving ? <Loader2 className="size-4 animate-spin" /> : null}
-                {editing ? t("Update") : t("Add")}
-              </Button>
-            </div>
-          </form>
-        ) : null}
-
-        <div className="divide-y rounded-md border">
-          {isLoading ? (
-            <p className="p-3 text-sm text-muted-foreground">{t("Loading...")}</p>
-          ) : accessories.length === 0 ? (
-            <p className="p-3 text-sm text-muted-foreground">{t("No accessories yet.")}</p>
-          ) : (
-            accessories.map((accessory) => (
-              <div key={accessory.id} className="p-3 text-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold">{accessory.name}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {t("Available")}: {accessory.quantityAvailable} / {accessory.quantityOwned}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {t("Default Charge")}: {formatCurrency(accessory.defaultCharge)}
-                    </p>
-                  </div>
-                  {canEdit ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setEditing(accessory);
-                        reset({
-                          name: accessory.name,
-                          quantityOwned: String(accessory.quantityOwned),
-                          defaultCharge: String(accessory.defaultCharge),
-                          isActive: accessory.isActive,
-                          notes: accessory.notes ?? "",
-                        });
-                      }}
-                    >
-                      {t("Edit")}
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 

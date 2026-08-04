@@ -1,4 +1,4 @@
-import { Edit, Eye, Plus, Tag } from "lucide-react";
+import { Eye, Plus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
@@ -300,6 +300,11 @@ export function VehiclesPage() {
         {detailsVehicle ? (
           <VehicleDetailsPanel
             vehicle={detailsVehicle}
+            onEditVehicle={can("vehicles.edit") ? () => {
+              const vehicle = detailsVehicle;
+              setDetailsVehicle(null);
+              openEditForm(vehicle);
+            } : undefined}
             onSellVehicle={openSaleForm}
             onSaleChanged={async () => {
               await loadVehicles(page);
@@ -327,18 +332,14 @@ export function VehiclesPage() {
         ) : null}
       </SidePanel>
 
-      <SectionPanel
-        title={t("Vehicles")}
-        description={t("Search by plate number, brand, model, or chassis number.")}
-        badge={t("{{count}} shown", { count: vehiclePage.total })}
-      >
+      <SectionPanel className="overflow-hidden p-0">
         {listError ? (
-          <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <div className="m-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {t(listError)}
           </div>
         ) : null}
 
-        <DataTable className="min-w-[760px]" containerClassName="min-h-[22rem]">
+        <DataTable className="min-w-[760px]" containerClassName="rounded-none border-0 shadow-none">
           <thead className="bg-muted/70 text-muted-foreground">
             <tr>
               <Th>{t("Plate")}</Th>
@@ -407,26 +408,6 @@ export function VehiclesPage() {
                       <Eye data-icon="inline-start" />
                       {t("Details")}
                     </Button>
-                    {can("vehicleSales.create") && canSellVehicle(vehicle) ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => openSaleForm(vehicle)}
-                      >
-                        <Tag data-icon="inline-start" />
-                        {t("Sell")}
-                      </Button>
-                    ) : null}
-                    {can("vehicles.edit") ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => openEditForm(vehicle)}
-                      >
-                        <Edit data-icon="inline-start" />
-                        {t("Edit")}
-                      </Button>
-                    ) : null}
                     </div>
                   </Td>
                 </tr>
@@ -465,13 +446,6 @@ export function VehiclesPage() {
         onConfirm={() => void confirmSale()}
       />
     </div>
-  );
-}
-
-function canSellVehicle(vehicle: VehicleRecord): boolean {
-  return (
-    vehicle.displayStatus !== "sold" &&
-    (vehicle.status === "available" || vehicle.status === "inactive")
   );
 }
 

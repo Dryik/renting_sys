@@ -8,12 +8,14 @@ import type { ReportExportType } from "@/shared/reports";
 type ReportExportButtonsProps = {
   type: ReportExportType;
   date?: string;
+  disabled?: boolean;
   startDate?: string;
   endDate?: string;
 };
 
 export function ReportExportButtons({
   date,
+  disabled = false,
   endDate,
   startDate,
   type,
@@ -47,13 +49,25 @@ export function ReportExportButtons({
       {message ? (
         <span className="text-sm text-muted-foreground">{message}</span>
       ) : null}
-      <Button size="sm" variant="outline" onClick={() => void exportReport("csv")}>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={disabled}
+        title={disabled ? t("No data available to export.") : undefined}
+        onClick={() => void exportReport("csv")}
+      >
         <FileText data-icon="inline-start" />
-        {t("CSV")}
+        {t("Export CSV")}
       </Button>
-      <Button size="sm" variant="outline" onClick={() => void exportReport("xlsx")}>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={disabled}
+        title={disabled ? t("No data available to export.") : undefined}
+        onClick={() => void exportReport("xlsx")}
+      >
         <FileSpreadsheet data-icon="inline-start" />
-        {t("Excel")}
+        {t("Export Excel")}
       </Button>
     </div>
   );

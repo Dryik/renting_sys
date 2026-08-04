@@ -10,7 +10,7 @@ import {
   RefreshCw,
   ShieldCheck,
 } from "lucide-react";
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { Badge } from "@/components/ui/badge";
 import { BidiValue } from "@/components/ui/bidi-value";
@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
+import { LocalizedDateInput } from "@/components/ui/localized-date-input";
 import { PaginationControls } from "@/components/ui/pagination-controls";
 import { SearchInput } from "@/components/ui/search-input";
 import { SectionPanel } from "@/components/ui/section-panel";
@@ -27,6 +28,7 @@ import { SidePanel } from "@/components/ui/side-panel";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/useAuth";
 import { useI18n } from "@/hooks/useI18n";
+import { useModalBehavior } from "@/hooks/useModalBehavior";
 import {
   accountingAdjustmentDirectionValues,
   accountingAdjustmentFormSchema,
@@ -453,19 +455,23 @@ function FullAccountingPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <section className="rounded-2xl border border-border/70 bg-card p-4 shadow-sm">
+      <section className="rounded-2xl border border-border/70 bg-card p-3 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <label className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+          <label className="flex items-start gap-2 text-sm font-medium text-muted-foreground">
             <span>{t("Date")}</span>
-            <Input
+            <LocalizedDateInput
               className="w-40"
+              displayValue={selectedDate}
               type="date"
               value={selectedDate}
               onChange={(event) => setSelectedDate(event.target.value || today)}
             />
           </label>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <Button
+              aria-label={t("Refresh")}
+              title={t("Refresh")}
+              size="icon"
               variant="outline"
               disabled={isLoading}
               onClick={() => void loadAccounting()}
@@ -474,7 +480,6 @@ function FullAccountingPage() {
                 className={isLoading ? "animate-spin" : undefined}
                 data-icon="inline-start"
               />
-              {t("Refresh")}
             </Button>
             {can("expenses.create") ? (
               <Button onClick={() => setFormState({ type: "expense" })}>
@@ -483,7 +488,6 @@ function FullAccountingPage() {
               </Button>
             ) : null}
             {can("cashMovements.create") ? (
-              <>
                 <Button
                   variant="outline"
                   onClick={() =>
@@ -496,8 +500,14 @@ function FullAccountingPage() {
                   <ArrowLeftRight data-icon="inline-start" />
                   {t("Move Cash")}
                 </Button>
+            ) : null}
+            {can("cashMovements.create") || can("accountingAdjustments.create") ? (
+              <div className="flex flex-wrap items-center gap-1 rounded-xl border border-border/60 bg-muted/30 p-1">
+                <span className="px-2 text-xs font-semibold text-muted-foreground">{t("Owner actions")}</span>
+                {can("cashMovements.create") ? (
                 <Button
-                  variant="outline"
+                  size="sm"
+                  variant="ghost"
                   onClick={() =>
                     setFormState({
                       type: "cash_movement",
@@ -508,16 +518,18 @@ function FullAccountingPage() {
                   <ShieldCheck data-icon="inline-start" />
                   {t("Owner Withdrawal")}
                 </Button>
-              </>
-            ) : null}
-            {can("accountingAdjustments.create") ? (
-              <Button
-                variant="outline"
-                onClick={() => setFormState({ type: "adjustment" })}
-              >
-                <PencilLine data-icon="inline-start" />
-                {t("Balance Adjustment")}
-              </Button>
+                ) : null}
+                {can("accountingAdjustments.create") ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setFormState({ type: "adjustment" })}
+                  >
+                    <PencilLine data-icon="inline-start" />
+                    {t("Balance Adjustment")}
+                  </Button>
+                ) : null}
+              </div>
             ) : null}
           </div>
         </div>
@@ -525,7 +537,6 @@ function FullAccountingPage() {
         <LocationBalanceGrid
           balances={balances}
           formatCurrency={formatCurrency}
-          t={t}
         />
       </section>
 
@@ -1276,6 +1287,13 @@ function LoanVoidDialog({
 }) {
   const { t } = useI18n();
   const [reason, setReason] = useState("");
+  const dialogRef = useRef<HTMLFormElement>(null);
+  useModalBehavior({
+    closeDisabled: isBusy,
+    containerRef: dialogRef,
+    onClose: onCancel,
+    open: open && Boolean(loan),
+  });
 
   useEffect(() => {
     if (open) {
@@ -1294,7 +1312,12 @@ function LoanVoidDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 px-4 backdrop-blur-[1px]">
       <form
+        ref={dialogRef}
+        aria-modal="true"
         className="w-full max-w-md rounded-lg border border-border bg-card p-5 text-card-foreground shadow-xl"
+        data-modal-layer="true"
+        role="alertdialog"
+        tabIndex={-1}
         onSubmit={(event) => {
           event.preventDefault();
           if (reason.trim()) {
@@ -1627,11 +1650,9 @@ function formatEmployeeLoanStatus(status: EmployeeLoanRecord["status"]): string 
 function LocationBalanceGrid({
   balances,
   formatCurrency,
-  t,
 }: {
   balances: LocationBalances;
   formatCurrency: (value: number) => string;
-  t: (key: string, params?: Record<string, string | number>) => string;
 }) {
   const { language } = useI18n();
   return (
@@ -2073,6 +2094,25 @@ function BalancesSection({
   summary: AccountingSummary;
   t: (key: string) => string;
 }) {
+  const rows: CombinedBalanceRow[] = [
+    ...outstandingBalances.map((row) => ({
+      amount: row.remainingAmount,
+      contractNo: row.contractNo,
+      customerName: row.customerName,
+      kind: "outstanding" as const,
+      rentalId: row.rentalId,
+      vehiclePlateNumber: row.vehiclePlateNumber,
+    })),
+    ...deposits.map((row) => ({
+      amount: row.depositHeld,
+      contractNo: row.contractNo,
+      customerName: row.customerName,
+      kind: "deposit" as const,
+      rentalId: row.rentalId,
+      vehiclePlateNumber: row.vehiclePlateNumber,
+    })),
+  ].filter((row) => row.amount > 0);
+
   return (
     <SectionPanel
       title={t("Balances")}
@@ -2094,61 +2134,11 @@ function BalancesSection({
         />
       </div>
 
-      <div className="mt-5 grid gap-5 xl:grid-cols-2">
-        <SimpleBalanceTable
-          emptyMessage={t("No outstanding customer balances.")}
-          formatCurrency={formatCurrency}
-          isLoading={isLoading}
-          rows={outstandingBalances.slice(0, 8).map((row) => ({
-            amount: row.remainingAmount,
-            contractNo: row.contractNo,
-            customerName: row.customerName,
-            rentalId: row.rentalId,
-            vehiclePlateNumber: row.vehiclePlateNumber,
-          }))}
-          title={t("Open Customer Balances")}
-          t={t}
-        />
-        <SimpleBalanceTable
-          emptyMessage={t("No deposits held.")}
-          formatCurrency={formatCurrency}
-          isLoading={isLoading}
-          rows={deposits.slice(0, 8).map((row) => ({
-            amount: row.depositHeld,
-            contractNo: row.contractNo,
-            customerName: row.customerName,
-            rentalId: row.rentalId,
-            vehiclePlateNumber: row.vehiclePlateNumber,
-          }))}
-          title={t("Deposits Held")}
-          t={t}
-        />
-      </div>
-    </SectionPanel>
-  );
-}
-
-function SimpleBalanceTable({
-  emptyMessage,
-  formatCurrency,
-  isLoading,
-  rows,
-  title,
-  t,
-}: {
-  emptyMessage: string;
-  formatCurrency: (value: number) => string;
-  isLoading: boolean;
-  rows: SimpleBalanceRow[];
-  title: string;
-  t: (key: string) => string;
-}) {
-  return (
-    <div>
-      <h4 className="mb-2 text-sm font-bold">{title}</h4>
-      <DataTable className="min-w-[640px]" containerClassName="min-h-64">
+      <div className="mt-5">
+      <DataTable className="min-w-[760px]">
         <thead className="bg-muted/70 text-muted-foreground">
           <tr>
+            <Th>{t("Type")}</Th>
             <Th>{t("Contract")}</Th>
             <Th>{t("Customer")}</Th>
             <Th>{t("Plate")}</Th>
@@ -2157,13 +2147,18 @@ function SimpleBalanceTable({
         </thead>
         <tbody>
           {isLoading ? (
-            <EmptyTableRow colSpan={4} message={t("Loading balances...")} state="loading" />
+            <EmptyTableRow colSpan={5} message={t("Loading balances...")} state="loading" />
           ) : rows.length === 0 ? (
-            <EmptyTableRow colSpan={4} message={emptyMessage} />
+            <EmptyTableRow colSpan={5} message={t("No outstanding customer balances.")} />
           ) : (
             rows.map((row) => (
-              <tr key={`${title}-${row.rentalId}`} className={rowClassName}>
-                <Td>{row.contractNo}</Td>
+              <tr key={`${row.kind}-${row.rentalId}`} className={rowClassName}>
+                <Td>
+                  <Badge variant={row.kind === "outstanding" ? "outline" : "secondary"}>
+                    {t(row.kind === "outstanding" ? "Open Customer Balance" : "Held Deposit")}
+                  </Badge>
+                </Td>
+                <Td><BidiValue value={row.contractNo} /></Td>
                 <Td>{row.customerName}</Td>
                 <Td>
                   <BidiValue value={row.vehiclePlateNumber} />
@@ -2176,14 +2171,16 @@ function SimpleBalanceTable({
           )}
         </tbody>
       </DataTable>
-    </div>
+      </div>
+    </SectionPanel>
   );
 }
 
-type SimpleBalanceRow = {
+type CombinedBalanceRow = {
   amount: number;
   contractNo: string;
   customerName: string;
+  kind: "deposit" | "outstanding";
   rentalId: number;
   vehiclePlateNumber: string;
 };

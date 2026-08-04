@@ -1,11 +1,12 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { Dispatch, ReactNode, SetStateAction } from "react";
+import type { Dispatch, FormEvent, ReactNode, SetStateAction } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { LocalizedDateInput } from "@/components/ui/localized-date-input";
 import {
   SearchableSelect,
   type SearchableSelectOption,
@@ -61,14 +62,16 @@ export function RentalForm({
   onSave,
   onSaveDraft,
 }: RentalFormProps) {
-  const { formatCurrency, locale, settings, t } = useI18n();
+  const { formatCurrency, formatDateTime, locale, settings, t } = useI18n();
   const {
     formState: { errors },
     control,
+    getValues,
     handleSubmit,
     register,
     reset,
     setValue,
+    trigger,
   } = useForm<RentalFormValues, undefined, RentalActivationInput>({
     resolver: zodResolver(rentalFormSchema),
     defaultValues: getDefaultRentalFormValues(),
@@ -76,6 +79,7 @@ export function RentalForm({
   });
   const [accessoryRows, setAccessoryRows] = useState<AccessoryFormRow[]>([]);
   const [collateralRows, setCollateralRows] = useState<CollateralFormRow[]>([]);
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
 
   const selectedVehicleId = useWatch({ control, name: "vehicleId" });
   const selectedCustomerId = useWatch({ control, name: "customerId" });
@@ -91,6 +95,11 @@ export function RentalForm({
 
     return options.vehicles.find((vehicle) => vehicle.id === id) ?? null;
   }, [options.vehicles, selectedVehicleId]);
+  const selectedCustomer = useMemo(() => {
+    const id = Number(selectedCustomerId);
+
+    return options.customers.find((customer) => customer.id === id) ?? null;
+  }, [options.customers, selectedCustomerId]);
 
   const customerSelectOptions = useMemo<SearchableSelectOption[]>(
     () =>
@@ -141,6 +150,7 @@ export function RentalForm({
       reset(getDefaultRentalFormValues());
       setAccessoryRows([]);
       setCollateralRows([]);
+      setCurrentStep(1);
     }, 0);
 
     return () => window.clearTimeout(timeout);
@@ -167,10 +177,43 @@ export function RentalForm({
     collateralItems,
   });
 
+  async function goToNextStep() {
+    if (currentStep === 1) {
+      const valid = await trigger(["customerId", "vehicleId"]);
+
+      if (!valid) {
+        const targetId = !getValues("customerId")
+          ? "rental-customer"
+          : "rental-vehicle";
+        document.getElementById(targetId)?.focus();
+        return;
+      }
+
+      setCurrentStep(2);
+      return;
+    }
+
+    const valid = await trigger(undefined, { shouldFocus: true });
+    if (valid) {
+      setCurrentStep(3);
+    }
+  }
+
+  function submitForm(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (currentStep < 3) {
+      void goToNextStep();
+      return;
+    }
+
+    void handleSubmit((values) => onSave(submitRental(values)))();
+  }
+
   return (
     <form
       className="flex flex-col gap-5"
-      onSubmit={handleSubmit((values) => onSave(submitRental(values)))}
+      onSubmit={submitForm}
     >
       {error ? (
         <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -187,26 +230,27 @@ export function RentalForm({
       ) : null}
 
       <WorkflowSteps
+        currentStep={currentStep}
         steps={[
-          t("Customer"),
-          t("Vehicle"),
-          t("Rental Period"),
-          t("Accessories"),
-          t("Amounts"),
+          t("Customer & Vehicle"),
+          t("Rental Details"),
+          t("Review & Activate"),
         ]}
       />
 
       <input type="hidden" {...register("customerId")} />
       <input type="hidden" {...register("vehicleId")} />
 
-      <WorkflowSection
-        title={t("Customer & Vehicle")}
-        description={t("Choose a customer, choose an available vehicle, then activate the rental.")}
-      >
+      {currentStep === 1 ? (
+        <WorkflowSection
+          title={t("Customer & Vehicle")}
+          description={t("Choose a customer, choose an available vehicle, then activate the rental.")}
+        >
         <div className="grid gap-4 md:grid-cols-2">
           <Field label="Customer" required error={errors.customerId?.message}>
             <SearchableSelect
               ariaLabel={t("Customer")}
+              inputId="rental-customer"
               disabled={options.customers.length === 0}
               emptyMessage={t("No customers found.")}
               invalid={Boolean(errors.customerId)}
@@ -228,6 +272,7 @@ export function RentalForm({
           <Field label="Available Vehicle" required error={errors.vehicleId?.message}>
             <SearchableSelect
               ariaLabel={t("Available Vehicle")}
+              inputId="rental-vehicle"
               disabled={options.vehicles.length === 0}
               emptyMessage={t("No vehicles found.")}
               invalid={Boolean(errors.vehicleId)}
@@ -246,8 +291,11 @@ export function RentalForm({
             />
           </Field>
         </div>
-      </WorkflowSection>
+        </WorkflowSection>
+      ) : null}
 
+      {currentStep === 2 ? (
+        <>
       <WorkflowSection title={t("Rental Period")}>
         <div className="grid gap-4 md:grid-cols-2">
           <Field
@@ -255,9 +303,9 @@ export function RentalForm({
             required
             error={errors.startDatetime?.message}
           >
-            <Input
+            <LocalizedDateInput
               aria-invalid={Boolean(errors.startDatetime)}
-              data-ltr="true"
+              displayValue={startDatetime}
               type="datetime-local"
               {...register("startDatetime")}
             />
@@ -268,9 +316,9 @@ export function RentalForm({
             required
             error={errors.expectedReturnDatetime?.message}
           >
-            <Input
+            <LocalizedDateInput
               aria-invalid={Boolean(errors.expectedReturnDatetime)}
-              data-ltr="true"
+              displayValue={expectedReturnDatetime}
               type="datetime-local"
               {...register("expectedReturnDatetime")}
             />
@@ -583,32 +631,46 @@ export function RentalForm({
           </div>
         </div>
       </WorkflowSection>
+        </>
+      ) : null}
 
-      <WorkflowSection title={t("Amounts")}>
-        <div className="grid gap-3 md:grid-cols-4">
-          <SummaryValue
-            label={t("Rental Days")}
-            value={<BidiValue value={new Intl.NumberFormat(locale).format(summary.days)} />}
-          />
-          <SummaryValue
-            label={t("Daily Price")}
-            value={<BidiValue value={formatCurrency(Number(dailyPriceValue) || 0)} />}
-          />
-          <SummaryValue
-            label={t("Accessory Charges")}
-            value={<BidiValue value={formatCurrency(accessoryChargeTotal)} />}
-          />
-          <SummaryValue
-            label={t("Total")}
-            value={<BidiValue value={formatCurrency(summary.totalAmount)} />}
-          />
-        </div>
-      </WorkflowSection>
+      {currentStep === 3 ? (
+        <RentalReview
+          accessoryChargeTotal={accessoryChargeTotal}
+          accessoryCount={rentalAccessories.length}
+          collateralCount={collateralItems.length}
+          customerName={selectedCustomer?.fullName ?? t("No details")}
+          endDatetime={expectedReturnDatetime}
+          formatCurrency={formatCurrency}
+          formatDateTime={formatDateTime}
+          formatNumber={(value) => new Intl.NumberFormat(locale).format(value)}
+          startDatetime={startDatetime}
+          summary={summary}
+          t={t}
+          values={getValues()}
+          vehicleLabel={selectedVehicle
+            ? `${selectedVehicle.plateNumber} - ${selectedVehicle.brand} ${selectedVehicle.model}`
+            : t("No details")}
+          onEditStep={setCurrentStep}
+        />
+      ) : null}
 
-      <div className="sticky bottom-0 -mx-5 -mb-5 flex justify-end gap-3 border-t bg-card px-5 py-4">
+      <div className="sticky bottom-0 z-10 -mx-5 -mb-5 flex flex-wrap items-center justify-between gap-3 border-t bg-card px-5 py-4 shadow-[0_-8px_20px_rgba(15,23,42,0.04)]">
+        <div className="flex flex-wrap gap-2">
         <Button type="button" variant="outline" onClick={onCancel}>
           {t("Cancel")}
         </Button>
+        {currentStep > 1 ? (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setCurrentStep((step) => (step === 3 ? 2 : 1))}
+          >
+            {t("Back")}
+          </Button>
+        ) : null}
+        </div>
+        <div className="flex flex-wrap gap-2">
         {onSaveDraft ? (
           <Button
             type="button"
@@ -635,8 +697,9 @@ export function RentalForm({
           }
         >
           {isSaving ? <Loader2 className="size-4 animate-spin" /> : null}
-          {t("Activate Rental")}
+          {t(currentStep === 3 ? "Activate Rental" : "Next")}
         </Button>
+        </div>
       </div>
     </form>
   );
@@ -751,13 +814,112 @@ function WorkflowSection({
   );
 }
 
-function WorkflowSteps({ steps }: { steps: string[] }) {
+function RentalReview({
+  accessoryChargeTotal,
+  accessoryCount,
+  collateralCount,
+  customerName,
+  endDatetime,
+  formatCurrency,
+  formatDateTime,
+  formatNumber,
+  onEditStep,
+  startDatetime,
+  summary,
+  t,
+  values,
+  vehicleLabel,
+}: {
+  accessoryChargeTotal: number;
+  accessoryCount: number;
+  collateralCount: number;
+  customerName: string;
+  endDatetime: string;
+  formatCurrency: (value: number) => string;
+  formatDateTime: (value: string | Date) => string;
+  formatNumber: (value: number) => string;
+  onEditStep: (step: 1 | 2 | 3) => void;
+  startDatetime: string;
+  summary: { days: number; totalAmount: number };
+  t: (key: string, values?: Record<string, string | number>) => string;
+  values: RentalFormValues;
+  vehicleLabel: string;
+}) {
   return (
-    <div className="grid gap-3 md:grid-cols-5">
+    <div className="flex flex-col gap-4">
+      <WorkflowSection title={t("Review & Activate")}>
+        <div className="mb-4 flex justify-end">
+          <Button type="button" size="sm" variant="outline" onClick={() => onEditStep(1)}>
+            {t("Edit")} {t("Customer & Vehicle")}
+          </Button>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <ReviewDetail label={t("Customer")} value={customerName} />
+          <ReviewDetail label={t("Vehicle")} value={<BidiValue value={vehicleLabel} wrap />} />
+        </div>
+      </WorkflowSection>
+
+      <WorkflowSection title={t("Rental Details")}>
+        <div className="mb-4 flex justify-end">
+          <Button type="button" size="sm" variant="outline" onClick={() => onEditStep(2)}>
+            {t("Edit")} {t("Rental Details")}
+          </Button>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <ReviewDetail label={t("Start Date and Time")} value={<BidiValue value={formatDateTime(startDatetime)} />} />
+          <ReviewDetail label={t("Expected Return")} value={<BidiValue value={formatDateTime(endDatetime)} />} />
+          <ReviewDetail label={t("Daily Price")} value={<BidiValue value={formatCurrency(Number(values.dailyPrice) || 0)} />} />
+          <ReviewDetail label={t("Deposit")} value={<BidiValue value={formatCurrency(Number(values.depositRequired) || 0)} />} />
+          <ReviewDetail label={t("Deposit Paid")} value={<BidiValue value={formatCurrency(Number(values.depositPaid) || 0)} />} />
+          <ReviewDetail label={t("Mileage Out")} value={<BidiValue value={values.mileageOut || t("No details")} />} />
+          <ReviewDetail label={t("Fuel Out")} value={values.fuelOut || t("No details")} />
+          <ReviewDetail label={t("Accessories")} value={<BidiValue value={formatNumber(accessoryCount)} />} />
+          <ReviewDetail label={t("Amanat")} value={<BidiValue value={formatNumber(collateralCount)} />} />
+        </div>
+        {values.notesOut ? (
+          <div className="mt-3 rounded-xl border bg-muted/30 p-3 text-sm">
+            <div className="font-semibold">{t("Notes")}</div>
+            <p className="mt-1 text-muted-foreground" dir="auto">{values.notesOut}</p>
+          </div>
+        ) : null}
+      </WorkflowSection>
+
+      <WorkflowSection title={t("Amounts")}>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <SummaryValue label={t("Rental Days")} value={<BidiValue value={formatNumber(summary.days)} />} />
+          <SummaryValue label={t("Daily Price")} value={<BidiValue value={formatCurrency(Number(values.dailyPrice) || 0)} />} />
+          <SummaryValue label={t("Accessory Charges")} value={<BidiValue value={formatCurrency(accessoryChargeTotal)} />} />
+          <SummaryValue label={t("Total")} value={<BidiValue value={formatCurrency(summary.totalAmount)} />} />
+        </div>
+      </WorkflowSection>
+    </div>
+  );
+}
+
+function ReviewDetail({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="rounded-xl border bg-muted/25 p-3">
+      <p className="text-xs font-semibold text-muted-foreground">{label}</p>
+      <div className="mt-1 font-semibold">{value}</div>
+    </div>
+  );
+}
+
+function WorkflowSteps({ currentStep, steps }: { currentStep: 1 | 2 | 3; steps: string[] }) {
+  return (
+    <div className="grid gap-3 sm:grid-cols-3" role="list">
       {steps.map((step, index) => (
         <div
           key={step}
-          className="border-b-4 border-border pb-2 first:border-primary"
+          aria-current={currentStep === index + 1 ? "step" : undefined}
+          className={`border-b-4 pb-2 ${
+            currentStep === index + 1
+              ? "border-primary"
+              : currentStep > index + 1
+                ? "border-primary/35"
+                : "border-border"
+          }`}
+          role="listitem"
         >
           <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
             {String(index + 1).padStart(2, "0")}

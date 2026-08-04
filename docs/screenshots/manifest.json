@@ -1,229 +1,261 @@
 {
-  "generatedAt": "2026-08-04T15:19:07.807Z",
+  "generatedAt": "2026-08-04T16:31:06.874Z",
   "app": "ARAK Rental Desk",
   "language": "ar/en",
   "direction": "rtl/ltr",
   "viewport": {
-    "width": 1440,
-    "height": 1000,
-    "scaleFactor": 1
+    "cssWidth": 1440,
+    "cssHeight": 900,
+    "scaleFactor": 1,
+    "screenshotWidth": 1440,
+    "screenshotHeight": 900
   },
-  "syntheticUserDataDir": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\arak-visual-qa-IfPxO7",
+  "syntheticUserDataDir": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\arak-visual-qa-mEbXiV",
   "screenshots": [
     {
       "file": "17-first-owner-setup-ar.png",
       "language": "ar",
       "direction": "rtl",
       "width": 1440,
-      "height": 1000,
-      "sha256": "8e9210502edc42171f94a94f8a4b5e2e70e6868b1760fce16d3ab2a05cc4be58"
+      "height": 900,
+      "sha256": "8001904367d4d61e9eacd329b0411447ed3d8ce6c927d30b6fc88b3f1e990916"
     },
     {
       "file": "01-rentals-ar.png",
       "language": "ar",
       "direction": "rtl",
       "width": 1440,
-      "height": 1000,
-      "sha256": "ee0f4c5921bf480b5b9971a7ec0e4d5d412cb721ab9f620a82e15f590468d635"
+      "height": 900,
+      "sha256": "c0d54f95eca63b1d06aebf873b5e878f5a2ee0eb751659c0087b3904cffcb842"
     },
     {
-      "file": "21-new-rental-form-ar.png",
+      "file": "21-new-rental-step-1-ar.png",
       "language": "ar",
       "direction": "rtl",
       "width": 1440,
-      "height": 1000,
-      "sha256": "d87b502429dd0ad1afd6476e5c697d0f305647629b0178f99e037f785abe17f8"
+      "height": 900,
+      "sha256": "4a617afd24e686db3a05fe6de1b8620d87dd76dee739a5cccca5b483979cf1d7"
+    },
+    {
+      "file": "23-new-rental-step-2-ar.png",
+      "language": "ar",
+      "direction": "rtl",
+      "width": 1440,
+      "height": 900,
+      "sha256": "cd5a11d0f6e98ed478c6b8486f621edede471a24f28394e21fd3eff910c9473d"
+    },
+    {
+      "file": "24-new-rental-step-3-ar.png",
+      "language": "ar",
+      "direction": "rtl",
+      "width": 1440,
+      "height": 900,
+      "sha256": "2aa2b8382b24da2d31c57e897f075d2dbd042bfbb50e3e4edeef670b81ba55c2"
     },
     {
       "file": "02-vehicles-ar.png",
       "language": "ar",
       "direction": "rtl",
       "width": 1440,
-      "height": 1000,
-      "sha256": "2d2e4065a410eb19ef654db3a4677966e5668f40b2ac17c3fc2f6e75b7db396f"
+      "height": 900,
+      "sha256": "a2b7bdb75dacd01c150ba6f8a4a34e1ae32fba6434a01c47e0a83bcea4c1c1d7"
     },
     {
       "file": "03-customers-ar.png",
       "language": "ar",
       "direction": "rtl",
       "width": 1440,
-      "height": 1000,
-      "sha256": "99c7e35a56cc7d370eda1dcca7dbe13ab45b75080e2c635e0e744bc0a6569b20"
+      "height": 900,
+      "sha256": "22ed6696543c41a4a23b6d76432e66a0b7fdce38f4dcb67a0098c7e6415fcf01"
     },
     {
       "file": "04-payments-ar.png",
       "language": "ar",
       "direction": "rtl",
       "width": 1440,
-      "height": 1000,
-      "sha256": "38e8a5fb748943e08c00fa448ce329ea2e449847012cdaee51f6567fc0e18396"
+      "height": 900,
+      "sha256": "581aa1bdbb4e1fd4601ba3cfd29f50db29b5e405915242171df2f67370a0799b"
     },
     {
       "file": "22-accounting-balances-ar.png",
       "language": "ar",
       "direction": "rtl",
       "width": 1440,
-      "height": 1000,
-      "sha256": "7029676d75c9d03cba8526e3b190f01538a686b91f8ed2f2d674486c9a18f44e"
+      "height": 900,
+      "sha256": "bb2abfe14157702c04ce4ab2600889f4578eeed76d6ed9edb71f09e52230c9c3"
     },
     {
       "file": "05-maintenance-ar.png",
       "language": "ar",
       "direction": "rtl",
       "width": 1440,
-      "height": 1000,
-      "sha256": "dde6a4422b921ae7c7425308a537375957c3be413238c6d6c0dd9ebdd53f71a6"
+      "height": 900,
+      "sha256": "71565b493243bf9ef36b22e57756866ad64faee92bc3cd70083c303c18070a6b"
+    },
+    {
+      "file": "06-reports-hub-ar.png",
+      "language": "ar",
+      "direction": "rtl",
+      "width": 1440,
+      "height": 900,
+      "sha256": "22b6c1c655a40a23a22be814aa025bfa3f4c401e271668e61dfe065650627427"
     },
     {
       "file": "07-reports-active-ar.png",
       "language": "ar",
       "direction": "rtl",
       "width": 1440,
-      "height": 1000,
-      "sha256": "36fd57dbac2dd9f63f31588a98203ecadddee7eb2c3f1f7b866e6bbb77e69c50"
+      "height": 900,
+      "sha256": "c19f25348bc9971e7fb92c7d6917570fc887ef1148a686235bbb0b6567a2e1f8"
     },
     {
       "file": "08-reports-overdue-ar.png",
       "language": "ar",
       "direction": "rtl",
       "width": 1440,
-      "height": 1000,
-      "sha256": "373e7b6c4c937e640d96608bcee82878ec89ddb06da682b5d830caa10c601e90"
+      "height": 900,
+      "sha256": "1d7e9296e29eb9b82223fff524b4fcfdab1692eefec097ffd1bb2dec79dfcf8c"
     },
     {
       "file": "09-reports-daily-closing-ar.png",
       "language": "ar",
       "direction": "rtl",
       "width": 1440,
-      "height": 1000,
-      "sha256": "d5ab44815093a88078e61bb2989e3c73143678b39466f87f8f22c6a591919fff"
+      "height": 900,
+      "sha256": "6769372070b01fdf135d83de3301b50fc43abf4c40591cafdaa8b76dd186fcff"
     },
     {
       "file": "10-reports-customer-history-ar.png",
       "language": "ar",
       "direction": "rtl",
       "width": 1440,
-      "height": 1000,
-      "sha256": "218ee1fc157c6a02139f3f4785ff0db9c90efd4b8d191499a646ef22aac87157"
+      "height": 900,
+      "sha256": "9d338c816689d68242ce72462a9afc4d4d8ae7d17ef32442ec51efc990c77163"
     },
     {
       "file": "11-reports-empty-state-ar.png",
       "language": "ar",
       "direction": "rtl",
       "width": 1440,
-      "height": 1000,
-      "sha256": "1e809ec4a4c354b03a6c64dabf753f3c7e39a0cb68e435417373631645f93011"
+      "height": 900,
+      "sha256": "72696535c60e7c4a09f75aeec625d7816f285079bae37d05d7d0ddc6b25d9081"
     },
     {
       "file": "12-settings-ar.png",
       "language": "ar",
       "direction": "rtl",
       "width": 1440,
-      "height": 1000,
-      "sha256": "3b0d868e8ef5afe1fa0db9df1a3ffbe4bb1da1bcffe1fb2bb3525962af416d2f"
+      "height": 900,
+      "sha256": "29302a984d9a96b438fb901ed0009fe3781602d7b1587bcadf7bb4fa5a00a800"
     },
     {
       "file": "13-backup-ar.png",
       "language": "ar",
       "direction": "rtl",
       "width": 1440,
-      "height": 1000,
-      "sha256": "95cda9dfb00e38c71f303c3b4c4651b174b66010eaba284c398a82ee9bf4dfb3"
+      "height": 900,
+      "sha256": "10ca10e421f5145e6b6b1817c558691b17277edec029db260323961642ee7522"
     },
     {
       "file": "14-users-ar.png",
       "language": "ar",
       "direction": "rtl",
       "width": 1440,
-      "height": 1000,
-      "sha256": "19914b1c4bf8053429147241d6100d0d35b5f67f43d95ddd24fe5519d37dd070"
+      "height": 900,
+      "sha256": "036a6369e1f9cf469a96db521c6230a6998431a2961674c2405dd2b037eec30d"
     },
     {
       "file": "15-activity-log-ar.png",
       "language": "ar",
       "direction": "rtl",
       "width": 1440,
-      "height": 1000,
-      "sha256": "5c16d5b2f484e4eed912184ade93b4c8d72c3137ffe3172e7b93864f21ad1d11"
+      "height": 900,
+      "sha256": "7b261f2e482ddafd74f2c29ade19df128d26f929b6afa3f5f721f7eda7efa117"
     },
     {
       "file": "20-rental-or-payment-details-ar.png",
       "language": "ar",
       "direction": "rtl",
       "width": 1440,
-      "height": 1000,
-      "sha256": "931bf2f913a76dd07c909aec8795f47f2c5a41a4649e3ed51234b23c0e2e5917"
+      "height": 900,
+      "sha256": "2874369550c8d5b548479c3a831a454b02d99bf6b815a30d3ce2439b2b653613"
     },
     {
       "file": "19-user-menu-ar.png",
       "language": "ar",
       "direction": "rtl",
       "width": 1440,
-      "height": 1000,
-      "sha256": "38f9ab05f4e4f1503519c40a8beb4bd859dc60bbe882c564256ccd68fdd9447c"
+      "height": 900,
+      "sha256": "478a4bce783a81b12b63dd5e7d4b137f220d4f22bbb0adb9c0ccf12832e8572e"
     },
     {
       "file": "18-lock-screen-ar.png",
       "language": "ar",
       "direction": "rtl",
       "width": 1440,
-      "height": 1000,
-      "sha256": "1420f949b1d92418d56d1da9efd24d983987538be5cd86ac7ba387013cddb306"
+      "height": 900,
+      "sha256": "730a56cf9990468bb46c45f2757a16b7dd0c359920082f142b981b66a759d337"
     },
     {
       "file": "16-login-ar.png",
       "language": "ar",
       "direction": "rtl",
       "width": 1440,
-      "height": 1000,
-      "sha256": "e8743846b900359d4e0c66a112e1a8c6fb52f2c2247c92d3a738aef434285382"
+      "height": 900,
+      "sha256": "5836f1ea1315c16a49a5d13ef43c83a3fc8a1b530354217b1df8dbcd3960dd1c"
     },
     {
       "file": "01-rentals-en.png",
       "language": "en",
       "direction": "ltr",
       "width": 1440,
-      "height": 1000,
-      "sha256": "870d1053be8b2bf91e01a3a9213a42954f8620be921a67653026960286fb517b"
+      "height": 900,
+      "sha256": "9d9918fdcb700f93dcd5a7326b1162b0e6b0e00e74a6c1d4b35452c5f2d72e18"
     },
     {
       "file": "02-payments-en.png",
       "language": "en",
       "direction": "ltr",
       "width": 1440,
-      "height": 1000,
-      "sha256": "8713e2584a4bf4d1b899881542ca37b8345400618163088484b3c4a039cf3106"
+      "height": 900,
+      "sha256": "bc80123d63ba463d693accf1e6080d3560a9adff3c661400dd025659d935e827"
     },
     {
       "file": "03-reports-en.png",
       "language": "en",
       "direction": "ltr",
       "width": 1440,
-      "height": 1000,
-      "sha256": "ba2b1a4fcc21a19475cdae41eb152ae8a509c03efca496b2cd1481e2140ebd8e"
+      "height": 900,
+      "sha256": "364af58fd985897b166a26111c80c67f7dd5aa1fd2b5dce558d77b4dc325013d"
     },
     {
       "file": "04-settings-en.png",
       "language": "en",
       "direction": "ltr",
       "width": 1440,
-      "height": 1000,
-      "sha256": "be46117cc0c1f3d4a00a90c8104f9fc0c9ddd68bc4d8adda1a09ee3f0777d285"
+      "height": 900,
+      "sha256": "11274521bccee49ffdae527a4dd13515034ad4eb975dc1c6af92c522bd26b3da"
+    },
+    {
+      "file": "06-settings-dark-en.png",
+      "language": "en",
+      "direction": "ltr",
+      "width": 1440,
+      "height": 900,
+      "sha256": "66aca8a5d115ec54a389d9797dad5f3ec7068255a3ab50040e939734356901e3"
     },
     {
       "file": "05-login-en.png",
       "language": "en",
       "direction": "ltr",
       "width": 1440,
-      "height": 1000,
-      "sha256": "74871c21925c29865e9e922feb516e09376e4382d41818e25e80d9fc63a044a1"
+      "height": 900,
+      "sha256": "75452dc7823228b039156b782cc24f872e97c0b555f8885f2ac279ff17d335f4"
     }
   ],
   "notes": [
-    "electron stderr: DevTools listening on ws://127.0.0.1:9322/devtools/browser/3bfbb603-caf8-4ae9-8610-6b0cd2f2804c",
-    "electron stderr: [492:0804/171821.047:ERROR:net\\disk_cache\\cache_util_win.cc:25] Unable to move the cache: Access is denied. (0x5)",
-    "electron stderr: [492:0804/171821.047:ERROR:net\\disk_cache\\cache_util_win.cc:25] Unable to move the cache: Access is denied. (0x5)",
-    "electron stderr: [492:0804/171821.047:ERROR:net\\disk_cache\\cache_util_win.cc:25] Unable to move the cache: Access is denied. (0x5)",
-    "electron stderr: [492:0804/171821.050:ERROR:net\\disk_cache\\disk_cache.cc:236] Unable to create cache\r\n[492:0804/171821.050:ERROR:gpu\\ipc\\host\\gpu_disk_cache.cc:724] Gpu Cache Creation failed: -2\r\n[492:0804/171821.050:ERROR:net\\disk_cache\\disk_cache.cc:236] Unable to create cache\r\n[492:0804/171821.050:ERROR:gpu\\ipc\\host\\gpu_disk_cache.cc:724] Gpu Cache Creation failed: -2\r\n[492:0804/171821.050:ERROR:net\\disk_cache\\disk_cache.cc:236] Unable to create cache\r\n[492:0804/171821.050:ERROR:gpu\\ipc\\host\\gpu_disk_cache.cc:724] Gpu Cache Creation failed: -2"
+    "electron stderr: DevTools listening on ws://127.0.0.1:9461/devtools/browser/4de4eb76-49e0-4874-b494-d67c27ef6e36",
+    "electron stderr: [17416:0804/183014.088:ERROR:net\\disk_cache\\cache_util_win.cc:25] Unable to move the cache: Access is denied. (0x5)",
+    "electron stderr: [17416:0804/183014.092:ERROR:net\\disk_cache\\disk_cache.cc:236] Unable to create cache\r\n[17416:0804/183014.092:ERROR:gpu\\ipc\\host\\gpu_disk_cache.cc:724] Gpu Cache Creation failed: -2"
   ]
 }

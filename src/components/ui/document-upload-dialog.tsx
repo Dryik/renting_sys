@@ -1,10 +1,11 @@
 import { FileUp, Loader2, X } from "lucide-react";
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/hooks/useI18n";
+import { useModalBehavior } from "@/hooks/useModalBehavior";
 import {
   attachmentDocumentLabelKeys,
   getDocumentTypesForEntity,
@@ -39,6 +40,7 @@ export function DocumentUploadDialog({
   const { t } = useI18n();
   const titleId = useId();
   const descriptionId = useId();
+  const dialogRef = useRef<HTMLElement>(null);
   const documentTypes = useMemo(() => getDocumentTypesForEntity(entityType), [entityType]);
   const [documentType, setDocumentType] = useState<AttachmentDocumentType>(
     replaceTarget?.documentType ?? documentTypes[0] ?? "other",
@@ -49,6 +51,12 @@ export function DocumentUploadDialog({
   const [expiryDate, setExpiryDate] = useState("");
   const [notes, setNotes] = useState("");
   const [reason, setReason] = useState("");
+  useModalBehavior({
+    closeDisabled: isBusy,
+    containerRef: dialogRef,
+    onClose: onCancel,
+    open,
+  });
 
   useEffect(() => {
     if (!open) {
@@ -77,12 +85,15 @@ export function DocumentUploadDialog({
       data-motion="overlay"
     >
       <section
+        ref={dialogRef}
         aria-describedby={descriptionId}
         aria-labelledby={titleId}
         aria-modal="true"
         className="flex max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-lg border bg-card text-card-foreground shadow-xl"
         data-motion="dialog"
+        data-modal-layer="true"
         role="dialog"
+        tabIndex={-1}
       >
         <header className="flex items-start justify-between gap-4 border-b bg-muted px-5 py-4">
           <div className="min-w-0">

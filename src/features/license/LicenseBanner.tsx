@@ -16,22 +16,26 @@ export function LicenseBanner({ onOpenLicense, status }: LicenseBannerProps) {
   }
 
   const isReadonly = status.mode === "readonly";
+  const daysRemaining = status.trial?.daysRemaining ?? 0;
+  const isEndingSoon = !isReadonly && daysRemaining <= 3;
   const message = isReadonly
     ? status.reason === "machine-code-unavailable"
       ? t(status.message ?? "This computer's machine code could not be read. Please check Windows permissions or contact support.")
       : status.reason === "system-clock-invalid"
       ? t("Your system date/time appears to be incorrect. Please correct the Windows date/time to continue the trial.")
       : t("License required. The app is currently read-only. Your data is still available.")
-    : t("Trial mode: {{days}} days remaining. Activate your license to continue after the trial.", {
-        days: status.trial?.daysRemaining ?? 0,
+    : t("Trial mode: {{days}} days remaining.", {
+        days: daysRemaining,
       });
 
   return (
     <div
-      className={`mb-5 flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm shadow-xs ${
+      className={`mb-3 flex min-h-10 flex-wrap items-center justify-between gap-2 rounded-lg border px-3 text-sm shadow-xs ${
         isReadonly
-          ? "border-destructive/25 bg-destructive/10 text-destructive"
-          : "border-primary/25 bg-accent text-accent-foreground"
+          ? "py-3 border-destructive/25 bg-destructive/10 text-destructive"
+          : isEndingSoon
+            ? "py-2 border-warning/30 bg-warning/10 text-warning"
+            : "py-2 border-primary/20 bg-accent/70 text-accent-foreground"
       }`}
       role={isReadonly ? "alert" : "status"}
     >
@@ -39,14 +43,14 @@ export function LicenseBanner({ onOpenLicense, status }: LicenseBannerProps) {
         {isReadonly ? (
           <AlertTriangle className="size-5 shrink-0" />
         ) : (
-          <KeyRound className="size-5 shrink-0" />
+          <KeyRound className="size-4 shrink-0" />
         )}
         <p className="font-medium">{message}</p>
       </div>
       <Button
         type="button"
         size="sm"
-        variant={isReadonly ? "destructive" : "outline"}
+        variant={isReadonly ? "destructive" : "ghost"}
         onClick={onOpenLicense}
       >
         <KeyRound className="size-4" />

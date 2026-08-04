@@ -138,6 +138,13 @@ export function CustomerRentalHistoryReport() {
         </div>
       </div>
 
+      {selectedCustomer ? (
+        <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
+          <div className="text-xs font-semibold text-muted-foreground">{t("Selected Customer")}</div>
+          <div className="mt-1 font-bold">{selectedCustomer.fullName}</div>
+        </div>
+      ) : null}
+
       <DataTable className="min-w-full">
         <thead>
           <tr>
@@ -179,7 +186,7 @@ export function CustomerRentalHistoryReport() {
                     <BidiValue value={formatCurrency(rental.totalAmount)} />
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {rental.remainingAmount < 0 ? t("Credit") : t("Remaining")}{" "}
+                    {rental.remainingAmount < 0 ? t("Customer Credit") : t("Amount Due")}{" "}
                     <MoneyText
                       amount={rental.remainingAmount}
                       className="text-xs"

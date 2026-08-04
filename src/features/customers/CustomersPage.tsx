@@ -1,4 +1,4 @@
-import { Edit, Eye, Plus } from "lucide-react";
+import { Eye, Plus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
@@ -187,21 +187,26 @@ export function CustomersPage() {
         width="lg"
         onClose={() => setDetailsCustomer(null)}
       >
-        {detailsCustomer ? <CustomerDetailsPanel customer={detailsCustomer} /> : null}
+        {detailsCustomer ? (
+          <CustomerDetailsPanel
+            customer={detailsCustomer}
+            onEdit={can("customers.edit") ? () => {
+              const customer = detailsCustomer;
+              setDetailsCustomer(null);
+              openEditForm(customer);
+            } : undefined}
+          />
+        ) : null}
       </SidePanel>
 
-      <SectionPanel
-        title={t("Customers")}
-        description={t("Search by name, phone, ID number, or driver license.")}
-        badge={t("{{count}} shown", { count: customerPage.total })}
-      >
+      <SectionPanel className="overflow-hidden p-0">
         {listError ? (
-          <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <div className="m-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {t(listError)}
           </div>
         ) : null}
 
-        <DataTable className="min-w-[760px]" containerClassName="min-h-[22rem]">
+        <DataTable className="min-w-[760px]" containerClassName="rounded-none border-0 shadow-none">
           <thead className="bg-muted/70 text-muted-foreground">
             <tr>
               <Th>{t("Customer")}</Th>
@@ -267,16 +272,6 @@ export function CustomersPage() {
                       <Eye data-icon="inline-start" />
                       {t("Details")}
                     </Button>
-                    {can("customers.edit") ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => openEditForm(customer)}
-                      >
-                        <Edit data-icon="inline-start" />
-                        {t("Edit")}
-                      </Button>
-                    ) : null}
                     </div>
                   </Td>
                 </tr>

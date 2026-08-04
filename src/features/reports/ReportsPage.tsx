@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  ArrowLeft,
   CalendarCheck,
   CalendarClock,
   CarFront,
@@ -14,8 +15,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { useI18n } from "@/hooks/useI18n";
-import { cn } from "@/lib/utils";
 import { ActiveRentalsReport } from "./ActiveRentalsReport";
 import { OverdueRentalsReport } from "./OverdueRentalsReport";
 import { DailyPaymentsReport } from "./DailyPaymentsReport";
@@ -61,7 +62,7 @@ type ReportMeta = {
 const reportCategories: ReportCategory[] = [
   {
     id: "everyday",
-    label: "Everyday reports",
+    label: "Everyday Reports",
     reports: [
       { id: "active", label: "Active Rentals", description: "Open contracts currently on the road.", icon: CalendarCheck },
       { id: "overdue", label: "Overdue Rentals", description: "Active contracts past the expected return time.", icon: AlertTriangle },
@@ -72,7 +73,7 @@ const reportCategories: ReportCategory[] = [
   },
   {
     id: "more",
-    label: "More reports",
+    label: "Additional Reports",
     reports: [
       { id: "returned", label: "Returned Rentals", description: "Completed contracts in a selected period.", icon: RotateCcw },
       { id: "cancelled", label: "Cancelled Rentals", description: "Contracts cancelled by staff or manager.", icon: History },
@@ -92,7 +93,7 @@ const reportCategories: ReportCategory[] = [
 
 export function ReportsPage() {
   const { settings, t } = useI18n();
-  const [activeTab, setActiveTab] = useState<ReportTab>("active");
+  const [activeTab, setActiveTab] = useState<ReportTab | null>(null);
   const visibleReportCategories = useMemo(
     () =>
       settings.dailyClosingEnabled
@@ -106,79 +107,66 @@ export function ReportsPage() {
     [settings.dailyClosingEnabled],
   );
   const reports = visibleReportCategories.flatMap((category) => category.reports);
-  const visibleActiveTab = reports.some((report) => report.id === activeTab)
+  const visibleActiveTab = activeTab && reports.some((report) => report.id === activeTab)
     ? activeTab
-    : reports[0]?.id ?? "active";
-  const activeReport = reports.find((tab) => tab.id === visibleActiveTab) ?? reports[0]!;
+    : null;
+  const activeReport = reports.find((tab) => tab.id === visibleActiveTab);
 
-  return (
-    <div className="grid h-[calc(100vh-9rem)] min-h-[34rem] gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
-      <aside className="flex min-h-0 flex-col rounded-2xl border border-border/80 bg-card p-3 shadow-sm">
-        <div className="shrink-0 px-2 py-2">
-          <h3 className="text-base font-bold">{t("Report workspace")}</h3>
+  if (!visibleActiveTab || !activeReport) {
+    return (
+      <div className="flex flex-col gap-5">
+        <div>
+          <h2 className="text-xl font-bold">{t("Report Hub")}</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            {t("Pick a report category, then review or export the data.")}
+            {t("Choose a report to review or export.")}
           </p>
         </div>
-        <div
-          className="mt-3 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pe-1"
-          role="tablist"
-          aria-label={t("Reports")}
-        >
-          {visibleReportCategories.map((category) => (
-            <section key={category.id} className="flex flex-col gap-1">
-              <h4 className="px-2 text-xs font-bold text-muted-foreground">
-                {t(category.label)}
-              </h4>
+        {visibleReportCategories.map((category) => (
+          <section key={category.id} className="space-y-3">
+            <h3 className="text-base font-bold">{t(category.label)}</h3>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {category.reports.map((report) => {
                 const Icon = report.icon;
-                const isActive = visibleActiveTab === report.id;
 
                 return (
                   <button
                     key={report.id}
-                    aria-selected={isActive}
-                    className={cn(
-                      "flex w-full gap-3 rounded-xl px-3 py-2.5 text-start transition-colors",
-                      isActive
-                        ? "bg-accent text-primary"
-                        : "text-foreground hover:bg-muted",
-                    )}
-                    role="tab"
+                    className="group flex min-h-28 gap-4 rounded-2xl border border-border/80 bg-card p-4 text-start shadow-xs transition hover:border-primary/40 hover:bg-accent/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     type="button"
                     onClick={() => setActiveTab(report.id)}
                   >
-                    <Icon className="mt-0.5 size-4 shrink-0" />
+                    <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                      <Icon className="size-5" aria-hidden="true" />
+                    </span>
                     <span className="min-w-0">
-                      <span className="block truncate text-sm font-bold">
-                        {t(report.label)}
-                      </span>
-                      <span className={cn(
-                        "mt-0.5 block text-xs leading-5",
-                        isActive ? "text-primary/80" : "text-muted-foreground",
-                      )}>
+                      <span className="block font-bold group-hover:text-primary">{t(report.label)}</span>
+                      <span className="mt-1 block text-sm leading-5 text-muted-foreground">
                         {t(report.description)}
                       </span>
                     </span>
                   </button>
                 );
               })}
-            </section>
-          ))}
-        </div>
-      </aside>
+            </div>
+          </section>
+        ))}
+      </div>
+    );
+  }
 
-      <section
-        className="flex min-h-0 min-w-0 flex-col rounded-2xl border border-border/80 bg-card shadow-sm"
-        role="tabpanel"
-      >
-        <div className="shrink-0 border-b border-border/70 px-5 py-4">
+  return (
+    <section className="min-w-0 rounded-2xl border border-border/80 bg-card shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/70 px-5 py-4">
+        <div>
           <h3 className="text-lg font-bold">{t(activeReport.label)}</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {t(activeReport.description)}
-          </p>
+          <p className="mt-1 text-sm text-muted-foreground">{t(activeReport.description)}</p>
         </div>
-        <div className="min-h-0 flex-1 overflow-auto p-5">
+        <Button variant="outline" onClick={() => setActiveTab(null)}>
+          <ArrowLeft className="rtl:rotate-180" data-icon="inline-start" />
+          {t("Change Report")}
+        </Button>
+      </div>
+      <div className="min-w-0 p-5">
           {visibleActiveTab === "active" && <ActiveRentalsReport />}
           {visibleActiveTab === "overdue" && <OverdueRentalsReport />}
           {visibleActiveTab === "returned" && <ReturnedRentalsReport />}
@@ -196,8 +184,7 @@ export function ReportsPage() {
           {visibleActiveTab === "voids" && <OperationalReport type="paymentVoids" />}
           {visibleActiveTab === "sales" && <OperationalReport type="vehicleSales" />}
           {visibleActiveTab === "commissions" && <CommissionReport />}
-        </div>
-      </section>
-    </div>
+      </div>
+    </section>
   );
 }

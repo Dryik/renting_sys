@@ -32,7 +32,7 @@ export function OverdueRentalsReport() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex justify-end">
-        <ReportExportButtons type="overdueRentals" />
+        <ReportExportButtons type="overdueRentals" disabled={rentals.length === 0} />
       </div>
       <DataTable className="min-w-full">
       <thead>

@@ -92,7 +92,7 @@
   --secondary: #f8fafc;
   --secondary-foreground: #334155;
   --muted: #f8fafc;
-  --muted-foreground: #64748b;
+  --muted-foreground: #526174;
   --accent: var(--arak-primary-soft);
   --accent-foreground: #0b3d91;
   --destructive: #dc2626;
@@ -266,6 +266,14 @@
     background-color: var(--accent);
   }
 
+  [data-slot="data-table"]:has([data-empty-row]) {
+    overflow-x: hidden;
+  }
+
+  [data-slot="data-table"]:has([data-empty-row]) table {
+    min-width: 100% !important;
+  }
+
   [data-slot="data-table"]
     tbody
     tr:not([data-empty-row]):focus-within
@@ -337,13 +345,13 @@
   [dir="rtl"] input,
   [dir="rtl"] textarea,
   [dir="rtl"] select {
-    text-align: center;
+    text-align: start;
   }
 
   [dir="ltr"] input,
   [dir="ltr"] textarea,
   [dir="ltr"] select {
-    text-align: center;
+    text-align: start;
   }
 
   [data-bidi="ltr"] {
@@ -358,6 +366,13 @@
   [dir="rtl"] input[data-ltr="true"] {
     direction: ltr;
     text-align: center;
+  }
+
+  input[type="number"],
+  input[inputmode="numeric"],
+  input[inputmode="decimal"],
+  input[data-ltr="true"] {
+    font-variant-numeric: tabular-nums;
   }
 }
 

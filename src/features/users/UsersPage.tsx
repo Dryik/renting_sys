@@ -1,13 +1,11 @@
-import { KeyRound, Pencil, Plus, RefreshCw, UserCheck, UserX } from "lucide-react";
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { Eye, EyeOff, KeyRound, Pencil, Plus, RefreshCw, UserCheck, UserX } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
 import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
-import { MetricStrip } from "@/components/ui/metric-strip";
 import { ReasonDialog } from "@/components/ui/reason-dialog";
-import { SectionPanel } from "@/components/ui/section-panel";
 import { SidePanel } from "@/components/ui/side-panel";
 import { useAuth } from "@/hooks/useAuth";
 import { useI18n } from "@/hooks/useI18n";
@@ -20,6 +18,7 @@ import {
   type UserListRecord,
 } from "@/shared/auth";
 import { normalizeDigits } from "@/shared/numerals";
+import { useModalBehavior } from "@/hooks/useModalBehavior";
 
 type UserFormState =
   | { mode: "create"; user: null }
@@ -40,6 +39,7 @@ export function UsersPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formState, setFormState] = useState<UserFormState>(null);
+  const [detailsUser, setDetailsUser] = useState<UserListRecord | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingSensitiveAction>(null);
 
   const loadUsers = useCallback(async () => {
@@ -108,6 +108,7 @@ export function UsersPage() {
     try {
       await window.rentalApp.users.deactivate({ userId: user.id, reason });
       setPendingAction(null);
+      setDetailsUser(null);
       await Promise.all([loadUsers(), refreshAuth()]);
     } catch (err) {
       setError(err instanceof Error ? t(err.message) : t("User could not be deactivated."));
@@ -122,6 +123,7 @@ export function UsersPage() {
 
     try {
       await window.rentalApp.users.reactivate({ userId: user.id });
+      setDetailsUser(null);
       await Promise.all([loadUsers(), refreshAuth()]);
     } catch (err) {
       setError(err instanceof Error ? t(err.message) : t("User could not be saved."));
@@ -175,26 +177,20 @@ export function UsersPage() {
         ) : null}
       </div>
 
-      <MetricStrip
-        columns={3}
-        items={[
-          { label: t("Active users"), value: users.filter((user) => user.isActive).length },
-          { label: t("Owners"), value: users.filter((user) => user.roleKey === "owner_admin").length },
-          { label: t("Locked users"), tone: "warning", value: users.filter((user) => Boolean(user.lockedUntil)).length },
-        ]}
-      />
-
-      <SectionPanel
-        title={t("Users")}
-        description={t("Manage local staff accounts and fixed roles.")}
-        badge={t("{{count}} shown", { count: users.length })}
-      >
+      <section className="rounded-2xl border border-border/40 bg-card/75 p-5 shadow-xs">
+        <div className="mb-4 flex justify-end">
+          <span className="flex flex-wrap items-center gap-3 rounded-full border border-border/70 bg-muted/45 px-3 py-1.5 text-xs font-semibold text-muted-foreground">
+            <span>{t("Active users")}: <BidiValue value={users.filter((user) => user.isActive).length} /></span>
+            <span>{t("Owners")}: <BidiValue value={users.filter((user) => user.roleKey === "owner_admin").length} /></span>
+            <span>{t("Locked users")}: <BidiValue value={users.filter((user) => Boolean(user.lockedUntil)).length} /></span>
+          </span>
+        </div>
         {error ? (
           <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {error}
           </div>
         ) : null}
-        <DataTable className="min-w-[880px]" containerClassName="min-h-[22rem]">
+        <DataTable className="min-w-[780px]">
           <thead>
             <tr>
               <Th>{t("Full name")}</Th>
@@ -212,13 +208,6 @@ export function UsersPage() {
               <EmptyTableRow colSpan={6} message={t("No users yet")} />
             ) : (
               users.map((user) => {
-                const deactivateBlockReason = getDeactivateBlockReason(
-                  user,
-                  activeOwnerCount,
-                  currentUser?.id ?? null,
-                  t,
-                );
-
                 return (
                   <tr key={user.id}>
                     <Td className="font-semibold">{user.fullName}</Td>
@@ -234,62 +223,10 @@ export function UsersPage() {
                     <Td>{user.lastLoginAt ? <BidiValue value={formatDateTime(user.lastLoginAt)} /> : t("Never")}</Td>
                     <Td className="text-end">
                       <div className="flex flex-wrap justify-end gap-2">
-                        {can("users.edit") ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setFormState({ mode: "edit", user })}
-                          >
-                            <Pencil className="size-4" />
-                            {t("Edit")}
-                          </Button>
-                        ) : null}
-                        {can("users.resetPassword") ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setPendingAction({ type: "reset", user })}
-                          >
-                            <KeyRound className="size-4" />
-                            {t("Reset PIN")}
-                          </Button>
-                        ) : null}
-                        {can("users.deactivate") && user.isActive ? (
-                          deactivateBlockReason ? (
-                            <span title={deactivateBlockReason}>
-                              <Button
-                                aria-label={deactivateBlockReason}
-                                className="border-border text-muted-foreground"
-                                disabled
-                                size="sm"
-                                variant="outline"
-                              >
-                                <UserX className="size-4" />
-                                {t("Deactivate")}
-                              </Button>
-                            </span>
-                          ) : (
-                            <Button
-                              className="border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => setPendingAction({ type: "deactivate", user })}
-                            >
-                              <UserX className="size-4" />
-                              {t("Deactivate")}
-                            </Button>
-                          )
-                        ) : null}
-                        {can("users.edit") && !user.isActive ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => void reactivateUser(user)}
-                          >
-                            <UserCheck className="size-4" />
-                            {t("Activate")}
-                          </Button>
-                        ) : null}
+                        <Button size="sm" variant="outline" onClick={() => setDetailsUser(user)}>
+                          <Eye className="size-4" />
+                          {t("Details")}
+                        </Button>
                       </div>
                     </Td>
                   </tr>
@@ -298,7 +235,7 @@ export function UsersPage() {
             )}
           </tbody>
         </DataTable>
-      </SectionPanel>
+      </section>
 
       <SidePanel
         open={Boolean(formState)}
@@ -315,6 +252,32 @@ export function UsersPage() {
             onCancel={() => setFormState(null)}
             onCreate={(input) => void createUser(input)}
             onUpdate={(input) => void updateUser(input)}
+          />
+        ) : null}
+      </SidePanel>
+
+      <SidePanel
+        open={Boolean(detailsUser)}
+        title={t("User Details")}
+        description={t("Manage local staff accounts and fixed roles.")}
+        width="md"
+        onClose={() => setDetailsUser(null)}
+      >
+        {detailsUser ? (
+          <UserDetails
+            deactivateBlockReason={getDeactivateBlockReason(detailsUser, activeOwnerCount, currentUser?.id ?? null, t)}
+            formatDateTime={formatDateTime}
+            language={language}
+            t={t}
+            user={detailsUser}
+            onDeactivate={can("users.deactivate") && detailsUser.isActive ? () => setPendingAction({ type: "deactivate", user: detailsUser }) : undefined}
+            onEdit={can("users.edit") ? () => {
+              const user = detailsUser;
+              setDetailsUser(null);
+              setFormState({ mode: "edit", user });
+            } : undefined}
+            onReactivate={can("users.edit") && !detailsUser.isActive ? () => void reactivateUser(detailsUser) : undefined}
+            onResetPin={can("users.resetPassword") ? () => setPendingAction({ type: "reset", user: detailsUser }) : undefined}
           />
         ) : null}
       </SidePanel>
@@ -352,6 +315,94 @@ export function UsersPage() {
           }
         }}
       />
+    </div>
+  );
+}
+
+function UserDetails({
+  deactivateBlockReason,
+  formatDateTime,
+  language,
+  onDeactivate,
+  onEdit,
+  onReactivate,
+  onResetPin,
+  t,
+  user,
+}: {
+  deactivateBlockReason: string | null;
+  formatDateTime: (value: string | Date) => string;
+  language: "ar" | "en";
+  onDeactivate?: () => void;
+  onEdit?: () => void;
+  onReactivate?: () => void;
+  onResetPin?: () => void;
+  t: (key: string) => string;
+  user: UserListRecord;
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <UserDetailValue label={t("Full name")} value={user.fullName} />
+        <UserDetailValue label={t("Username")} value={<BidiValue value={user.username} />} />
+        <UserDetailValue label={t("Role")} value={<RoleBadge roleKey={user.roleKey} label={roleLabels[user.roleKey][language]} />} />
+        <UserDetailValue label={t("Status")} value={<Badge variant={user.isActive ? "secondary" : "destructive"}>{user.isActive ? t("Active") : t("Inactive")}</Badge>} />
+        <UserDetailValue label={t("Last login")} value={user.lastLoginAt ? <BidiValue value={formatDateTime(user.lastLoginAt)} /> : t("Never")} />
+        <UserDetailValue label={t("Created At")} value={<BidiValue value={formatDateTime(user.createdAt)} />} />
+        <UserDetailValue label={t("Sales Commission")} value={user.earnsCommission ? t("Enabled") : t("Disabled")} />
+        <UserDetailValue label={t("Change PIN")} value={user.mustChangePassword ? t("Required") : t("Not required")} />
+      </div>
+      <div className="sticky bottom-0 -mx-5 -mb-5 flex flex-wrap items-center justify-between gap-3 border-t bg-card px-5 py-4">
+        <div className="flex flex-wrap gap-2">
+          {onEdit ? (
+            <Button type="button" variant="outline" onClick={onEdit}>
+              <Pencil className="size-4" />
+              {t("Edit")}
+            </Button>
+          ) : null}
+          {onResetPin ? (
+            <Button type="button" variant="outline" onClick={onResetPin}>
+              <KeyRound className="size-4" />
+              {t("Reset PIN")}
+            </Button>
+          ) : null}
+          {onReactivate ? (
+            <Button type="button" onClick={onReactivate}>
+              <UserCheck className="size-4" />
+              {t("Activate")}
+            </Button>
+          ) : null}
+        </div>
+        {onDeactivate ? (
+          deactivateBlockReason ? (
+            <span title={deactivateBlockReason}>
+              <Button type="button" variant="outline" disabled aria-label={deactivateBlockReason}>
+                <UserX className="size-4" />
+                {t("Deactivate")}
+              </Button>
+            </span>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onClick={onDeactivate}
+            >
+              <UserX className="size-4" />
+              {t("Deactivate")}
+            </Button>
+          )
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function UserDetailValue({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="rounded-xl border bg-muted/20 p-3 text-sm">
+      <div className="text-xs font-semibold text-muted-foreground">{label}</div>
+      <div className="mt-1 font-semibold">{value}</div>
     </div>
   );
 }
@@ -530,6 +581,13 @@ function ResetPinDialog({
   const [confirmPassword, setConfirmPassword] = useState("");
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalBehavior({
+    closeDisabled: isBusy,
+    containerRef: dialogRef,
+    onClose: onCancel,
+    open,
+  });
 
   if (!open) {
     return null;
@@ -564,9 +622,12 @@ function ResetPinDialog({
       data-motion="overlay"
     >
       <div
+        ref={dialogRef}
         aria-modal="true"
         className="w-full max-w-md rounded-lg border bg-card p-5 shadow-xl"
+        data-modal-layer="true"
         role="alertdialog"
+        tabIndex={-1}
       >
         <h2 className="text-base font-semibold">{t("Reset PIN")}</h2>
         <p className="mt-2 text-sm text-muted-foreground">
@@ -620,16 +681,33 @@ function PinInput({
   onChange: (value: string) => void;
   value: string;
 }) {
+  const { t } = useI18n();
+  const [showPin, setShowPin] = useState(false);
+
   return (
-    <Input
-      autoComplete="new-password"
-      data-ltr="true"
-      inputMode="numeric"
-      maxLength={4}
-      pattern="[0-9]{4}"
-      type="password"
-      value={value}
-      onChange={(event) => onChange(normalizeDigits(event.target.value).replace(/\D/g, "").slice(0, 4))}
-    />
+    <span className="flex flex-col gap-1.5">
+      <span className="relative">
+        <Input
+          autoComplete="new-password"
+          className="pe-11"
+          data-ltr="true"
+          inputMode="numeric"
+          maxLength={4}
+          pattern="[0-9]{4}"
+          type={showPin ? "text" : "password"}
+          value={value}
+          onChange={(event) => onChange(normalizeDigits(event.target.value).replace(/\D/g, "").slice(0, 4))}
+        />
+        <button
+          type="button"
+          className="absolute end-1 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          aria-label={t(showPin ? "Hide PIN" : "Show PIN")}
+          onClick={() => setShowPin((current) => !current)}
+        >
+          {showPin ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+        </button>
+      </span>
+      <span className="text-xs font-normal text-muted-foreground">{t("Use a 4-digit PIN.")}</span>
+    </span>
   );
 }

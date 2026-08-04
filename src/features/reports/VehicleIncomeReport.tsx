@@ -86,7 +86,12 @@ export function VehicleIncomeReport() {
             />
           </div>
         </div>
-        <ReportExportButtons type="vehicleIncome" startDate={startDate} endDate={endDate} />
+        <ReportExportButtons
+          type="vehicleIncome"
+          disabled={loading || incomeRecords.length === 0}
+          startDate={startDate}
+          endDate={endDate}
+        />
       </div>
 
       <DataTable className="min-w-full">

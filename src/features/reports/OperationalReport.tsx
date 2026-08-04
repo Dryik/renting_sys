@@ -4,6 +4,7 @@ import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
 import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
+import { LocalizedDateInput } from "@/components/ui/localized-date-input";
 import { PaginationControls } from "@/components/ui/pagination-controls";
 import { useAuth } from "@/hooks/useAuth";
 import { useI18n } from "@/hooks/useI18n";
@@ -108,30 +109,55 @@ export function OperationalReport({ type }: OperationalReportProps) {
           {usesSingleDate(type) ? (
             <label className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
               <span>{t("Date")}</span>
-              <Input type="date" value={date} className="w-40" onChange={(event) => setDate(event.target.value)} />
+              <LocalizedDateInput
+                value={date}
+                displayValue={date}
+                className="w-40"
+                onChange={(event) => setDate(event.target.value)}
+              />
             </label>
           ) : usesRange(type) ? (
             <>
               <label className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
                 <span>{t("From")}</span>
-                <Input type="date" value={startDate} className="w-40" onChange={(event) => setStartDate(event.target.value)} />
+                <LocalizedDateInput
+                  value={startDate}
+                  displayValue={startDate}
+                  className="w-40"
+                  onChange={(event) => setStartDate(event.target.value)}
+                />
               </label>
               <label className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
                 <span>{t("To")}</span>
-                <Input type="date" value={endDate} className="w-40" onChange={(event) => setEndDate(event.target.value)} />
+                <LocalizedDateInput
+                  value={endDate}
+                  displayValue={endDate}
+                  className="w-40"
+                  onChange={(event) => setEndDate(event.target.value)}
+                />
               </label>
             </>
           ) : null}
         </div>
         {can("reports.export") ? (
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => void handleExport("csv")}>
+            <Button
+              variant="outline"
+              disabled={loading || rows.length === 0}
+              title={loading || rows.length === 0 ? t("No data available to export.") : undefined}
+              onClick={() => void handleExport("csv")}
+            >
               <FileText data-icon="inline-start" />
-              {t("CSV")}
+              {t("Export CSV")}
             </Button>
-            <Button variant="outline" onClick={() => void handleExport("xlsx")}>
+            <Button
+              variant="outline"
+              disabled={loading || rows.length === 0}
+              title={loading || rows.length === 0 ? t("No data available to export.") : undefined}
+              onClick={() => void handleExport("xlsx")}
+            >
               <FileSpreadsheet data-icon="inline-start" />
-              {t("Excel")}
+              {t("Export Excel")}
             </Button>
           </div>
         ) : null}
@@ -226,7 +252,7 @@ function DailyClosingSummary({
     );
   }
 
-  const primaryItems = [
+  const secondaryItems = [
     { label: "Cash payments", value: formatCurrency(row.cashPayments) },
     { label: "Card payments", value: formatCurrency(row.cardPayments) },
     { label: "Bank transfers", value: formatCurrency(row.bankTransfers) },
@@ -234,20 +260,8 @@ function DailyClosingSummary({
     { label: "Refunds", tone: "warning" as const, value: formatCurrency(row.refunds) },
     { label: "Expenses", tone: "warning" as const, value: formatCurrency(row.expenses) },
     { label: "Total collected", tone: "primary" as const, value: formatCurrency(row.totalCollected) },
-  ];
-
-  const secondaryItems = [
     { label: "Other Payments", value: formatCurrency(row.otherPayments) },
     { label: "Owner Withdrawals", value: formatCurrency(row.ownerWithdrawals) },
-    { label: "Expected Cash", value: formatCurrency(row.expectedCash) },
-    {
-      label: "Counted Cash",
-      value: row.countedCash === null ? t("Not available") : formatCurrency(row.countedCash),
-    },
-    {
-      label: "Difference",
-      value: row.difference === null ? t("Not available") : formatCurrency(row.difference),
-    },
     {
       label: "Open balances created today",
       value: numberFormatter.format(row.openBalancesCreatedToday),
@@ -258,9 +272,22 @@ function DailyClosingSummary({
     },
   ];
 
+  const primaryItems = [
+    { label: "Expected Cash", value: formatCurrency(row.expectedCash) },
+    {
+      label: "Counted Cash",
+      value: row.countedCash === null ? t("Not available") : formatCurrency(row.countedCash),
+    },
+    {
+      label: "Difference",
+      tone: row.difference === null || row.difference === 0 ? undefined : "warning" as const,
+      value: row.difference === null ? t("Not available") : formatCurrency(row.difference),
+    },
+  ];
+
   return (
     <div className="flex flex-col gap-3">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-3">
         {primaryItems.map((item) => (
           <div
             key={item.label}
@@ -270,7 +297,7 @@ function DailyClosingSummary({
               {t(item.label)}
             </div>
             <BidiValue
-              className={`mt-2 text-lg font-bold ${
+              className={`mt-2 text-2xl font-bold ${
                 item.tone === "warning"
                   ? "text-warning"
                   : item.tone === "primary"

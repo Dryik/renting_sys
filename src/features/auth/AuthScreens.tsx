@@ -1,4 +1,4 @@
-import { KeyRound, LogIn, UserPlus } from "lucide-react";
+import { Eye, EyeOff, KeyRound, LogIn, UserPlus } from "lucide-react";
 import { useState, useEffect, type FormEvent, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -68,7 +68,11 @@ export function OwnerSetupScreen({ onAuthState, themeControl }: AuthScreenProps)
       description={t("Create the first owner account before using the app.")}
       themeControl={themeControl}
     >
-      <form noValidate className="flex flex-col gap-4" onSubmit={(event) => void submit(event)}>
+      <form
+        noValidate
+        className="flex flex-col gap-4 [@media(max-height:700px)]:grid [@media(max-height:700px)]:grid-cols-2 [@media(max-height:700px)]:gap-3"
+        onSubmit={(event) => void submit(event)}
+      >
         <AuthField label={t("Full name")} required>
           <Input autoFocus value={fullName} onChange={(event) => setFullName(event.target.value)} />
         </AuthField>
@@ -79,10 +83,19 @@ export function OwnerSetupScreen({ onAuthState, themeControl }: AuthScreenProps)
           <PinInput autoComplete="new-password" value={password} onChange={setPassword} />
         </AuthField>
         <AuthField label={t("Confirm PIN")} required>
-          <PinInput autoComplete="new-password" value={confirmPassword} onChange={setConfirmPassword} />
+          <PinInput autoComplete="new-password" showGuidance={false} value={confirmPassword} onChange={setConfirmPassword} />
         </AuthField>
-        <AuthError message={error} />
-        <Button type="submit" size="lg" disabled={isSubmitting}>
+        {error ? (
+          <div className="[@media(max-height:700px)]:col-span-2">
+            <AuthError message={error} />
+          </div>
+        ) : null}
+        <Button
+          className="[@media(max-height:700px)]:col-span-2"
+          type="submit"
+          size="lg"
+          disabled={isSubmitting}
+        >
           <UserPlus className="size-4" />
           {t("Create owner account")}
         </Button>
@@ -336,10 +349,10 @@ export function ChangePinScreen({ onAuthState, themeControl }: AuthScreenProps) 
           <PinInput value={currentPassword} onChange={setCurrentPassword} />
         </AuthField>
         <AuthField label={t("New PIN")} required>
-          <PinInput autoComplete="new-password" value={newPassword} onChange={setNewPassword} />
+          <PinInput autoComplete="new-password" showGuidance={false} value={newPassword} onChange={setNewPassword} />
         </AuthField>
         <AuthField label={t("Confirm PIN")} required>
-          <PinInput autoComplete="new-password" value={confirmPassword} onChange={setConfirmPassword} />
+          <PinInput autoComplete="new-password" showGuidance={false} value={confirmPassword} onChange={setConfirmPassword} />
         </AuthField>
         <AuthError message={error} />
         <div className="flex flex-wrap justify-end gap-2">
@@ -371,23 +384,23 @@ function AuthFrame({
   const shopName = settings.shopName.trim() || t("Rental Desk");
 
   return (
-    <main dir={dir} className="relative flex min-h-screen items-center justify-center bg-background px-4 py-10 pt-24">
+    <main dir={dir} className="relative flex min-h-screen items-center justify-center bg-background px-4 py-5 pt-20">
       {themeControl ? (
-        <div className="absolute left-5 top-5 sm:left-8 sm:top-8">
+        <div className="absolute start-5 top-5 sm:start-8 sm:top-8">
           {themeControl}
         </div>
       ) : null}
-      <div className="absolute right-5 top-5 flex items-center gap-3 text-right sm:right-8 sm:top-8" dir="ltr">
+      <div className="absolute end-5 top-5 flex items-center gap-3 sm:end-8 sm:top-8">
         <div className="min-w-0">
-          <p className="text-base font-extrabold leading-tight text-foreground" dir="rtl">
-            نظام أراك للتأجير
+          <p className="text-base font-extrabold leading-tight text-foreground">
+            {t("ARAK Rental System")}
           </p>
         </div>
         <AuthBrandMark compact />
       </div>
 
-      <section className="w-full max-w-[460px] rounded-2xl border border-border/80 bg-card p-6 shadow-xl sm:p-8">
-        <div className="mb-7 flex flex-col items-center text-center">
+      <section className="w-full max-w-[460px] rounded-2xl border border-border/80 bg-card p-5 shadow-xl sm:p-6">
+        <div className="mb-5 flex flex-col items-center text-center">
           <AuthBrandMark />
           <p className="mt-4 max-w-full break-words text-lg font-bold leading-7 text-foreground">
             {shopName}
@@ -447,25 +460,46 @@ function PinInput({
   autoComplete = "current-password",
   autoFocus = false,
   onChange,
+  showGuidance = true,
   value,
 }: {
   autoComplete?: string;
   autoFocus?: boolean;
   onChange: (value: string) => void;
+  showGuidance?: boolean;
   value: string;
 }) {
+  const { t } = useI18n();
+  const [showPin, setShowPin] = useState(false);
+
   return (
-    <Input
-      autoComplete={autoComplete}
-      autoFocus={autoFocus}
-      data-ltr="true"
-      inputMode="numeric"
-      maxLength={4}
-      pattern="[0-9]{4}"
-      type="password"
-      value={value}
-      onChange={(event) => onChange(normalizePinValue(event.target.value))}
-    />
+    <span className="flex flex-col gap-1.5">
+      <span className="relative">
+        <Input
+          autoComplete={autoComplete}
+          autoFocus={autoFocus}
+          className="pe-11"
+          data-ltr="true"
+          inputMode="numeric"
+          maxLength={4}
+          pattern="[0-9]{4}"
+          type={showPin ? "text" : "password"}
+          value={value}
+          onChange={(event) => onChange(normalizePinValue(event.target.value))}
+        />
+        <button
+          type="button"
+          className="absolute end-1 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          aria-label={t(showPin ? "Hide PIN" : "Show PIN")}
+          onClick={() => setShowPin((current) => !current)}
+        >
+          {showPin ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+        </button>
+      </span>
+      {showGuidance ? (
+        <span className="text-xs font-normal text-muted-foreground">{t("Use a 4-digit PIN.")}</span>
+      ) : null}
+    </span>
   );
 }
 

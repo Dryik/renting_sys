@@ -1,10 +1,11 @@
 import { ExternalLink, FileText, Loader2, X } from "lucide-react";
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useI18n } from "@/hooks/useI18n";
+import { useModalBehavior } from "@/hooks/useModalBehavior";
 import {
   attachmentDocumentLabelKeys,
   formatAttachmentFileSize,
@@ -25,9 +26,15 @@ export function DocumentViewerDialog({
 }: DocumentViewerDialogProps) {
   const { formatDate, language, t } = useI18n();
   const titleId = useId();
+  const dialogRef = useRef<HTMLElement>(null);
   const [preview, setPreview] = useState<AttachmentPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  useModalBehavior({
+    containerRef: dialogRef,
+    onClose,
+    open: open && Boolean(attachment),
+  });
 
   useEffect(() => {
     if (!open || !attachment) {
@@ -73,11 +80,14 @@ export function DocumentViewerDialog({
       data-motion="overlay"
     >
       <section
+        ref={dialogRef}
         aria-labelledby={titleId}
         aria-modal="true"
         className="flex max-h-[calc(100dvh-2rem)] w-full max-w-3xl flex-col overflow-hidden rounded-lg border bg-card text-card-foreground shadow-xl"
         data-motion="dialog"
+        data-modal-layer="true"
         role="dialog"
+        tabIndex={-1}
       >
         <header className="flex items-start justify-between gap-4 border-b bg-muted px-5 py-4">
           <div className="min-w-0">

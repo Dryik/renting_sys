@@ -1,4 +1,4 @@
-import { Ban, CarFront, FileDown, Gauge, Printer, Tag, WalletCards } from "lucide-react";
+import { Ban, CarFront, Edit, FileDown, Gauge, Printer, Tag, WalletCards } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
@@ -15,12 +15,14 @@ import { formatVehicleType, type VehicleRecord } from "@/shared/vehicles";
 import { VehicleStatusBadge } from "./VehicleStatusBadge";
 
 type VehicleDetailsPanelProps = {
+  onEditVehicle?: () => void;
   onSaleChanged?: () => Promise<void> | void;
   onSellVehicle?: (vehicle: VehicleRecord) => void;
   vehicle: VehicleRecord;
 };
 
 export function VehicleDetailsPanel({
+  onEditVehicle,
   onSaleChanged,
   onSellVehicle,
   vehicle,
@@ -130,7 +132,15 @@ export function VehicleDetailsPanel({
               </p>
             </div>
           </div>
-          <VehicleStatusBadge status={vehicle.displayStatus} />
+          <div className="flex flex-wrap items-center gap-2">
+            <VehicleStatusBadge status={vehicle.displayStatus} />
+            {onEditVehicle ? (
+              <Button type="button" size="sm" variant="outline" onClick={onEditVehicle}>
+                <Edit data-icon="inline-start" />
+                {t("Edit")}
+              </Button>
+            ) : null}
+          </div>
         </div>
 
         <div className="mt-5 grid gap-3 md:grid-cols-2">

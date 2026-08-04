@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/hooks/useI18n";
+import { useModalBehavior } from "@/hooks/useModalBehavior";
 
 type CameraCaptureDialogProps = {
   customerId: number;
@@ -33,6 +34,7 @@ export function CameraCaptureDialog({
 }: CameraCaptureDialogProps) {
   const { t } = useI18n();
   const titleId = useId();
+  const dialogRef = useRef<HTMLElement>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
@@ -40,6 +42,12 @@ export function CameraCaptureDialog({
   const [state, setState] = useState<CameraState>("idle");
   const [capturedDataUrl, setCapturedDataUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  useModalBehavior({
+    closeDisabled: isBusy,
+    containerRef: dialogRef,
+    onClose: onCancel,
+    open,
+  });
 
   useEffect(() => {
     if (!open) {
@@ -214,11 +222,14 @@ export function CameraCaptureDialog({
       data-motion="overlay"
     >
       <section
+        ref={dialogRef}
         aria-labelledby={titleId}
         aria-modal="true"
         className="flex max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-lg border bg-card text-card-foreground shadow-xl"
         data-motion="dialog"
+        data-modal-layer="true"
         role="dialog"
+        tabIndex={-1}
       >
         <header className="flex items-start justify-between gap-4 border-b bg-muted px-5 py-4">
           <div>

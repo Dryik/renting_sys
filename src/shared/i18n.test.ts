@@ -90,14 +90,35 @@ describe("language and formatting helpers", () => {
     expect(translate("ar", "vehicle.document.archived")).toBe("حذف وثيقة مركبة");
   });
 
+  it("translates the critical UI optimization labels", () => {
+    expect(translate("ar", "Search loans")).toBe("ابحث في السلف");
+    expect(translate("ar", "ARAK Rental System")).toBe("نظام أراك للتأجير");
+    expect(translate("ar", "Additional Reports")).toBe("تقارير إضافية");
+    expect(translate("ar", "Export Excel")).toBe("تصدير Excel");
+    expect(translate("ar", "Save Backup File")).toBe("حفظ ملف النسخة الاحتياطية");
+    expect(translate("ar", "Discard unsaved changes?")).toBe(
+      "هل تريد تجاهل التغييرات غير المحفوظة؟",
+    );
+  });
+
+  it("isolates interpolated values in Arabic text", () => {
+    expect(
+      translate("ar", "Trial mode: {{days}} days remaining.", { days: 2 }),
+    ).toBe("الوضع التجريبي: متبقي \u20682\u2069 يوم.");
+    expect(
+      translate("en", "Trial mode: {{days}} days remaining.", { days: 2 }),
+    ).toBe("Trial mode: 2 days remaining.");
+  });
+
   it("formats dates and money with the requested locale", () => {
-    expect(formatDateForLanguage("2026-05-19T10:00:00.000Z", "en")).toContain(
-      "2026",
+    expect(formatDateForLanguage("2026-05-19T10:00:00.000Z", "en")).toBe(
+      "2026-05-19",
     );
     expect(
       formatDateTimeForLanguage("2026-05-19T10:00:00.000Z", "ar"),
     ).toMatch(/2026|٢٠٢٦/);
-    expect(formatMoney(1250, "LYD", "ar-LY-u-nu-latn")).toBe("د.ل 1,250.00");
+    expect(formatMoney(1250, "LYD", "ar-LY-u-nu-latn")).toBe("1,250.00 د.ل");
+    expect(formatMoney(1250, "LYD", "en-US")).toBe("LYD 1,250.00");
     expect(formatMoney(12.5, "$", "en-US")).toBe("$12.50");
   });
 

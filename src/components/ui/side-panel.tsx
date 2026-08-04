@@ -1,13 +1,16 @@
 import { X } from "lucide-react";
-import { useEffect, useId, type ReactNode } from "react";
+import { useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/hooks/useI18n";
+import { useModalBehavior } from "@/hooks/useModalBehavior";
 import { cn } from "@/lib/utils";
 
 type SidePanelProps = {
   children: ReactNode;
+  closeDisabled?: boolean;
   description?: ReactNode;
+  footer?: ReactNode;
   onClose: () => void;
   open: boolean;
   title: string;
@@ -21,7 +24,9 @@ const widthClass: Record<NonNullable<SidePanelProps["width"]>, string> = {
 
 export function SidePanel({
   children,
+  closeDisabled = false,
   description,
+  footer,
   onClose,
   open,
   title,
@@ -30,23 +35,8 @@ export function SidePanel({
   const { t } = useI18n();
   const titleId = useId();
   const descriptionId = useId();
-
-  useEffect(() => {
-    if (!open || typeof document === "undefined") {
-      return undefined;
-    }
-
-    const previousBodyOverflow = document.body.style.overflow;
-    const previousHtmlOverflow = document.documentElement.style.overflow;
-
-    document.body.style.overflow = "hidden";
-    document.documentElement.style.overflow = "hidden";
-
-    return () => {
-      document.body.style.overflow = previousBodyOverflow;
-      document.documentElement.style.overflow = previousHtmlOverflow;
-    };
-  }, [open]);
+  const dialogRef = useRef<HTMLElement>(null);
+  useModalBehavior({ closeDisabled, containerRef: dialogRef, onClose, open });
 
   if (!open) {
     return null;
@@ -58,6 +48,7 @@ export function SidePanel({
       data-motion="overlay"
     >
       <section
+        ref={dialogRef}
         aria-describedby={description ? descriptionId : undefined}
         aria-labelledby={titleId}
         aria-modal="true"
@@ -66,7 +57,9 @@ export function SidePanel({
           widthClass[width],
         )}
         data-motion="dialog"
+        data-modal-layer="true"
         role="dialog"
+        tabIndex={-1}
       >
         <header className="flex min-h-16 shrink-0 items-start justify-between gap-4 border-b border-border/80 bg-muted px-5 py-4">
           <div className="min-w-0">
@@ -83,6 +76,7 @@ export function SidePanel({
             type="button"
             variant="ghost"
             size="icon"
+            disabled={closeDisabled}
             onClick={onClose}
             aria-label={t("Close")}
           >
@@ -90,6 +84,11 @@ export function SidePanel({
           </Button>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto p-5">{children}</div>
+        {footer ? (
+          <footer className="shrink-0 border-t border-border/80 bg-card px-5 py-4">
+            {footer}
+          </footer>
+        ) : null}
       </section>
     </div>
   );

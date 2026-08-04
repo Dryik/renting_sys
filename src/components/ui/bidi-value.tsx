@@ -15,10 +15,13 @@ export function BidiValue({
   ...props
 }: BidiValueProps) {
   const textValue = value === null || value === undefined ? "" : String(value);
-  const libyanMoney = textValue.match(/^(-?)د\.ل\s+(.+)$/);
+  const libyanMoneyPrefix = textValue.match(/^(-?)د\.ل\s+(.+)$/);
+  const libyanMoneySuffix = textValue.match(/^(.+?)\s+د\.ل$/);
 
-  if (libyanMoney) {
-    const [, sign, amount] = libyanMoney;
+  if (libyanMoneyPrefix || libyanMoneySuffix) {
+    const sign = libyanMoneyPrefix?.[1] ?? "";
+    const amount = libyanMoneyPrefix?.[2] ?? libyanMoneySuffix?.[1] ?? "";
+    const currencyFirst = Boolean(libyanMoneyPrefix);
 
     return (
       <span
@@ -32,9 +35,9 @@ export function BidiValue({
         )}
         {...props}
       >
-        {sign ? <span dir="ltr">{sign}</span> : null}
-        <span dir="ltr">د.ل</span>
-        <span dir="ltr">{amount}</span>
+        {currencyFirst ? <span dir="rtl">د.ل</span> : null}
+        <span dir="ltr">{sign}{amount}</span>
+        {!currencyFirst ? <span dir="rtl">د.ل</span> : null}
       </span>
     );
   }

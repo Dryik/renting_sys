@@ -27,6 +27,7 @@ type AppShellProps<TId extends string> = {
 };
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "arak_sidebar_collapsed";
+const COMPACT_SIDEBAR_MEDIA_QUERY = "(max-width: 1180px)";
 
 export function AppShell<TId extends string>({
   activePage,
@@ -38,13 +39,25 @@ export function AppShell<TId extends string>({
   shopName,
   t,
 }: AppShellProps<TId>) {
-  const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true";
-    } catch {
-      return false;
+  const [isCollapsed, setIsCollapsed] = useState<boolean>(getInitialCollapsedState);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
     }
-  });
+
+    const mediaQuery = window.matchMedia(COMPACT_SIDEBAR_MEDIA_QUERY);
+    const collapseForSmallWindow = (event: MediaQueryListEvent | MediaQueryList) => {
+      if (event.matches) {
+        setIsCollapsed(true);
+      }
+    };
+
+    collapseForSmallWindow(mediaQuery);
+    mediaQuery.addEventListener("change", collapseForSmallWindow);
+
+    return () => mediaQuery.removeEventListener("change", collapseForSmallWindow);
+  }, []);
 
   useEffect(() => {
     try {
@@ -63,11 +76,11 @@ export function AppShell<TId extends string>({
         "relative grid min-h-screen overflow-hidden bg-background text-foreground transition-[grid-template-columns] duration-300 ease-in-out",
         dir === "rtl"
           ? isCollapsed
-            ? "grid-cols-[minmax(0,1fr)_4.5rem]"
-            : "grid-cols-[minmax(0,1fr)_17rem]"
+            ? "grid-cols-[minmax(0,1fr)_4.25rem]"
+            : "grid-cols-[minmax(0,1fr)_15rem]"
           : isCollapsed
-            ? "grid-cols-[4.5rem_minmax(0,1fr)]"
-            : "grid-cols-[17rem_minmax(0,1fr)]",
+            ? "grid-cols-[4.25rem_minmax(0,1fr)]"
+            : "grid-cols-[15rem_minmax(0,1fr)]",
       )}
     >
       {shopLogoDataUrl ? (
@@ -145,7 +158,10 @@ export function AppShell<TId extends string>({
                   </div>
                 )}
                 <div className="min-w-0 flex-1">
-                  <h1 className="truncate text-sm font-bold leading-tight text-foreground">
+                  <h1
+                    className="line-clamp-2 text-sm font-bold leading-5 text-foreground"
+                    title={shopName}
+                  >
                     {shopName}
                   </h1>
                 </div>
@@ -253,4 +269,17 @@ function getInitial(shopName: string): string {
   }
 
   return trimmed.slice(0, 1).toUpperCase();
+}
+
+function getInitialCollapsedState(): boolean {
+  try {
+    if (localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true") {
+      return true;
+    }
+  } catch {
+    // Fall through to the viewport preference.
+  }
+
+  return typeof window !== "undefined" &&
+    window.matchMedia(COMPACT_SIDEBAR_MEDIA_QUERY).matches;
 }

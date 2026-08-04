@@ -218,6 +218,6 @@ describe("rental calculations", () => {
 
   it("formats money with a symbol fallback", () => {
     expect(formatMoney(12.5, "$")).toBe("$12.50");
-    expect(formatMoney(1250, "LYD", "ar-LY-u-nu-latn")).toBe("د.ل 1,250.00");
+    expect(formatMoney(1250, "LYD", "ar-LY-u-nu-latn")).toBe("1,250.00 د.ل");
   });
 });

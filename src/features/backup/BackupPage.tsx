@@ -203,7 +203,7 @@ export function BackupPage() {
               <Download className="size-5" />
             </div>
             <div>
-              <CardTitle>{t("Create Backup Archive")}</CardTitle>
+              <CardTitle>{t("Save Backup File")}</CardTitle>
               <CardDescription>{t("Export all shop data to a ZIP file.")}</CardDescription>
             </div>
           </div>
@@ -263,7 +263,7 @@ export function BackupPage() {
             ) : (
               <Download className="size-4" />
             )}
-            {t("Export Backup ZIP")}
+            {t("Save Backup File")}
           </Button>
         </CardContent>
       </Card>
@@ -295,17 +295,17 @@ export function BackupPage() {
           <div className="flex flex-wrap gap-2">
             <Button size="lg" variant="outline" onClick={() => void handlePreview()} disabled={isLoading || !canRestore}>
               <FileCheck2 className="size-4" />
-              {t("Choose backup")}
+              {t("Choose Backup File")}
             </Button>
             <Button
               disabled={isLoading || !canRestore || !canVerifyRestore}
               size="lg"
-              title={!canVerifyRestore ? t("Choose backup") : undefined}
+              title={!canVerifyRestore ? t("Choose Backup File") : undefined}
               variant="outline"
               onClick={() => void handleVerify()}
             >
               <ShieldCheck className="size-4" />
-              {t("Verify")}
+              {t("Check Backup")}
             </Button>
             <Button
               size="lg"
@@ -321,7 +321,7 @@ export function BackupPage() {
               ) : (
                 <Upload className="size-4" />
               )}
-              {t("Restore backup")}
+              {t("Restore Backup")}
             </Button>
           </div>
           {restoreFilePath || !restoreVerified ? (
@@ -348,7 +348,7 @@ export function BackupPage() {
             <StatusBanner
               icon={<Loader2 className="size-5 animate-spin" />}
               message={t(busyAction === "backup" ? "Backup concise help" : "Restore concise warning")}
-              title={busyAction === "backup" ? t("Export Backup ZIP") : t("Restore Backup")}
+              title={busyAction === "backup" ? t("Save Backup File") : t("Restore Backup")}
               tone="info"
             />
           ) : status.type ? (
