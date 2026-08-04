@@ -81,7 +81,7 @@ export function LicensePage({ onStatusChange, status }: LicensePageProps) {
   }
 
   return (
-    <div className="flex max-w-5xl flex-col gap-6">
+    <div className="flex w-full flex-col gap-6">
       <section className="rounded-lg border bg-card p-5 shadow-xs">
         <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_260px]">
           <div className="flex min-w-0 items-start gap-4">

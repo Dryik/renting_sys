@@ -454,7 +454,7 @@ export function SettingsPage({
   }
 
   return (
-    <div className="flex max-w-7xl flex-col gap-6">
+    <div className="flex w-full flex-col gap-6">
       <section className="rounded-2xl border border-border/80 bg-card p-5 shadow-sm">
         <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_260px]">
           <div className="flex min-w-0 items-start gap-4">

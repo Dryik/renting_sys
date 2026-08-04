@@ -92,58 +92,79 @@ export function AppShell<TId extends string>({
         )}
       >
         {/* Sidebar Header & Brand */}
-        <div className="border-b border-border/40 px-3 py-4">
-          <div className="flex items-center justify-between gap-2">
-            <div
-              className={cn(
-                "flex items-center gap-3 rounded-2xl bg-muted/40 transition-all duration-300",
-                isCollapsed ? "p-2 justify-center" : "px-3 py-3 w-full",
-              )}
-            >
-              {shopLogoDataUrl ? (
-                <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border bg-card">
-                  <img
-                    alt={shopName}
-                    className="max-h-8 max-w-8 object-contain"
-                    src={shopLogoDataUrl}
-                  />
-                </div>
-              ) : (
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary text-base font-bold text-primary-foreground shadow-sm">
-                  {getInitial(shopName)}
-                </div>
-              )}
-              {!isCollapsed ? (
+        <div className="border-b border-border/40 p-2 sm:p-3">
+          {isCollapsed ? (
+            <div className="flex flex-col items-center gap-2 py-1">
+              <button
+                type="button"
+                onClick={toggleSidebar}
+                title={t("Expand Sidebar")}
+                className="flex items-center justify-center rounded-xl bg-muted/50 p-1.5 transition-transform hover:scale-105 active:scale-95"
+              >
+                {shopLogoDataUrl ? (
+                  <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border bg-card">
+                    <img
+                      alt={shopName}
+                      className="max-h-8 max-w-8 object-contain"
+                      src={shopLogoDataUrl}
+                    />
+                  </div>
+                ) : (
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary text-base font-bold text-primary-foreground shadow-sm">
+                    {getInitial(shopName)}
+                  </div>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={toggleSidebar}
+                title={t("Expand Sidebar")}
+                className="flex size-8 items-center justify-center rounded-lg border border-border/70 bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:scale-95"
+              >
+                {dir === "rtl" ? (
+                  <ChevronLeft className="size-4" />
+                ) : (
+                  <ChevronRight className="size-4" />
+                )}
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex w-full items-center gap-3 rounded-2xl bg-muted/40 px-3 py-2.5">
+                {shopLogoDataUrl ? (
+                  <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border bg-card">
+                    <img
+                      alt={shopName}
+                      className="max-h-8 max-w-8 object-contain"
+                      src={shopLogoDataUrl}
+                    />
+                  </div>
+                ) : (
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary text-base font-bold text-primary-foreground shadow-sm">
+                    {getInitial(shopName)}
+                  </div>
+                )}
                 <div className="min-w-0 flex-1">
                   <h1 className="truncate text-sm font-bold leading-tight text-foreground">
                     {shopName}
                   </h1>
                 </div>
-              ) : null}
-            </div>
+              </div>
 
-            <button
-              type="button"
-              onClick={toggleSidebar}
-              title={isCollapsed ? t("Expand Sidebar") : t("Collapse Sidebar")}
-              className={cn(
-                "flex size-9 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-muted/30 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:scale-95",
-                isCollapsed && "mx-auto mt-2",
-              )}
-            >
-              {isCollapsed ? (
-                dir === "rtl" ? (
-                  <ChevronLeft className="size-4" />
+              <button
+                type="button"
+                onClick={toggleSidebar}
+                title={t("Collapse Sidebar")}
+                className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-muted/30 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:scale-95"
+              >
+                {dir === "rtl" ? (
+                  <PanelLeftOpen className="size-4" />
                 ) : (
-                  <ChevronRight className="size-4" />
-                )
-              ) : dir === "rtl" ? (
-                <PanelLeftOpen className="size-4" />
-              ) : (
-                <PanelLeftClose className="size-4" />
-              )}
-            </button>
-          </div>
+                  <PanelLeftClose className="size-4" />
+                )}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Navigation Items */}

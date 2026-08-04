@@ -169,7 +169,7 @@ export function BackupPage() {
   }
 
   return (
-    <div className="flex max-w-6xl flex-col gap-6" aria-busy={isLoading}>
+    <div className="flex w-full flex-col gap-6" aria-busy={isLoading}>
       <section className="rounded-2xl border border-border/80 bg-card p-5 shadow-sm">
         <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_280px]">
           <div className="flex min-w-0 items-start gap-4">

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-04T15:13:13.597Z",
+  "generatedAt": "2026-08-04T15:19:07.807Z",
   "app": "ARAK Rental Desk",
   "language": "ar/en",
   "direction": "rtl/ltr",
@@ -8,7 +8,7 @@
     "height": 1000,
     "scaleFactor": 1
   },
-  "syntheticUserDataDir": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\arak-visual-qa-YkhdVk",
+  "syntheticUserDataDir": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\arak-visual-qa-IfPxO7",
   "screenshots": [
     {
       "file": "17-first-owner-setup-ar.png",
@@ -24,7 +24,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "15c1b34949d10421fdd9864ffcc7aaf71eb2d9fc3064b6fb1558cd5cfc4d0854"
+      "sha256": "ee0f4c5921bf480b5b9971a7ec0e4d5d412cb721ab9f620a82e15f590468d635"
     },
     {
       "file": "21-new-rental-form-ar.png",
@@ -32,7 +32,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "6814d5f64220248eaffc5b2089c11f70eb3e364b9329bc2455950b482241e463"
+      "sha256": "d87b502429dd0ad1afd6476e5c697d0f305647629b0178f99e037f785abe17f8"
     },
     {
       "file": "02-vehicles-ar.png",
@@ -56,7 +56,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "8789fd58c2306a92d5732204b752c497a05534b0b03b88743bca80291c2f13ae"
+      "sha256": "38e8a5fb748943e08c00fa448ce329ea2e449847012cdaee51f6567fc0e18396"
     },
     {
       "file": "22-accounting-balances-ar.png",
@@ -64,7 +64,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "5a2437c3cb190e17bd8e934fe2fd59434ac9a45dda2ee5af289d9547afbea3af"
+      "sha256": "7029676d75c9d03cba8526e3b190f01538a686b91f8ed2f2d674486c9a18f44e"
     },
     {
       "file": "05-maintenance-ar.png",
@@ -80,7 +80,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "6b894f0885b76ce12debf2a7ac63b9451aaffbe803e0031b8ea6bae04991b212"
+      "sha256": "36fd57dbac2dd9f63f31588a98203ecadddee7eb2c3f1f7b866e6bbb77e69c50"
     },
     {
       "file": "08-reports-overdue-ar.png",
@@ -88,7 +88,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "69fed2b86c9fcd32482e880673921b680ebd513c7c22d52993b2240834edcdd2"
+      "sha256": "373e7b6c4c937e640d96608bcee82878ec89ddb06da682b5d830caa10c601e90"
     },
     {
       "file": "09-reports-daily-closing-ar.png",
@@ -96,7 +96,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "d265dab28e8391e71e12f2a36604c43314af4c60f36c18a4ca1e1773cd96d200"
+      "sha256": "d5ab44815093a88078e61bb2989e3c73143678b39466f87f8f22c6a591919fff"
     },
     {
       "file": "10-reports-customer-history-ar.png",
@@ -104,7 +104,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "096710cdc9a93205466309fae13d6217c35f6515167d6ba64ecaca146edfbae4"
+      "sha256": "218ee1fc157c6a02139f3f4785ff0db9c90efd4b8d191499a646ef22aac87157"
     },
     {
       "file": "11-reports-empty-state-ar.png",
@@ -136,7 +136,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "18000d96b7b09dadcbbf28d124160ca5193e3f16b34171ba8c6be5cd8a711a28"
+      "sha256": "19914b1c4bf8053429147241d6100d0d35b5f67f43d95ddd24fe5519d37dd070"
     },
     {
       "file": "15-activity-log-ar.png",
@@ -144,7 +144,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "8b084bd7b350037b0f4907f4815ab0a1b673d31eca372c19d63240d6a4a5ac65"
+      "sha256": "5c16d5b2f484e4eed912184ade93b4c8d72c3137ffe3172e7b93864f21ad1d11"
     },
     {
       "file": "20-rental-or-payment-details-ar.png",
@@ -152,7 +152,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "7bf43991d20d7cb8a2618af29e80f5418506e486e8399ce323f5acd8f5755678"
+      "sha256": "931bf2f913a76dd07c909aec8795f47f2c5a41a4649e3ed51234b23c0e2e5917"
     },
     {
       "file": "19-user-menu-ar.png",
@@ -160,7 +160,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "d376558e3689bfe86481606ee305b374c26302c7292c9770c3d7bcde6d5239e6"
+      "sha256": "38f9ab05f4e4f1503519c40a8beb4bd859dc60bbe882c564256ccd68fdd9447c"
     },
     {
       "file": "18-lock-screen-ar.png",
@@ -184,7 +184,7 @@
       "direction": "ltr",
       "width": 1440,
       "height": 1000,
-      "sha256": "2f135274af76b8531ecc8c5eab926ee802b81d6931d4b4b85dad91f836b07431"
+      "sha256": "870d1053be8b2bf91e01a3a9213a42954f8620be921a67653026960286fb517b"
     },
     {
       "file": "02-payments-en.png",
@@ -192,7 +192,7 @@
       "direction": "ltr",
       "width": 1440,
       "height": 1000,
-      "sha256": "c0c9cca7c355422ba582e760063b0b15e9b5e74fc60904dee8d8f711f536caf5"
+      "sha256": "8713e2584a4bf4d1b899881542ca37b8345400618163088484b3c4a039cf3106"
     },
     {
       "file": "03-reports-en.png",
@@ -200,7 +200,7 @@
       "direction": "ltr",
       "width": 1440,
       "height": 1000,
-      "sha256": "70c703e5ae726a33540a381e0404f0cf00f143bfc7d0795b3f64e4b677b87f40"
+      "sha256": "ba2b1a4fcc21a19475cdae41eb152ae8a509c03efca496b2cd1481e2140ebd8e"
     },
     {
       "file": "04-settings-en.png",
@@ -220,6 +220,10 @@
     }
   ],
   "notes": [
-    "electron stderr: DevTools listening on ws://127.0.0.1:9322/devtools/browser/679c7b0d-8327-4509-b34b-b2926b384e39"
+    "electron stderr: DevTools listening on ws://127.0.0.1:9322/devtools/browser/3bfbb603-caf8-4ae9-8610-6b0cd2f2804c",
+    "electron stderr: [492:0804/171821.047:ERROR:net\\disk_cache\\cache_util_win.cc:25] Unable to move the cache: Access is denied. (0x5)",
+    "electron stderr: [492:0804/171821.047:ERROR:net\\disk_cache\\cache_util_win.cc:25] Unable to move the cache: Access is denied. (0x5)",
+    "electron stderr: [492:0804/171821.047:ERROR:net\\disk_cache\\cache_util_win.cc:25] Unable to move the cache: Access is denied. (0x5)",
+    "electron stderr: [492:0804/171821.050:ERROR:net\\disk_cache\\disk_cache.cc:236] Unable to create cache\r\n[492:0804/171821.050:ERROR:gpu\\ipc\\host\\gpu_disk_cache.cc:724] Gpu Cache Creation failed: -2\r\n[492:0804/171821.050:ERROR:net\\disk_cache\\disk_cache.cc:236] Unable to create cache\r\n[492:0804/171821.050:ERROR:gpu\\ipc\\host\\gpu_disk_cache.cc:724] Gpu Cache Creation failed: -2\r\n[492:0804/171821.050:ERROR:net\\disk_cache\\disk_cache.cc:236] Unable to create cache\r\n[492:0804/171821.050:ERROR:gpu\\ipc\\host\\gpu_disk_cache.cc:724] Gpu Cache Creation failed: -2"
   ]
 }
