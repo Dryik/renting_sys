@@ -1,5 +1,11 @@
-import type { LucideIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  PanelLeftClose,
+  PanelLeftOpen,
+  type LucideIcon,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type ShellNavigationItem<TId extends string> = {
@@ -20,6 +26,8 @@ type AppShellProps<TId extends string> = {
   t: (key: string) => string;
 };
 
+const SIDEBAR_COLLAPSED_STORAGE_KEY = "arak_sidebar_collapsed";
+
 export function AppShell<TId extends string>({
   activePage,
   children,
@@ -30,14 +38,36 @@ export function AppShell<TId extends string>({
   shopName,
   t,
 }: AppShellProps<TId>) {
+  const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(isCollapsed));
+    } catch {
+      // Ignore storage errors
+    }
+  }, [isCollapsed]);
+
+  const toggleSidebar = () => setIsCollapsed((prev) => !prev);
+
   return (
     <div
       dir="ltr"
       className={cn(
-        "relative grid min-h-screen overflow-hidden bg-background text-foreground",
+        "relative grid min-h-screen overflow-hidden bg-background text-foreground transition-[grid-template-columns] duration-300 ease-in-out",
         dir === "rtl"
-          ? "grid-cols-[minmax(0,1fr)_17rem]"
-          : "grid-cols-[17rem_minmax(0,1fr)]",
+          ? isCollapsed
+            ? "grid-cols-[minmax(0,1fr)_4.5rem]"
+            : "grid-cols-[minmax(0,1fr)_17rem]"
+          : isCollapsed
+            ? "grid-cols-[4.5rem_minmax(0,1fr)]"
+            : "grid-cols-[17rem_minmax(0,1fr)]",
       )}
     >
       {shopLogoDataUrl ? (
@@ -56,40 +86,77 @@ export function AppShell<TId extends string>({
       <aside
         dir={dir}
         className={cn(
-          "sticky top-0 row-start-1 z-10 flex h-screen min-w-0 flex-col border-border/40 bg-card/65 backdrop-blur-md",
+          "sticky top-0 row-start-1 z-10 flex h-screen min-w-0 flex-col border-border/40 bg-card/65 backdrop-blur-md transition-all duration-300 ease-in-out",
           dir === "rtl" ? "border-l" : "border-r",
           dir === "rtl" ? "col-start-2" : "col-start-1",
         )}
       >
-        <div className="border-b border-border/40 px-5 py-5">
-          <div className="flex items-center gap-3 rounded-2xl bg-muted/40 px-3 py-3">
-            {shopLogoDataUrl ? (
-              <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border bg-card">
-                <img
-                  alt={shopName}
-                  className="max-h-9 max-w-9 object-contain"
-                  src={shopLogoDataUrl}
-                />
-              </div>
-            ) : (
-              <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary text-lg font-bold text-primary-foreground shadow-sm">
-                {getInitial(shopName)}
-              </div>
-            )}
-              <div className="min-w-0">
-                <h1 className="truncate text-base font-bold leading-tight text-foreground">
-                  {shopName}
-                </h1>
-              </div>
+        {/* Sidebar Header & Brand */}
+        <div className="border-b border-border/40 px-3 py-4">
+          <div className="flex items-center justify-between gap-2">
+            <div
+              className={cn(
+                "flex items-center gap-3 rounded-2xl bg-muted/40 transition-all duration-300",
+                isCollapsed ? "p-2 justify-center" : "px-3 py-3 w-full",
+              )}
+            >
+              {shopLogoDataUrl ? (
+                <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border bg-card">
+                  <img
+                    alt={shopName}
+                    className="max-h-8 max-w-8 object-contain"
+                    src={shopLogoDataUrl}
+                  />
+                </div>
+              ) : (
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary text-base font-bold text-primary-foreground shadow-sm">
+                  {getInitial(shopName)}
+                </div>
+              )}
+              {!isCollapsed ? (
+                <div className="min-w-0 flex-1">
+                  <h1 className="truncate text-sm font-bold leading-tight text-foreground">
+                    {shopName}
+                  </h1>
+                </div>
+              ) : null}
+            </div>
+
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              title={isCollapsed ? t("Expand Sidebar") : t("Collapse Sidebar")}
+              className={cn(
+                "flex size-9 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-muted/30 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:scale-95",
+                isCollapsed && "mx-auto mt-2",
+              )}
+            >
+              {isCollapsed ? (
+                dir === "rtl" ? (
+                  <ChevronLeft className="size-4" />
+                ) : (
+                  <ChevronRight className="size-4" />
+                )
+              ) : dir === "rtl" ? (
+                <PanelLeftOpen className="size-4" />
+              ) : (
+                <PanelLeftClose className="size-4" />
+              )}
+            </button>
           </div>
         </div>
 
-        <nav className="flex flex-1 flex-col gap-4 overflow-y-auto px-3 py-4">
+        {/* Navigation Items */}
+        <nav className="flex flex-1 flex-col gap-4 overflow-y-auto px-2 py-4">
           {getNavigationGroups(navigation).map((group) => (
             <div key={group.label} className="flex flex-col gap-1">
-              <p className="px-3 text-xs font-bold text-muted-foreground">
-                {t(group.label)}
-              </p>
+              {!isCollapsed ? (
+                <p className="px-3 text-xs font-bold text-muted-foreground">
+                  {t(group.label)}
+                </p>
+              ) : (
+                <div className="my-1 border-t border-border/40" />
+              )}
               {group.items.map((item) => {
                 const Icon = item.icon;
                 const isActive = item.id === activePage;
@@ -99,9 +166,13 @@ export function AppShell<TId extends string>({
                     key={item.id}
                     type="button"
                     onClick={() => onNavigate(item.id)}
+                    title={isCollapsed ? t(item.label) : undefined}
                     aria-current={isActive ? "page" : undefined}
                     className={cn(
-                      "flex h-11 w-full items-center gap-3 rounded-xl px-3 text-start text-sm font-semibold transition-all duration-200 active:scale-98",
+                      "flex h-11 items-center rounded-xl text-start text-sm font-semibold transition-all duration-200 active:scale-98",
+                      isCollapsed
+                        ? "justify-center px-0 w-full"
+                        : "w-full gap-3 px-3",
                       isActive
                         ? "bg-accent/80 text-primary shadow-xs hover:bg-accent hover:text-primary"
                         : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
@@ -110,14 +181,15 @@ export function AppShell<TId extends string>({
                     <Icon
                       className={cn("size-5 shrink-0", isActive && "text-primary")}
                     />
-                    <span className="truncate">{t(item.label)}</span>
+                    {!isCollapsed ? (
+                      <span className="truncate">{t(item.label)}</span>
+                    ) : null}
                   </button>
                 );
               })}
             </div>
           ))}
         </nav>
-
       </aside>
 
       <main

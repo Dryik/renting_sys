@@ -1451,6 +1451,8 @@ const ar: Record<string, string> = {
   "New Version {{version}} Ready!": "إصدار جديد {{version}} جاهز!",
   "A new update has been downloaded. Restart the application to apply changes.": "تم تنزيل تحديث جديد. أعد تشغيل التطبيق لتطبيق التغييرات.",
   "Restart & Update": "إعادة التشغيل والتحديث",
+  "Expand Sidebar": "توسيع القائمة الجانبية",
+  "Collapse Sidebar": "طي القائمة الجانبية",
 };
 
 export function translate(

@@ -1,9 +1,9 @@
 # ARAK Rental Desk Visual QA
 
-Generated: 2026-07-28T16:30:50.768Z
+Generated: 2026-08-04T15:13:13.597Z
 Screenshot directory: C:\Projects\renting_sys\docs\screenshots
 Viewport: 1440x1000, scale factor 1
-Synthetic user data: C:\Users\ADMINI~1\AppData\Local\Temp\arak-visual-qa-p2lgaK
+Synthetic user data: C:\Users\ADMINI~1\AppData\Local\Temp\arak-visual-qa-YkhdVk
 
 ## Screenshots Captured
 
@@ -44,16 +44,7 @@ Synthetic user data: C:\Users\ADMINI~1\AppData\Local\Temp\arak-visual-qa-p2lgaK
 
 ## Follow-ups
 
-- electron stderr: DevTools listening on ws://127.0.0.1:9322/devtools/browser/713b1b64-8263-448c-9e25-617cbd6d2249
-- electron stderr: [12208:0728/183004.912:ERROR:net\disk_cache\cache_util_win.cc:25] Unable to move the cache: Access is denied. (0x5)
-[12208:0728/183004.912:ERROR:net\disk_cache\cache_util_win.cc:25] Unable to move the cache: Access is denied. (0x5)
-[12208:0728/183004.912:ERROR:net\disk_cache\cache_util_win.cc:25] Unable to move the cache: Access is denied. (0x5)
-- electron stderr: [12208:0728/183004.917:ERROR:net\disk_cache\disk_cache.cc:236] Unable to create cache
-[12208:0728/183004.917:ERROR:gpu\ipc\host\gpu_disk_cache.cc:724] Gpu Cache Creation failed: -2
-- electron stderr: [12208:0728/183004.918:ERROR:net\disk_cache\disk_cache.cc:236] Unable to create cache
-[12208:0728/183004.918:ERROR:gpu\ipc\host\gpu_disk_cache.cc:724] Gpu Cache Creation failed: -2
-[12208:0728/183004.918:ERROR:net\disk_cache\disk_cache.cc:236] Unable to create cache
-[12208:0728/183004.918:ERROR:gpu\ipc\host\gpu_disk_cache.cc:724] Gpu Cache Creation failed: -2
+- electron stderr: DevTools listening on ws://127.0.0.1:9322/devtools/browser/679c7b0d-8327-4509-b34b-b2926b384e39
 
 ## Commands Run
 

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-28T16:30:50.768Z",
+  "generatedAt": "2026-08-04T15:13:13.597Z",
   "app": "ARAK Rental Desk",
   "language": "ar/en",
   "direction": "rtl/ltr",
@@ -8,7 +8,7 @@
     "height": 1000,
     "scaleFactor": 1
   },
-  "syntheticUserDataDir": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\arak-visual-qa-p2lgaK",
+  "syntheticUserDataDir": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\arak-visual-qa-YkhdVk",
   "screenshots": [
     {
       "file": "17-first-owner-setup-ar.png",
@@ -24,7 +24,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "e9f50d4c76c62fb4ea53da9c0cb115c510dbd78a6cfb7fb8535b18f08f6ecdfd"
+      "sha256": "15c1b34949d10421fdd9864ffcc7aaf71eb2d9fc3064b6fb1558cd5cfc4d0854"
     },
     {
       "file": "21-new-rental-form-ar.png",
@@ -32,7 +32,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "73a5df4c15de5373fee7fba29efc1c3010a3ee460fbb3059f711adab8ddffb59"
+      "sha256": "6814d5f64220248eaffc5b2089c11f70eb3e364b9329bc2455950b482241e463"
     },
     {
       "file": "02-vehicles-ar.png",
@@ -40,7 +40,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "bab1b40ef1f8942317f8632f04ff99d5caf51f67d603399b5326fb8f45e73db8"
+      "sha256": "2d2e4065a410eb19ef654db3a4677966e5668f40b2ac17c3fc2f6e75b7db396f"
     },
     {
       "file": "03-customers-ar.png",
@@ -48,7 +48,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "bda4bc19fa79325ecf333088195d280e114fb2da26c10849aced74cb0f56e2e6"
+      "sha256": "99c7e35a56cc7d370eda1dcca7dbe13ab45b75080e2c635e0e744bc0a6569b20"
     },
     {
       "file": "04-payments-ar.png",
@@ -56,7 +56,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "f5021f1efdf45814b175d9d3f5a977355a7fb37d25db9ddb69e86e902aee878c"
+      "sha256": "8789fd58c2306a92d5732204b752c497a05534b0b03b88743bca80291c2f13ae"
     },
     {
       "file": "22-accounting-balances-ar.png",
@@ -64,7 +64,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "2d4180c355bd2ab2c85183d9056a65a4c91b3ce2c0a5b285ad95f22b4e62cf73"
+      "sha256": "5a2437c3cb190e17bd8e934fe2fd59434ac9a45dda2ee5af289d9547afbea3af"
     },
     {
       "file": "05-maintenance-ar.png",
@@ -72,7 +72,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "b9d07d2baf8d65daeef3879433b22b12929f5a60174807df94c990025d647425"
+      "sha256": "dde6a4422b921ae7c7425308a537375957c3be413238c6d6c0dd9ebdd53f71a6"
     },
     {
       "file": "07-reports-active-ar.png",
@@ -80,7 +80,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "673bef7e30d7a2da5e2242b4c3469f4b531fc1b6e2007f755a90a1f374b8a557"
+      "sha256": "6b894f0885b76ce12debf2a7ac63b9451aaffbe803e0031b8ea6bae04991b212"
     },
     {
       "file": "08-reports-overdue-ar.png",
@@ -88,7 +88,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "8bd885175e4992f6402e099674201c3a7bb1dc0b2684c04feef29ff11bc1433d"
+      "sha256": "69fed2b86c9fcd32482e880673921b680ebd513c7c22d52993b2240834edcdd2"
     },
     {
       "file": "09-reports-daily-closing-ar.png",
@@ -96,7 +96,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "dc3baf15ca149b6132e5593ca982334556fd713dc09394857c9f6821aea11f4a"
+      "sha256": "d265dab28e8391e71e12f2a36604c43314af4c60f36c18a4ca1e1773cd96d200"
     },
     {
       "file": "10-reports-customer-history-ar.png",
@@ -104,7 +104,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "dc57cf6799288cbffa7976b89f691d5e6a0abea4e39bda63f9c0d3992dd4ea88"
+      "sha256": "096710cdc9a93205466309fae13d6217c35f6515167d6ba64ecaca146edfbae4"
     },
     {
       "file": "11-reports-empty-state-ar.png",
@@ -112,7 +112,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "adbb0341c2a2ef04266af7d94a050bef798c996f5ce073c0e1d2e3d5a2da7849"
+      "sha256": "1e809ec4a4c354b03a6c64dabf753f3c7e39a0cb68e435417373631645f93011"
     },
     {
       "file": "12-settings-ar.png",
@@ -120,7 +120,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "578bea0e1c04760f1c92a640edfce4ff5710851eb2d0f30b25204134d6bcb901"
+      "sha256": "3b0d868e8ef5afe1fa0db9df1a3ffbe4bb1da1bcffe1fb2bb3525962af416d2f"
     },
     {
       "file": "13-backup-ar.png",
@@ -136,7 +136,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "24b3bc8f49e5490144ed224979a8d8c91c9927930f39ffaf46c32b59772841b9"
+      "sha256": "18000d96b7b09dadcbbf28d124160ca5193e3f16b34171ba8c6be5cd8a711a28"
     },
     {
       "file": "15-activity-log-ar.png",
@@ -144,7 +144,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "f6a0c78e7634136afd098493f9eb049f0ea1f36ffeedfa4e4f44dc53e6b14c14"
+      "sha256": "8b084bd7b350037b0f4907f4815ab0a1b673d31eca372c19d63240d6a4a5ac65"
     },
     {
       "file": "20-rental-or-payment-details-ar.png",
@@ -152,7 +152,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "08a56692bf411db47a3cadc61c5d268fed94579c885f19bcbafd8c269ebdd3dc"
+      "sha256": "7bf43991d20d7cb8a2618af29e80f5418506e486e8399ce323f5acd8f5755678"
     },
     {
       "file": "19-user-menu-ar.png",
@@ -160,7 +160,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "4284a907be3039df344e0b76f2e3b6dd6c5a8f7a4e5dc8798d28352cf09ba051"
+      "sha256": "d376558e3689bfe86481606ee305b374c26302c7292c9770c3d7bcde6d5239e6"
     },
     {
       "file": "18-lock-screen-ar.png",
@@ -176,7 +176,7 @@
       "direction": "rtl",
       "width": 1440,
       "height": 1000,
-      "sha256": "2ab90a069dd0724ce321ad3323254be87634aeefb9950b2b7f3e02363e04811f"
+      "sha256": "e8743846b900359d4e0c66a112e1a8c6fb52f2c2247c92d3a738aef434285382"
     },
     {
       "file": "01-rentals-en.png",
@@ -184,7 +184,7 @@
       "direction": "ltr",
       "width": 1440,
       "height": 1000,
-      "sha256": "59955fa3506e2b45303df5297b32759b509c8e644c625ffc067006fd60c818c2"
+      "sha256": "2f135274af76b8531ecc8c5eab926ee802b81d6931d4b4b85dad91f836b07431"
     },
     {
       "file": "02-payments-en.png",
@@ -192,7 +192,7 @@
       "direction": "ltr",
       "width": 1440,
       "height": 1000,
-      "sha256": "0d678f5417886a3f595765949567b5cfdb3b551aa5cec9533da7668a8c512f4c"
+      "sha256": "c0c9cca7c355422ba582e760063b0b15e9b5e74fc60904dee8d8f711f536caf5"
     },
     {
       "file": "03-reports-en.png",
@@ -200,7 +200,7 @@
       "direction": "ltr",
       "width": 1440,
       "height": 1000,
-      "sha256": "023f447e41e573e9efcb35d68cc1bafdf1719bbede0f346af3d22b286e7eb92e"
+      "sha256": "70c703e5ae726a33540a381e0404f0cf00f143bfc7d0795b3f64e4b677b87f40"
     },
     {
       "file": "04-settings-en.png",
@@ -208,7 +208,7 @@
       "direction": "ltr",
       "width": 1440,
       "height": 1000,
-      "sha256": "acd6abdff853d6b6e0913a65de1304f96c5d1a1d59ed731944bc5119a80e4d26"
+      "sha256": "be46117cc0c1f3d4a00a90c8104f9fc0c9ddd68bc4d8adda1a09ee3f0777d285"
     },
     {
       "file": "05-login-en.png",
@@ -216,13 +216,10 @@
       "direction": "ltr",
       "width": 1440,
       "height": 1000,
-      "sha256": "395a7ff9bd7738397d31fa6828cf38374711c937a7b4dd420bf5360b94ee1827"
+      "sha256": "74871c21925c29865e9e922feb516e09376e4382d41818e25e80d9fc63a044a1"
     }
   ],
   "notes": [
-    "electron stderr: DevTools listening on ws://127.0.0.1:9322/devtools/browser/713b1b64-8263-448c-9e25-617cbd6d2249",
-    "electron stderr: [12208:0728/183004.912:ERROR:net\\disk_cache\\cache_util_win.cc:25] Unable to move the cache: Access is denied. (0x5)\r\n[12208:0728/183004.912:ERROR:net\\disk_cache\\cache_util_win.cc:25] Unable to move the cache: Access is denied. (0x5)\r\n[12208:0728/183004.912:ERROR:net\\disk_cache\\cache_util_win.cc:25] Unable to move the cache: Access is denied. (0x5)",
-    "electron stderr: [12208:0728/183004.917:ERROR:net\\disk_cache\\disk_cache.cc:236] Unable to create cache\r\n[12208:0728/183004.917:ERROR:gpu\\ipc\\host\\gpu_disk_cache.cc:724] Gpu Cache Creation failed: -2",
-    "electron stderr: [12208:0728/183004.918:ERROR:net\\disk_cache\\disk_cache.cc:236] Unable to create cache\r\n[12208:0728/183004.918:ERROR:gpu\\ipc\\host\\gpu_disk_cache.cc:724] Gpu Cache Creation failed: -2\r\n[12208:0728/183004.918:ERROR:net\\disk_cache\\disk_cache.cc:236] Unable to create cache\r\n[12208:0728/183004.918:ERROR:gpu\\ipc\\host\\gpu_disk_cache.cc:724] Gpu Cache Creation failed: -2"
+    "electron stderr: DevTools listening on ws://127.0.0.1:9322/devtools/browser/679c7b0d-8327-4509-b34b-b2926b384e39"
   ]
 }

@@ -22,7 +22,7 @@ export function DataTable({
     >
       <table
         className={cn(
-          "w-full border-collapse text-center text-sm leading-5",
+          "w-full border-collapse text-center text-sm leading-5 [&_tbody_tr:hover]:bg-muted/35 [&_tbody_tr]:transition-colors",
           className,
           "text-center",
         )}
