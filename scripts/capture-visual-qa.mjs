@@ -1,4 +1,4 @@
-/* global fetch, WebSocket, window */
+/* global window */
 import { Buffer } from "node:buffer";
 import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";

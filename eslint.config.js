@@ -35,7 +35,8 @@ export default tseslint.config(
     },
   },
   {
-    files: ["scripts/generate-license*.{mjs,cjs}", "scripts/perf-stress.cjs"],
+    // Build and maintenance scripts run under plain Node, not the app bundle.
+    files: ["scripts/**/*.{js,cjs,mjs}"],
     languageOptions: {
       ecmaVersion: 2022,
       globals: {

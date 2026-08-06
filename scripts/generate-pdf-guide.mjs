@@ -1,9 +1,7 @@
-/* global fetch, WebSocket */
 import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import process from "node:process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 

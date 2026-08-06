@@ -9,9 +9,7 @@ import {
   getLocaleForLanguage,
   type LanguageCode,
 } from "../../src/shared/language";
-import { formatMoney } from "../../src/shared/money";
 import {
-  calculateRentalDays,
   formatCollateralType,
   formatRentalStatus,
   type CollateralType,
@@ -203,7 +201,6 @@ export function buildRentalContractHtml(input: RentalContractDocumentInput): str
   const language = resolveContractPrintLanguage(settings, input.languageOverride);
   const primaryLanguage: LanguageCode = language === "en" ? "en" : "ar";
   const direction = getDirectionForLanguage(primaryLanguage);
-  const currency = settings.defaultCurrency;
   const tr = (key: string): string => {
     if (language === "both") {
       return `${translate("ar", key)} / ${translate("en", key)}`;
@@ -211,8 +208,6 @@ export function buildRentalContractHtml(input: RentalContractDocumentInput): str
     return translate(language, key);
   };
   const fallback = tr("N/A");
-  const money = (amount: number, selectedCurrency = currency): string =>
-    formatMoney(amount, selectedCurrency, getLocaleForLanguage(primaryLanguage));
   const dateTime = (value: string): string => formatDate(value, primaryLanguage, true);
   const dateOnly = (value: string | null): string =>
     value ? formatDate(value, primaryLanguage, false) : fallback;
@@ -225,10 +220,6 @@ export function buildRentalContractHtml(input: RentalContractDocumentInput): str
       <div class="field-label">${escapeHtml(tr(label))}</div>
       <div class="field-value">${valueIsHtml ? value : escapeHtml(value)}</div>
     </div>`;
-  const estimatedDays = calculateRentalDays(
-    rental.startDatetime,
-    rental.expectedReturnDatetime,
-  );
 
   const accessoriesHtml = accessories.length
     ? `

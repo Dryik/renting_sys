@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer as electronIpcRenderer } from "electron";
 import { normalizeIpcRendererError } from "./ipc-errors";
-import type { RentalAppApi } from "./types";
+import type { RentalAppApi, UpdateStatusState } from "./types";
 
 const ipcRenderer = {
   invoke: (...args: Parameters<typeof electronIpcRenderer.invoke>) =>
@@ -214,7 +214,7 @@ const api: RentalAppApi = {
     onStatusChange: (callback) => {
       const handler = (
         _event: unknown,
-        state: any,
+        state: UpdateStatusState,
       ) => callback(state);
       electronIpcRenderer.on("update:status-change", handler);
       return () => electronIpcRenderer.removeListener("update:status-change", handler);

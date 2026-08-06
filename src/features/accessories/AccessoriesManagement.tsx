@@ -1,17 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
 import { SidePanel } from "@/components/ui/side-panel";
 import { useAuth } from "@/hooks/useAuth";
 import { useI18n } from "@/hooks/useI18n";
-import type { AccessoryFormValues, AccessoryRecord } from "@/shared/accessories";
-import { Edit, Plus, Wrench, Shield, Check } from "lucide-react";
+import type { AccessoryRecord } from "@/shared/accessories";
+import { Edit, Plus, Shield } from "lucide-react";
 
 export function AccessoriesManagement() {
   const { can } = useAuth();
-  const { formatCurrency, language, t } = useI18n();
+  const { formatCurrency, t } = useI18n();
   const [items, setItems] = useState<AccessoryRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
@@ -35,6 +34,10 @@ export function AccessoriesManagement() {
   }, []);
 
   useEffect(() => {
+    // The rule cannot see through the useCallback: the only synchronous setState
+    // is setLoading(true), and `loading` already starts true, so React bails out
+    // instead of cascading. Every other update here happens after the await.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadAccessories();
   }, [loadAccessories]);
 

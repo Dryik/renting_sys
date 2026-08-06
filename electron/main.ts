@@ -3,6 +3,7 @@ import pkg from "electron-updater";
 const { autoUpdater } = pkg;
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 app.setName("ARAK Rental Desk");
 import {
@@ -95,6 +96,7 @@ import {
   clearOwnerSignature,
   clearShopLogo,
   getShopSettings,
+  getShopSettingsForRenderer,
   saveShopSettings,
   selectOwnerSignature,
   selectShopLogo,
@@ -230,12 +232,27 @@ function assertTrustedIpcSender(event: IpcMainInvokeEvent): void {
   }
 }
 
+function getRendererEntryPath(): string {
+  return path.resolve(__dirname, "../renderer/index.html");
+}
+
+// Windows paths are case-insensitive, so compare them case-folded there.
+function normalizeLocalPath(value: string): string {
+  return process.platform === "win32" ? value.toLowerCase() : value;
+}
+
 function isTrustedRendererUrl(rawUrl: string): boolean {
   try {
     const url = new URL(rawUrl);
 
     if (url.protocol === "file:") {
-      return true;
+      // Trust only the bundled renderer entry point. Accepting any file: URL
+      // would let any local HTML file reach the IPC surface if it were ever
+      // loaded or navigated to.
+      return (
+        normalizeLocalPath(fileURLToPath(url)) ===
+        normalizeLocalPath(getRendererEntryPath())
+      );
     }
 
     if (!app.isPackaged && (url.protocol === "http:" || url.protocol === "https:")) {
@@ -432,7 +449,7 @@ function createMainWindow(): void {
   ) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
-    mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
+    mainWindow.loadFile(getRendererEntryPath());
   }
 }
 
@@ -826,7 +843,7 @@ app.whenReady().then(() => {
   handle("backup:verify", () =>
     (guard("backup.restore"), verifyBackup()),
   );
-  handle("settings:get", () => getShopSettings());
+  handle("settings:get", () => getShopSettingsForRenderer());
   handle("settings:save", (_event, settings: unknown) =>
     (guard("settings.edit"), saveShopSettings(settings as Partial<ShopSettings>)),
   );

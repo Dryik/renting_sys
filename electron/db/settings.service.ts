@@ -8,7 +8,7 @@ import {
   type ShopSettings,
 } from "../../src/shared/settings";
 import { normalizeLanguage } from "../../src/shared/language";
-import { requirePermissionForCurrentSession } from "./auth.service";
+import { currentUserCan, requirePermissionForCurrentSession } from "./auth.service";
 import { logAuditEvent } from "./audit.service";
 import { requireSensitiveApproval } from "./security.service";
 
@@ -108,6 +108,29 @@ export function getShopSettings(): ShopSettings {
     language: normalizeLanguage(
       settingsMap.get("app_language") ?? defaultShopSettings.language,
     ),
+  };
+}
+
+// The renderer reads settings before anyone is signed in, so that the login and
+// lock screens can pick up the shop language, currency and logo. That makes this
+// the only settings channel without a permission check, so the administrative
+// fields are withheld from callers that cannot view settings: the owner signature
+// is the shop's contract-signing mark, and the stored paths leak the local
+// filesystem layout. Only owner_admin holds settings.view, and every settings
+// write channel already requires the stronger settings.edit.
+export function getShopSettingsForRenderer(): ShopSettings {
+  const settings = getShopSettings();
+
+  if (currentUserCan("settings.view")) {
+    return settings;
+  }
+
+  return {
+    ...settings,
+    ownerSignatureDataUrl: null,
+    ownerSignaturePath: null,
+    shopLogoPath: null,
+    scheduledBackupFolder: null,
   };
 }
 

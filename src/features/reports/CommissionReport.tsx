@@ -4,12 +4,12 @@ import { BidiValue } from "@/components/ui/bidi-value";
 import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
 import { useI18n } from "@/hooks/useI18n";
-import type { CommissionReportRecord, CommissionReportSummary } from "@/shared/reports";
+import type { CommissionReportSummary } from "@/shared/reports";
 import type { UserListRecord } from "@/shared/auth";
-import { Coins, Calendar, User, Car } from "lucide-react";
+import { Coins, Calendar, Car } from "lucide-react";
 
 export function CommissionReport() {
-  const { formatCurrency, formatDate, language, t } = useI18n();
+  const { formatCurrency, t } = useI18n();
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [salesUserId, setSalesUserId] = useState<number | undefined>(undefined);
