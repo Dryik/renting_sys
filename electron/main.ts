@@ -13,6 +13,7 @@ import {
   updateCustomer,
 } from "./db/customers.service";
 import { closeDatabase, initializeDatabase } from "./db/database";
+import { MigrationFailedError } from "./db/migration-runner";
 import {
   correctPayment,
   createPayment,
@@ -338,6 +339,36 @@ function attachCloseConfirmation(window: BrowserWindow): void {
   });
 }
 
+/**
+ * The database could not be opened or upgraded, so there is nothing safe to
+ * show. Report the failure — including where the pre-upgrade backup was kept —
+ * and quit without ever creating the renderer window.
+ */
+function reportStartupDatabaseFailure(error: unknown): void {
+  const detail = error instanceof Error ? error.message : String(error);
+  const safetyBackupPath =
+    error instanceof MigrationFailedError ? error.safetyBackupPath : null;
+
+  console.error("Startup database failure:", error);
+
+  // Shop settings live in the database that just failed, so the language
+  // preference is unreadable here. Show both languages.
+  const backupNote = safetyBackupPath
+    ? `\n\nنسخة احتياطية قبل الترقية:\nA backup from before the upgrade was kept at:\n${safetyBackupPath}`
+    : "";
+
+  if (!isSmokeTest) {
+    dialog.showErrorBox(
+      "تعذّر فتح بيانات التطبيق / Cannot open app data",
+      `${detail}${backupNote}\n\nالرجاء التواصل مع الدعم الفني.\nPlease contact support before reinstalling.`,
+    );
+  }
+
+  isAppQuitting = true;
+  process.exitCode = 1;
+  app.quit();
+}
+
 function getAppIconPath(): string {
   const candidates = [
     path.join(__dirname, "../../build/icon.ico"),
@@ -471,7 +502,16 @@ app.on("second-instance", () => {
 
 app.whenReady().then(() => {
   app.setAppUserModelId("ly.arak.rentaldesk");
-  const databaseState = initializeDatabase();
+
+  let databaseState: ReturnType<typeof initializeDatabase>;
+
+  try {
+    databaseState = initializeDatabase();
+  } catch (error) {
+    reportStartupDatabaseFailure(error);
+    return;
+  }
+
   appInfo = {
     appVersion: app.getVersion(),
     ...databaseState,

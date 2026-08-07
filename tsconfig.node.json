@@ -15,5 +15,5 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["electron", "src/shared", "electron.vite.config.ts", "drizzle.config.ts"]
+  "include": ["electron", "src/shared", "electron.vite.config.ts"]
 }
