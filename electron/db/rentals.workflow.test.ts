@@ -380,11 +380,11 @@ describe("return with payment", () => {
 });
 
 describe("stored status versus effective status", () => {
-  // An overdue rental is not a stored state: the row stays 'active' and the
-  // overdue reading is derived from the expected return being in the past.
-  // Anything aggregating rentals must aggregate the derived value, not the
-  // column.
-  it("keeps the row active while reporting the rental as overdue", () => {
+  // An open rental can remain stored as 'active' until a refresh path persists
+  // 'overdue'. Public reads and aggregates must therefore derive the effective
+  // status from the stored status and expected-return time, while remaining
+  // compatible with rows already stored as 'overdue'.
+  it("reports a stored active rental as effectively overdue before refresh", () => {
     const customerId = createTestCustomer();
     const vehicleId = createTestVehicle();
 
