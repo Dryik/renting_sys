@@ -1,9 +1,7 @@
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import {
-  getRequiredBackupTablesForVersion,
-  shouldIncludeBackupUploadPath,
-} from "./backup.service";
+import { getRequiredBackupTablesForVersion } from "./backup.service";
+import { shouldIncludeBackupUploadPath } from "./backup-archive";
 
 vi.mock("electron", () => ({
   app: {

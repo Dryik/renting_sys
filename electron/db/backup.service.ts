@@ -1,4 +1,3 @@
-import AdmZip from "adm-zip";
 import { app, dialog } from "electron";
 import fs from "node:fs";
 import path from "node:path";
@@ -6,10 +5,13 @@ import {
   type BackupPreview,
   type BackupStatus,
   type BackupVerifyResult,
-  hasRequiredBackupEntries,
-  isBusinessBackupEntryName,
-  normalizeBackupEntryName,
 } from "../../src/shared/backup";
+import {
+  assertRestorableStructure,
+  openBackupArchive,
+  writeBackupZip as writeBackupArchive,
+  type BackupType,
+} from "./backup-archive";
 import { z } from "zod";
 import Database from "better-sqlite3";
 import { closeDatabase, getDatabase, getSqliteDatabase, initializeDatabase } from "./database";
@@ -137,15 +139,10 @@ export async function runRestore(input: unknown): Promise<RestoreResult> {
     }
 
     const backupFilePath = filePaths[0]!;
-    const zip = new AdmZip(backupFilePath);
-    const entryNames = zip.getEntries().map((entry) => entry.entryName);
+    const archive = openBackupArchive(backupFilePath);
 
-    if (!hasRequiredBackupEntries(entryNames)) {
-      throw new Error("Invalid backup file structure: missing metadata.json or rental_app.db.");
-    }
-
-    validateBackupEntries(entryNames);
-    extractBackupToStaging(zip, stagingPath);
+    assertRestorableStructure(archive);
+    archive.extractTo(stagingPath);
 
     if (!fs.existsSync(path.join(stagingPath, "rental_app.db"))) {
       throw new Error("Invalid backup file structure: database file was not restored.");
@@ -291,10 +288,9 @@ export async function verifyBackup(): Promise<BackupVerifyResult> {
     }
 
     const backupFilePath = filePaths[0]!;
-    const zip = new AdmZip(backupFilePath);
-    const entryNames = zip.getEntries().map((entry) => entry.entryName);
-    validateBackupEntries(entryNames);
-    extractBackupToStaging(zip, tempPath);
+    const archive = openBackupArchive(backupFilePath);
+
+    archive.extractTo(tempPath);
 
     const databasePath = path.join(tempPath, "rental_app.db");
     const sqlite = new Database(databasePath, { readonly: true });
@@ -325,22 +321,10 @@ export async function verifyBackup(): Promise<BackupVerifyResult> {
 }
 
 function readBackupPreview(filePath: string): BackupPreview {
-  const zip = new AdmZip(filePath);
-  const entryNames = zip.getEntries().map((entry) => entry.entryName);
+  const archive = openBackupArchive(filePath);
 
-  if (!hasRequiredBackupEntries(entryNames)) {
-    throw new Error("Invalid backup file structure: missing metadata.json or rental_app.db.");
-  }
-
-  validateBackupEntries(entryNames);
-  const metadataEntry = zip.getEntry("metadata.json");
-  const metadata = metadataEntry
-    ? JSON.parse(metadataEntry.getData().toString("utf8")) as {
-        appVersion?: string;
-        backupDate?: string;
-        backupType?: string;
-      }
-    : {};
+  assertRestorableStructure(archive);
+  const metadata = archive.readMetadata();
 
   return {
     success: true,
@@ -348,9 +332,7 @@ function readBackupPreview(filePath: string): BackupPreview {
     appVersion: metadata.appVersion,
     backupDate: metadata.backupDate,
     backupType: metadata.backupType,
-    hasUploads: entryNames.some((entryName) =>
-      normalizeBackupEntryName(entryName)?.startsWith("uploads/"),
-    ),
+    hasUploads: archive.hasUploads(),
   };
 }
 
@@ -358,94 +340,16 @@ function writeBackupZip(
   filePath: string,
   databasePath: string,
   uploadsPath: string,
-  backupType: "manual" | "safety_before_restore" | "auto",
+  backupType: BackupType,
 ): void {
-  const zip = new AdmZip();
-  const metadata = {
-    appVersion: app.getVersion(),
-    backupDate: new Date().toISOString(),
+  writeBackupArchive(
+    filePath,
+    databasePath,
+    uploadsPath,
     backupType,
-  };
-
-  zip.addFile("metadata.json", Buffer.from(JSON.stringify(metadata, null, 2), "utf8"));
-
-  if (fs.existsSync(databasePath)) {
-    zip.addLocalFile(databasePath);
-  }
-
-  if (fs.existsSync(uploadsPath) && fs.readdirSync(uploadsPath).length > 0) {
-    zip.addLocalFolder(uploadsPath, "uploads", (fileName) =>
-      shouldIncludeBackupUploadPath(uploadsPath, fileName),
-    );
-  }
-
-  zip.writeZip(filePath);
-}
-
-function validateBackupEntries(entryNames: string[]): void {
-  for (const entryName of entryNames) {
-    if (!isBusinessBackupEntryName(entryName)) {
-      throw new Error("Invalid backup file structure: unexpected file found.");
-    }
-  }
-}
-
-function extractBackupToStaging(zip: AdmZip, stagingPath: string): void {
-  cleanupDirectory(stagingPath);
-  fs.mkdirSync(stagingPath, { recursive: true });
-
-  for (const entry of zip.getEntries()) {
-    if (entry.isDirectory) {
-      continue;
-    }
-
-    const normalizedEntryName = normalizeBackupEntryName(entry.entryName);
-
-    if (!normalizedEntryName) {
-      continue;
-    }
-
-    if (normalizedEntryName === "rental_app.db") {
-      writeZipEntryToPath(entry, path.join(stagingPath, "rental_app.db"), stagingPath);
-    }
-
-    if (normalizedEntryName.startsWith("uploads/")) {
-      writeZipEntryToPath(
-        entry,
-        path.join(stagingPath, ...normalizedEntryName.split("/")),
-        stagingPath,
-      );
-    }
-  }
-}
-
-export function shouldIncludeBackupUploadPath(uploadsPath: string, fileName: string): boolean {
-  const absolutePath = path.isAbsolute(fileName)
-    ? path.resolve(fileName)
-    : path.resolve(uploadsPath, fileName);
-  const relativePath = path.relative(uploadsPath, absolutePath);
-
-  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
-    return false;
-  }
-
-  const normalizedRelativePath = relativePath.split(path.sep).join("/");
-  const entryName = normalizeBackupEntryName(`uploads/${normalizedRelativePath}`);
-
-  return entryName !== null && isBusinessBackupEntryName(entryName);
-}
-
-function writeZipEntryToPath(entry: AdmZip.IZipEntry, targetPath: string, rootPath: string): void {
-  const resolvedTargetPath = path.resolve(targetPath);
-  const resolvedRootPath = path.resolve(rootPath);
-  const relativeToRoot = path.relative(resolvedRootPath, resolvedTargetPath);
-
-  if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) {
-    throw new Error("Invalid backup file structure: unsafe restore path.");
-  }
-
-  fs.mkdirSync(path.dirname(resolvedTargetPath), { recursive: true });
-  fs.writeFileSync(resolvedTargetPath, entry.getData());
+    {},
+    app.getVersion(),
+  );
 }
 
 function copyCurrentDataToRollback(
