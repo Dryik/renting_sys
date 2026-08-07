@@ -5,20 +5,21 @@ import {
   accountingAdjustmentInputSchema,
   accountingTransactionKindValues,
   accountingVoidInputSchema,
-  applyBalanceDeltas,
-  calculateAccountingTotals,
-  calculateDailyClosingDifference,
-  calculateLocationBalances,
+  applyBalanceDeltasMinor,
+  calculateAccountingTotalsMinor,
+  calculateDailyClosingDifferenceMinor,
+  calculateLocationBalancesMinor,
   cashMovementInputSchema,
   expenseInputSchema,
   formatMoneyLocation,
+  fromTotalsMinor,
   getExpensePaymentMethodForLocation,
-  getNegativeBalanceLocations,
+  getNegativeBalanceLocationsMinor,
   getPaymentMoneyLocation,
   staffDailyClosingInputSchema,
   type AccountingAdjustmentRecord,
-  type AccountingBalanceInput,
-  type AccountingBalanceDelta,
+  type AccountingBalanceInputMinor,
+  type AccountingBalanceDeltaMinor,
   type AccountingDailyClosingRecord,
   type AccountingDailyClosingSaveInput,
   type AccountingListRequest,
@@ -29,13 +30,21 @@ import {
   type CashMovementRecord,
   type ExpenseListRecord,
   type ExpenseRecord,
-  type LocationBalances,
+  type LocationBalancesMinor,
   type MoneyLocation,
   type StaffDailyClosingRecord,
   type WeeklyIncomeDayRecord,
 } from "../../src/shared/accounting";
+import {
+  addMoney,
+  fromMinorUnits,
+  negateMoney,
+  toMinorUnits,
+  type MoneyMinor,
+} from "../../src/shared/money";
 import type { PageResult } from "../../src/shared/pagination";
 import { getDatabase, getSqliteDatabase } from "./database";
+import { columnToMinor, moneyColumns, sumToMinor } from "./money-write";
 import {
   cashMovements,
   accountingAdjustments,
@@ -79,7 +88,7 @@ export function listAccountingTransactions(
     pageRequest.search,
   );
   let total = 0;
-  const candidates: AccountingTransactionRecord[] = [];
+  const candidates: AccountingTransactionRow[] = [];
 
   for (const query of sourceQueries) {
     const sourceTotal = database
@@ -92,7 +101,7 @@ export function listAccountingTransactions(
         order by occurredAt desc, sourceId desc
         limit ?
       `)
-      .all(...query.params, candidateLimit) as AccountingTransactionRecord[];
+      .all(...query.params, candidateLimit) as AccountingTransactionRow[];
 
     total += Number(sourceTotal?.count ?? 0);
     candidates.push(...sourceRows);
@@ -106,11 +115,34 @@ export function listAccountingTransactions(
   });
 
   return createPageResult(
-    candidates.slice(pageRequest.offset, pageRequest.offset + pageRequest.pageSize),
+    candidates
+      .slice(pageRequest.offset, pageRequest.offset + pageRequest.pageSize)
+      .map(toAccountingTransactionRecord),
     total,
     pageRequest,
   );
 }
+
+/**
+ * The union queries select `amountMinor`, so this is the one place the listing
+ * turns stored integers back into the major-unit amounts the screen shows.
+ */
+function toAccountingTransactionRecord(
+  row: AccountingTransactionRow,
+): AccountingTransactionRecord {
+  const { amountMinor, ...rest } = row;
+
+  return {
+    ...rest,
+    amount: fromMinorUnits(
+      columnToMinor(amountMinor, `${row.source} ${row.sourceId} amount`),
+    ),
+  };
+}
+
+type AccountingTransactionRow = Omit<AccountingTransactionRecord, "amount"> & {
+  amountMinor: number;
+};
 
 export function listExpenses(request?: AccountingListRequest): PageResult<ExpenseListRecord> {
   requirePermissionForCurrentSession("accounting.view");
@@ -147,7 +179,7 @@ export function listExpenses(request?: AccountingListRequest): PageResult<Expens
       category: expenses.category,
       location: expenses.location,
       method: expenses.method,
-      amount: expenses.amount,
+      amountMinor: expenses.amountMinor,
       expenseDate: expenses.expenseDate,
       vendorName: expenses.vendorName,
       vehicleId: expenses.vehicleId,
@@ -167,7 +199,14 @@ export function listExpenses(request?: AccountingListRequest): PageResult<Expens
     .offset(pageRequest.offset)
     .all();
 
-  return createPageResult(rows, total, pageRequest);
+  return createPageResult(
+    rows.map(({ amountMinor, ...row }) => ({
+      ...row,
+      amount: fromMinorUnits(columnToMinor(amountMinor, "expenses.amount_minor")),
+    })),
+    total,
+    pageRequest,
+  );
 }
 
 export function createExpense(input: unknown): ExpenseRecord {
@@ -183,8 +222,9 @@ export function createExpense(input: unknown): ExpenseRecord {
   };
   const now = new Date().toISOString();
   const actor = getCurrentUserForService();
+  const amountMinor = toMinorUnits(values.amount, "Expense amount");
   assertAccountingBalanceDeltasAllowed([
-    { location: values.location, amount: -values.amount },
+    { location: values.location, amountMinor: negateMoney(amountMinor) },
   ]);
 
   try {
@@ -193,6 +233,7 @@ export function createExpense(input: unknown): ExpenseRecord {
         .insert(expenses)
         .values({
           ...values,
+          ...moneyColumns("amount", amountMinor),
           status: "posted",
           createdByUserId: actor?.id ?? null,
           createdAt: now,
@@ -211,11 +252,74 @@ export function createExpense(input: unknown): ExpenseRecord {
         after: record,
       });
 
-      return record;
+      return toExpenseRecord(record);
     });
   } catch (error) {
     throw normalizeAccountingServiceError(error, "Expense could not be saved.");
   }
+}
+
+// Each of these lists its fields rather than spreading the row, so the amount
+// the renderer sees is the only amount it receives.
+function toExpenseRecord(row: typeof expenses.$inferSelect): ExpenseRecord {
+  return {
+    id: row.id,
+    category: row.category,
+    location: row.location,
+    method: row.method,
+    amount: fromMinorUnits(columnToMinor(row.amountMinor, "expenses.amount_minor")),
+    expenseDate: row.expenseDate,
+    vendorName: row.vendorName,
+    vehicleId: row.vehicleId,
+    notes: row.notes,
+    status: row.status,
+    voidedAt: row.voidedAt,
+    voidReason: row.voidReason,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function toCashMovementRecord(
+  row: typeof cashMovements.$inferSelect,
+): CashMovementRecord {
+  return {
+    id: row.id,
+    type: row.type,
+    fromLocation: row.fromLocation,
+    toLocation: row.toLocation,
+    amount: fromMinorUnits(
+      columnToMinor(row.amountMinor, "cash_movements.amount_minor"),
+    ),
+    movementDate: row.movementDate,
+    notes: row.notes,
+    status: row.status,
+    voidedAt: row.voidedAt,
+    voidReason: row.voidReason,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function toAccountingAdjustmentRecord(
+  row: typeof accountingAdjustments.$inferSelect,
+): AccountingAdjustmentRecord {
+  return {
+    id: row.id,
+    location: row.location,
+    direction: row.direction,
+    amount: fromMinorUnits(
+      columnToMinor(row.amountMinor, "accounting_adjustments.amount_minor"),
+    ),
+    adjustmentDate: row.adjustmentDate,
+    reason: row.reason,
+    notes: row.notes,
+    status: row.status,
+    voidedAt: row.voidedAt,
+    voidReason: row.voidReason,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
 }
 
 export function voidExpense(input: unknown): ExpenseRecord {
@@ -241,8 +345,12 @@ export function voidExpense(input: unknown): ExpenseRecord {
         throw new Error("Expense is already voided.");
       }
 
+      // Voiding an expense puts the money back where it was spent from.
       assertAccountingBalanceDeltasAllowed([
-        { location: existing.location, amount: existing.amount },
+        {
+          location: existing.location,
+          amountMinor: columnToMinor(existing.amountMinor, "expenses.amount_minor"),
+        },
       ]);
 
       const updated = tx
@@ -270,7 +378,7 @@ export function voidExpense(input: unknown): ExpenseRecord {
         reason: values.reason,
       });
 
-      return updated;
+      return toExpenseRecord(updated);
     });
   } catch (error) {
     throw normalizeAccountingServiceError(error, "Expense could not be voided.");
@@ -285,7 +393,10 @@ export function createCashMovement(input: unknown): CashMovementRecord {
   }
   const now = new Date().toISOString();
   const actor = getCurrentUserForService();
-  assertAccountingBalanceDeltasAllowed(getCashMovementDeltas(values));
+  const amountMinor = toMinorUnits(values.amount, "Cash movement amount");
+  assertAccountingBalanceDeltasAllowed(
+    getCashMovementDeltas({ ...values, amountMinor }),
+  );
 
   try {
     return getDatabase().transaction((tx) => {
@@ -293,6 +404,7 @@ export function createCashMovement(input: unknown): CashMovementRecord {
         .insert(cashMovements)
         .values({
           ...values,
+          ...moneyColumns("amount", amountMinor),
           status: "posted",
           createdByUserId: actor?.id ?? null,
           createdAt: now,
@@ -320,7 +432,7 @@ export function createCashMovement(input: unknown): CashMovementRecord {
         after: record,
       });
 
-      return record;
+      return toCashMovementRecord(record);
     });
   } catch (error) {
     throw normalizeAccountingServiceError(error, "Cash movement could not be saved.");
@@ -351,7 +463,15 @@ export function voidCashMovement(input: unknown): CashMovementRecord {
       }
 
       assertAccountingBalanceDeltasAllowed(
-        getReversalDeltas(getCashMovementDeltas(existing)),
+        getReversalDeltas(
+          getCashMovementDeltas({
+            ...existing,
+            amountMinor: columnToMinor(
+              existing.amountMinor,
+              "cash_movements.amount_minor",
+            ),
+          }),
+        ),
       );
 
       const updated = tx
@@ -379,7 +499,7 @@ export function voidCashMovement(input: unknown): CashMovementRecord {
         reason: values.reason,
       });
 
-      return updated;
+      return toCashMovementRecord(updated);
     });
   } catch (error) {
     throw normalizeAccountingServiceError(error, "Cash movement could not be voided.");
@@ -394,7 +514,10 @@ export function createAccountingAdjustment(
   requireSensitiveApproval("accountingAdjustments.create", getApprovalToken(input));
   const now = new Date().toISOString();
   const actor = getCurrentUserForService();
-  assertAccountingBalanceDeltasAllowed([getAdjustmentDelta(values)]);
+  const amountMinor = toMinorUnits(values.amount, "Adjustment amount");
+  assertAccountingBalanceDeltasAllowed([
+    getAdjustmentDelta({ ...values, amountMinor }),
+  ]);
 
   try {
     return getDatabase().transaction((tx) => {
@@ -402,6 +525,7 @@ export function createAccountingAdjustment(
         .insert(accountingAdjustments)
         .values({
           ...values,
+          ...moneyColumns("amount", amountMinor),
           status: "posted",
           createdByUserId: actor?.id ?? null,
           createdAt: now,
@@ -421,7 +545,7 @@ export function createAccountingAdjustment(
         reason: record.reason,
       });
 
-      return record;
+      return toAccountingAdjustmentRecord(record);
     });
   } catch (error) {
     throw normalizeAccountingServiceError(error, "Balance adjustment could not be saved.");
@@ -454,7 +578,15 @@ export function voidAccountingAdjustment(
       }
 
       assertAccountingBalanceDeltasAllowed([
-        reverseDelta(getAdjustmentDelta(existing)),
+        reverseDelta(
+          getAdjustmentDelta({
+            ...existing,
+            amountMinor: columnToMinor(
+              existing.amountMinor,
+              "accounting_adjustments.amount_minor",
+            ),
+          }),
+        ),
       ]);
 
       const updated = tx
@@ -482,7 +614,7 @@ export function voidAccountingAdjustment(
         reason: values.reason,
       });
 
-      return updated;
+      return toAccountingAdjustmentRecord(updated);
     });
   } catch (error) {
     throw normalizeAccountingServiceError(error, "Balance adjustment could not be voided.");
@@ -492,7 +624,7 @@ export function voidAccountingAdjustment(
 export function getAccountingDailyClosing(date: string): AccountingDailyClosingRecord {
   requirePermissionForCurrentSession("accounting.view");
   const closingDate = parseDateInput(date);
-  const expectedCash = getExpectedCashForDate(closingDate);
+  const expectedCashMinor = getExpectedCashMinorForDate(closingDate);
   const row = getDatabase()
     .select()
     .from(dailyClosings)
@@ -504,7 +636,7 @@ export function getAccountingDailyClosing(date: string): AccountingDailyClosingR
       closingDate,
       countedCash: null,
       difference: null,
-      expectedCash,
+      expectedCash: fromMinorUnits(expectedCashMinor),
       isClosed: false,
       notes: null,
       closedAt: null,
@@ -512,11 +644,19 @@ export function getAccountingDailyClosing(date: string): AccountingDailyClosingR
     };
   }
 
+  // A closed day reports the figures that were counted and stored on the day,
+  // not today's recalculation of them.
   return {
     closingDate,
-    countedCash: row.countedCash,
-    difference: row.difference,
-    expectedCash: row.expectedCash,
+    countedCash: fromMinorUnits(
+      columnToMinor(row.countedCashMinor, "daily_closings.counted_cash_minor"),
+    ),
+    difference: fromMinorUnits(
+      columnToMinor(row.differenceMinor, "daily_closings.difference_minor"),
+    ),
+    expectedCash: fromMinorUnits(
+      columnToMinor(row.expectedCashMinor, "daily_closings.expected_cash_minor"),
+    ),
     isClosed: true,
     notes: row.notes,
     closedAt: row.closedAt,
@@ -541,16 +681,16 @@ export function saveAccountingDailyClosing(
     throw new Error("Reason is required when closing this day again.");
   }
 
-  const expectedCash = getExpectedCashForDate(values.closingDate);
-  const difference = calculateDailyClosingDifference(expectedCash, values.countedCash);
+  const closingColumns = buildDailyClosingColumns(
+    values.closingDate,
+    values.countedCash,
+  );
 
   getDatabase().transaction((tx) => {
     tx.insert(dailyClosings)
       .values({
         closingDate: values.closingDate,
-        countedCash: values.countedCash,
-        difference,
-        expectedCash,
+        ...closingColumns,
         notes: values.notes,
         closedAt: now,
         updatedAt: now,
@@ -558,9 +698,7 @@ export function saveAccountingDailyClosing(
       .onConflictDoUpdate({
         target: dailyClosings.closingDate,
         set: {
-          countedCash: values.countedCash,
-          difference,
-          expectedCash,
+          ...closingColumns,
           notes: values.notes,
           closedAt: now,
           updatedAt: now,
@@ -577,9 +715,7 @@ export function saveAccountingDailyClosing(
       before: existing ?? undefined,
       after: {
         closingDate: values.closingDate,
-        countedCash: values.countedCash,
-        difference,
-        expectedCash,
+        ...closingColumns,
         notes: values.notes,
       },
       reason: values.reason,
@@ -603,16 +739,11 @@ export function saveStaffDailyClosing(input: unknown): StaffDailyClosingRecord {
     throw new Error("This day is already closed. Ask a manager to update it.");
   }
 
-  const expectedCash = getExpectedCashForDate(values.closingDate);
-  const difference = calculateDailyClosingDifference(expectedCash, values.countedCash);
-
   getDatabase().transaction((tx) => {
     tx.insert(dailyClosings)
       .values({
         closingDate: values.closingDate,
-        countedCash: values.countedCash,
-        difference,
-        expectedCash,
+        ...buildDailyClosingColumns(values.closingDate, values.countedCash),
         notes: values.notes,
         closedAt: now,
         updatedAt: now,
@@ -642,6 +773,26 @@ export function saveStaffDailyClosing(input: unknown): StaffDailyClosingRecord {
   };
 }
 
+/**
+ * The three closing amounts, converted once and written to both columns.
+ *
+ * The difference is derived from the two integers rather than recomputed from
+ * the mirrors, so a short drawer stays exactly as negative as it was counted.
+ */
+function buildDailyClosingColumns(closingDate: string, countedCash: number) {
+  const expectedCashMinor = getExpectedCashMinorForDate(closingDate);
+  const countedCashMinor = toMinorUnits(countedCash, "Counted cash");
+
+  return {
+    ...moneyColumns("expectedCash", expectedCashMinor),
+    ...moneyColumns("countedCash", countedCashMinor),
+    ...moneyColumns(
+      "difference",
+      calculateDailyClosingDifferenceMinor(expectedCashMinor, countedCashMinor),
+    ),
+  };
+}
+
 export function getWeeklyIncome(
   anchorDate = getCurrentLocalDate(),
 ): WeeklyIncomeDayRecord[] {
@@ -667,8 +818,10 @@ export function getDailyClosingAccountingTotals(date: string): {
   ownerWithdrawals: number;
 } {
   const closing = getAccountingDailyClosing(date);
-  const totals = calculateAccountingTotals(
-    loadAccountingBalanceInputs({ dateFrom: date, dateTo: date }),
+  const totals = fromTotalsMinor(
+    calculateAccountingTotalsMinor(
+      loadAccountingBalanceInputs({ dateFrom: date, dateTo: date }),
+    ),
   );
 
   return {
@@ -681,25 +834,29 @@ export function getDailyClosingAccountingTotals(date: string): {
 }
 
 function buildAccountingSummary(request: AccountingSummaryRequest): AccountingSummary {
-  const balanceInputs = loadAccountingBalanceInputs({ dateTo: request.dateTo });
-  const periodInputs = loadAccountingBalanceInputs(request);
-  const balances = calculateLocationBalances(balanceInputs);
-  const totals = calculateAccountingTotals(periodInputs);
+  const balances = buildLocationBalancesMinor({ dateTo: request.dateTo });
+  const totals = calculateAccountingTotalsMinor(loadAccountingBalanceInputs(request));
 
   return {
-    ...totals,
-    cashDrawer: balances.cash_drawer,
-    shopSafe: balances.shop_safe,
-    bank: balances.bank,
-    expectedCash: balances.cash_drawer,
-    outstandingBalances: getOutstandingBalanceTotal(),
-    depositsHeld: getDepositHeldTotal(),
+    ...fromTotalsMinor(totals),
+    cashDrawer: fromMinorUnits(balances.cash_drawer),
+    shopSafe: fromMinorUnits(balances.shop_safe),
+    bank: fromMinorUnits(balances.bank),
+    expectedCash: fromMinorUnits(balances.cash_drawer),
+    outstandingBalances: fromMinorUnits(getOutstandingBalanceTotalMinor()),
+    depositsHeld: fromMinorUnits(getDepositHeldTotalMinor()),
   };
+}
+
+function buildLocationBalancesMinor(
+  request: AccountingSummaryRequest,
+): LocationBalancesMinor {
+  return calculateLocationBalancesMinor(loadAccountingBalanceInputs(request));
 }
 
 function loadAccountingBalanceInputs(
   request: AccountingSummaryRequest,
-): AccountingBalanceInput[] {
+): AccountingBalanceInputMinor[] {
   return [
     ...loadPaymentBalanceInputs(request),
     ...loadVehicleSaleBalanceInputs(request),
@@ -712,12 +869,12 @@ function loadAccountingBalanceInputs(
 
 function loadPaymentBalanceInputs(
   request: AccountingSummaryRequest,
-): AccountingBalanceInput[] {
+): AccountingBalanceInputMinor[] {
   const conditions = getDateConditions(payments.paymentDate, request);
 
   return getDatabase()
     .select({
-      amount: payments.amount,
+      amountMinor: payments.amountMinor,
       method: payments.method,
       status: payments.status,
       type: payments.type,
@@ -725,12 +882,14 @@ function loadPaymentBalanceInputs(
     .from(payments)
     .where(conditions.length ? and(...conditions) : undefined)
     .all()
-    .map((payment): AccountingBalanceInput => {
+    .map((payment): AccountingBalanceInputMinor => {
       const location = getPaymentMoneyLocation(payment.method);
+      const amountMinor = columnToMinor(payment.amountMinor, "payments.amount_minor");
 
+      // Refunds are stored positive; the kind is what makes them an outflow.
       if (payment.type === "refund") {
         return {
-          amount: payment.amount,
+          amountMinor,
           kind: "money_out",
           location,
           outflowType: "refund",
@@ -739,7 +898,7 @@ function loadPaymentBalanceInputs(
       }
 
       return {
-        amount: payment.amount,
+        amountMinor,
         kind: "money_in",
         location,
         status: payment.status,
@@ -749,20 +908,20 @@ function loadPaymentBalanceInputs(
 
 function loadVehicleSaleBalanceInputs(
   request: AccountingSummaryRequest,
-): AccountingBalanceInput[] {
+): AccountingBalanceInputMinor[] {
   const conditions = getDateConditions(vehicleSales.saleDate, request);
 
   return getDatabase()
     .select({
-      amount: vehicleSales.salePrice,
+      amountMinor: vehicleSales.salePriceMinor,
       method: vehicleSales.paymentMethod,
       status: vehicleSales.status,
     })
     .from(vehicleSales)
     .where(conditions.length ? and(...conditions) : undefined)
     .all()
-    .map((sale): AccountingBalanceInput => ({
-      amount: sale.amount,
+    .map((sale): AccountingBalanceInputMinor => ({
+      amountMinor: columnToMinor(sale.amountMinor, "vehicle_sales.sale_price_minor"),
       kind: "money_in",
       location: getPaymentMoneyLocation(sale.method),
       status: sale.status,
@@ -771,20 +930,20 @@ function loadVehicleSaleBalanceInputs(
 
 function loadExpenseBalanceInputs(
   request: AccountingSummaryRequest,
-): AccountingBalanceInput[] {
+): AccountingBalanceInputMinor[] {
   const conditions = getDateConditions(expenses.expenseDate, request);
 
   return getDatabase()
     .select({
-      amount: expenses.amount,
+      amountMinor: expenses.amountMinor,
       location: expenses.location,
       status: expenses.status,
     })
     .from(expenses)
     .where(conditions.length ? and(...conditions) : undefined)
     .all()
-    .map((expense): AccountingBalanceInput => ({
-      amount: expense.amount,
+    .map((expense): AccountingBalanceInputMinor => ({
+      amountMinor: columnToMinor(expense.amountMinor, "expenses.amount_minor"),
       kind: "money_out",
       location: expense.location,
       outflowType: "expense",
@@ -794,12 +953,12 @@ function loadExpenseBalanceInputs(
 
 function loadCashMovementBalanceInputs(
   request: AccountingSummaryRequest,
-): AccountingBalanceInput[] {
+): AccountingBalanceInputMinor[] {
   const conditions = getDateConditions(cashMovements.movementDate, request);
 
   return getDatabase()
     .select({
-      amount: cashMovements.amount,
+      amountMinor: cashMovements.amountMinor,
       fromLocation: cashMovements.fromLocation,
       status: cashMovements.status,
       toLocation: cashMovements.toLocation,
@@ -808,10 +967,15 @@ function loadCashMovementBalanceInputs(
     .from(cashMovements)
     .where(conditions.length ? and(...conditions) : undefined)
     .all()
-    .map((movement): AccountingBalanceInput => {
+    .map((movement): AccountingBalanceInputMinor => {
+      const amountMinor = columnToMinor(
+        movement.amountMinor,
+        "cash_movements.amount_minor",
+      );
+
       if (movement.type === "owner_withdrawal") {
         return {
-          amount: movement.amount,
+          amountMinor,
           kind: "money_out",
           location: movement.fromLocation,
           outflowType: "owner_withdrawal",
@@ -820,7 +984,7 @@ function loadCashMovementBalanceInputs(
       }
 
       return {
-        amount: movement.amount,
+        amountMinor,
         fromLocation: movement.fromLocation,
         kind: "transfer",
         status: movement.status,
@@ -831,12 +995,12 @@ function loadCashMovementBalanceInputs(
 
 function loadAdjustmentBalanceInputs(
   request: AccountingSummaryRequest,
-): AccountingBalanceInput[] {
+): AccountingBalanceInputMinor[] {
   const conditions = getDateConditions(accountingAdjustments.adjustmentDate, request);
 
   return getDatabase()
     .select({
-      amount: accountingAdjustments.amount,
+      amountMinor: accountingAdjustments.amountMinor,
       direction: accountingAdjustments.direction,
       location: accountingAdjustments.location,
       status: accountingAdjustments.status,
@@ -844,9 +1008,12 @@ function loadAdjustmentBalanceInputs(
     .from(accountingAdjustments)
     .where(conditions.length ? and(...conditions) : undefined)
     .all()
-    .map((adjustment): AccountingBalanceInput => ({
+    .map((adjustment): AccountingBalanceInputMinor => ({
       adjustmentDirection: adjustment.direction,
-      amount: adjustment.amount,
+      amountMinor: columnToMinor(
+        adjustment.amountMinor,
+        "accounting_adjustments.amount_minor",
+      ),
       kind: "adjustment",
       location: adjustment.location,
       status: adjustment.status,
@@ -855,7 +1022,7 @@ function loadAdjustmentBalanceInputs(
 
 function loadEmployeeLoanBalanceInputs(
   request: AccountingSummaryRequest,
-): AccountingBalanceInput[] {
+): AccountingBalanceInputMinor[] {
   const loanConditions = getDateConditions(employeeLoans.issuedAt, request);
   const repaymentConditions = getDateConditions(
     employeeLoanPayments.paymentDate,
@@ -865,32 +1032,35 @@ function loadEmployeeLoanBalanceInputs(
   return [
     ...getDatabase()
       .select({
-        amount: employeeLoans.amount,
+        amountMinor: employeeLoans.amountMinor,
         location: employeeLoans.sourceLocation,
         status: employeeLoans.status,
       })
       .from(employeeLoans)
       .where(loanConditions.length ? and(...loanConditions) : undefined)
       .all()
-      .map((loan): AccountingBalanceInput => ({
+      .map((loan): AccountingBalanceInputMinor => ({
         adjustmentDirection: "decrease",
-        amount: loan.amount,
+        amountMinor: columnToMinor(loan.amountMinor, "employee_loans.amount_minor"),
         kind: "adjustment",
         location: loan.location,
         status: loan.status === "voided" ? "voided" : "posted",
       })),
     ...getDatabase()
       .select({
-        amount: employeeLoanPayments.amount,
+        amountMinor: employeeLoanPayments.amountMinor,
         location: employeeLoanPayments.location,
         status: employeeLoanPayments.status,
       })
       .from(employeeLoanPayments)
       .where(repaymentConditions.length ? and(...repaymentConditions) : undefined)
       .all()
-      .map((payment): AccountingBalanceInput => ({
+      .map((payment): AccountingBalanceInputMinor => ({
         adjustmentDirection: "increase",
-        amount: payment.amount,
+        amountMinor: columnToMinor(
+          payment.amountMinor,
+          "employee_loan_payments.amount_minor",
+        ),
         kind: "adjustment",
         location: payment.location,
         status: payment.status,
@@ -990,7 +1160,7 @@ function vehicleSaleTransactionsSql(whereSql: string): string {
       'money_in' as kind,
       'Vehicle Sale' as title,
       vehicle_sales.sale_no || ' - ' || vehicle_sales.buyer_name || ' - ' || vehicles.plate_number as detail,
-      vehicle_sales.sale_price as amount,
+      vehicle_sales.sale_price_minor as amountMinor,
       vehicle_sales.status as status,
       case when vehicle_sales.payment_method in ('card', 'bank_transfer') then 'bank' else 'cash_drawer' end as location,
       null as fromLocation,
@@ -1056,7 +1226,7 @@ function paymentTransactionsSql(whereSql: string): string {
       case when payments.type = 'refund' then 'money_out' else 'money_in' end as kind,
       case when payments.type = 'refund' then 'Refund' else 'Payment' end as title,
       rentals.contract_no || ' - ' || customers.full_name || ' - ' || vehicles.plate_number as detail,
-      payments.amount as amount,
+      payments.amount_minor as amountMinor,
       payments.status as status,
       case when payments.method in ('card', 'bank_transfer') then 'bank' else 'cash_drawer' end as location,
       case when payments.type = 'refund'
@@ -1092,7 +1262,7 @@ function expenseTransactionsSql(whereSql: string): string {
         when vehicles.plate_number is not null then vehicles.plate_number
         else ''
       end as detail,
-      expenses.amount as amount,
+      expenses.amount_minor as amountMinor,
       expenses.status as status,
       expenses.location as location,
       expenses.location as fromLocation,
@@ -1114,7 +1284,7 @@ function cashMovementTransactionsSql(whereSql: string): string {
       case when cash_movements.type = 'owner_withdrawal' then 'money_out' else 'transfer' end as kind,
       case when cash_movements.type = 'owner_withdrawal' then 'Owner Withdrawal' else 'Move Cash' end as title,
       '' as detail,
-      cash_movements.amount as amount,
+      cash_movements.amount_minor as amountMinor,
       cash_movements.status as status,
       case when cash_movements.type = 'owner_withdrawal' then cash_movements.from_location else null end as location,
       cash_movements.from_location as fromLocation,
@@ -1135,7 +1305,7 @@ function adjustmentTransactionsSql(whereSql: string): string {
       'adjustment' as kind,
       'Balance Adjustment' as title,
       accounting_adjustments.reason as detail,
-      accounting_adjustments.amount as amount,
+      accounting_adjustments.amount_minor as amountMinor,
       accounting_adjustments.status as status,
       accounting_adjustments.location as location,
       case when accounting_adjustments.direction = 'decrease' then accounting_adjustments.location else null end as fromLocation,
@@ -1158,7 +1328,7 @@ function employeeLoanTransactionsSql(whereSql: string): string {
         'adjustment' as kind,
         'Employee Loan' as title,
         employee_loans.loan_no || ' - ' || users.full_name as detail,
-        employee_loans.amount as amount,
+        employee_loans.amount_minor as amountMinor,
         case when employee_loans.status = 'voided' then 'voided' else 'posted' end as status,
         employee_loans.source_location as location,
         employee_loans.source_location as fromLocation,
@@ -1177,7 +1347,7 @@ function employeeLoanTransactionsSql(whereSql: string): string {
         'adjustment' as kind,
         'Employee Loan Repayment' as title,
         employee_loans.loan_no || ' - ' || users.full_name as detail,
-        employee_loan_payments.amount as amount,
+        employee_loan_payments.amount_minor as amountMinor,
         employee_loan_payments.status as status,
         employee_loan_payments.location as location,
         null as fromLocation,
@@ -1436,43 +1606,43 @@ function matchesLocationSearch(
   );
 }
 
-function getOutstandingBalanceTotal(): number {
+function getOutstandingBalanceTotalMinor(): MoneyMinor {
   const result = getDatabase()
     .select({
-      total: sql<number>`coalesce(sum(${rentals.remainingAmount}), 0)`.mapWith(Number),
+      total: sql<number>`coalesce(sum(${rentals.remainingAmountMinor}), 0)`,
     })
     .from(rentals)
     .where(
       and(
         sql`${rentals.status} in ('active', 'overdue', 'returned')`,
-        sql`${rentals.remainingAmount} > 0`,
+        sql`${rentals.remainingAmountMinor} > 0`,
       ),
     )
     .get();
 
-  return roundMoney(result?.total ?? 0);
+  return sumToMinor(result?.total, "The outstanding balance");
 }
 
-function getDepositHeldTotal(): number {
+function getDepositHeldTotalMinor(): MoneyMinor {
   const result = getSqliteDatabase()
     .prepare(`
       with refund_by_rental as (
         select
           rental_id as rentalId,
-          coalesce(sum(amount), 0) as refunded
+          coalesce(sum(amount_minor), 0) as refunded
         from payments
         where status = 'posted' and type = 'refund'
         group by rental_id
       )
-      select coalesce(sum(max(0, rentals.deposit_paid - coalesce(refund_by_rental.refunded, 0))), 0) as total
+      select coalesce(sum(max(0, rentals.deposit_paid_minor - coalesce(refund_by_rental.refunded, 0))), 0) as total
       from rentals
       left join refund_by_rental on refund_by_rental.rentalId = rentals.id
       where rentals.status in ('active', 'overdue', 'returned')
-        and rentals.deposit_paid > 0
+        and rentals.deposit_paid_minor > 0
     `)
-    .get() as { total?: number } | undefined;
+    .get() as { total?: unknown } | undefined;
 
-  return roundMoney(Number(result?.total ?? 0));
+  return sumToMinor(result?.total, "The deposits held total");
 }
 
 function getWeeklyIncomeDay(date: string): WeeklyIncomeDayRecord {
@@ -1480,10 +1650,10 @@ function getWeeklyIncomeDay(date: string): WeeklyIncomeDayRecord {
     .prepare(
       `
         select
-          coalesce(sum(case when type = 'rent' then amount else 0 end), 0) as rent,
-          coalesce(sum(case when type = 'deposit' then amount else 0 end), 0) as deposit,
-          coalesce(sum(case when type = 'extra_charge' then amount else 0 end), 0) as extraCharge,
-          coalesce(sum(case when type = 'refund' then amount else 0 end), 0) as refunds
+          coalesce(sum(case when type = 'rent' then amount_minor else 0 end), 0) as rent,
+          coalesce(sum(case when type = 'deposit' then amount_minor else 0 end), 0) as deposit,
+          coalesce(sum(case when type = 'extra_charge' then amount_minor else 0 end), 0) as extraCharge,
+          coalesce(sum(case when type = 'refund' then amount_minor else 0 end), 0) as refunds
         from payments
         where status = 'posted'
           and payment_date >= ?
@@ -1492,30 +1662,33 @@ function getWeeklyIncomeDay(date: string): WeeklyIncomeDayRecord {
     )
     .get(getLocalDateStart(date), getLocalDateEnd(date)) as
     | {
-        deposit?: number;
-        extraCharge?: number;
-        refunds?: number;
-        rent?: number;
+        deposit?: unknown;
+        extraCharge?: unknown;
+        refunds?: unknown;
+        rent?: unknown;
       }
     | undefined;
 
-  const rent = roundMoney(Number(row?.rent ?? 0));
-  const deposit = roundMoney(Number(row?.deposit ?? 0));
-  const extraCharge = roundMoney(Number(row?.extraCharge ?? 0));
-  const refunds = roundMoney(-Number(row?.refunds ?? 0));
+  const rentMinor = sumToMinor(row?.rent, "Rent income");
+  const depositMinor = sumToMinor(row?.deposit, "Deposit income");
+  const extraChargeMinor = sumToMinor(row?.extraCharge, "Extra charge income");
+  // Refunds are stored positive and shown as a negative line on the day.
+  const refundsMinor = negateMoney(sumToMinor(row?.refunds, "Refunds"));
 
   return {
     date,
-    rent,
-    deposit,
-    extraCharge,
-    refunds,
-    netIncome: roundMoney(rent + deposit + extraCharge + refunds),
+    rent: fromMinorUnits(rentMinor),
+    deposit: fromMinorUnits(depositMinor),
+    extraCharge: fromMinorUnits(extraChargeMinor),
+    refunds: fromMinorUnits(refundsMinor),
+    netIncome: fromMinorUnits(
+      addMoney(rentMinor, depositMinor, extraChargeMinor, refundsMinor),
+    ),
   };
 }
 
-function getExpectedCashForDate(date: string): number {
-  return buildAccountingSummary({ dateTo: date }).cashDrawer;
+function getExpectedCashMinorForDate(date: string): MoneyMinor {
+  return buildLocationBalancesMinor({ dateTo: date }).cash_drawer;
 }
 
 type AccountingDateColumn =
@@ -1545,19 +1718,17 @@ function getDateConditions(
 }
 
 export function assertAccountingBalanceDeltasAllowed(
-  deltas: AccountingBalanceDelta[],
+  deltas: AccountingBalanceDeltaMinor[],
 ): void {
-  const currentBalances = calculateLocationBalances(loadAccountingBalanceInputs({}));
-
-  assertProjectedBalancesNonNegative(currentBalances, deltas);
+  assertProjectedBalancesNonNegative(buildLocationBalancesMinor({}), deltas);
 }
 
 export function assertProjectedBalancesNonNegative(
-  currentBalances: LocationBalances,
-  deltas: AccountingBalanceDelta[],
+  currentBalances: LocationBalancesMinor,
+  deltas: AccountingBalanceDeltaMinor[],
 ): void {
-  const projectedBalances = applyBalanceDeltas(currentBalances, deltas);
-  const negativeLocations = getNegativeBalanceLocations(projectedBalances);
+  const projectedBalances = applyBalanceDeltasMinor(currentBalances, deltas);
+  const negativeLocations = getNegativeBalanceLocationsMinor(projectedBalances);
 
   if (negativeLocations.length === 0) {
     return;
@@ -1573,64 +1744,73 @@ export function assertProjectedBalancesNonNegative(
 }
 
 export function getPaymentAccountingDeltas(input: {
-  amount: number;
+  amountMinor: MoneyMinor;
   method: Parameters<typeof getPaymentMoneyLocation>[0];
   status?: "posted" | "voided";
   type: "rent" | "deposit" | "extra_charge" | "refund";
-}): AccountingBalanceDelta[] {
+}): AccountingBalanceDeltaMinor[] {
   if (input.status === "voided") {
     return [];
   }
 
-  const location = getPaymentMoneyLocation(input.method);
-
   return [
     {
-      location,
-      amount: input.type === "refund" ? -input.amount : input.amount,
+      location: getPaymentMoneyLocation(input.method),
+      amountMinor:
+        input.type === "refund" ? negateMoney(input.amountMinor) : input.amountMinor,
     },
   ];
 }
 
 function getCashMovementDeltas(input: {
-  amount: number;
+  amountMinor: MoneyMinor;
   fromLocation: MoneyLocation;
   toLocation: MoneyLocation | null;
   type: "transfer" | "owner_withdrawal";
-}): AccountingBalanceDelta[] {
+}): AccountingBalanceDeltaMinor[] {
+  const outgoing = {
+    location: input.fromLocation,
+    amountMinor: negateMoney(input.amountMinor),
+  };
+
   if (input.type === "owner_withdrawal") {
-    return [{ location: input.fromLocation, amount: -input.amount }];
+    return [outgoing];
   }
 
   return [
-    { location: input.fromLocation, amount: -input.amount },
+    outgoing,
     ...(input.toLocation
-      ? [{ location: input.toLocation, amount: input.amount }]
+      ? [{ location: input.toLocation, amountMinor: input.amountMinor }]
       : []),
   ];
 }
 
 function getAdjustmentDelta(input: {
-  amount: number;
+  amountMinor: MoneyMinor;
   direction: "increase" | "decrease";
   location: MoneyLocation;
-}): AccountingBalanceDelta {
+}): AccountingBalanceDeltaMinor {
   return {
     location: input.location,
-    amount: input.direction === "decrease" ? -input.amount : input.amount,
+    amountMinor:
+      input.direction === "decrease"
+        ? negateMoney(input.amountMinor)
+        : input.amountMinor,
   };
 }
 
 function getReversalDeltas(
-  deltas: AccountingBalanceDelta[],
-): AccountingBalanceDelta[] {
+  deltas: AccountingBalanceDeltaMinor[],
+): AccountingBalanceDeltaMinor[] {
   return deltas.map(reverseDelta);
 }
 
-function reverseDelta(delta: AccountingBalanceDelta): AccountingBalanceDelta {
+function reverseDelta(
+  delta: AccountingBalanceDeltaMinor,
+): AccountingBalanceDeltaMinor {
   return {
     location: delta.location,
-    amount: -delta.amount,
+    amountMinor: negateMoney(delta.amountMinor),
   };
 }
 
@@ -1694,10 +1874,6 @@ function parseDateInput(value: string): string {
   }
 
   return value;
-}
-
-function roundMoney(value: number): number {
-  return Math.round(value * 100) / 100;
 }
 
 function normalizeAccountingServiceError(error: unknown, fallback: string): Error {

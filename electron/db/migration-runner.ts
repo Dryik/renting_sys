@@ -5,6 +5,7 @@ import path from "node:path";
 import { writeVerifiedBackupArchive } from "./backup-archive";
 import { assertWalFullyCheckpointed } from "./wal-checkpoint";
 import { LATEST_SCHEMA_VERSION, migrations } from "./migrations";
+import { allMoneyMirrorTriggerSql } from "./money-columns";
 import { runIdempotentSeeds } from "./seeds";
 import { allIndexSql, allTableSql } from "./table-ddl";
 
@@ -153,8 +154,11 @@ function createFreshDatabase(
   database: Database.Database,
   now: string,
 ): MigrationOutcome {
+  // Tables, mirror triggers and the version stamp commit together, so a fresh
+  // file is never briefly a version 12 database without its money guards.
   database.transaction(() => {
     database.exec(allTableSql);
+    database.exec(allMoneyMirrorTriggerSql);
     writeSchemaVersion(database, LATEST_SCHEMA_VERSION);
   })();
 
@@ -164,15 +168,22 @@ function createFreshDatabase(
 }
 
 /**
- * Seeds and indexes are idempotent, so both paths end the same way. They run in
- * one transaction because seeding deletes and reinserts every role permission:
- * a failure partway through would otherwise leave roles stripped of access.
+ * Seeds, indexes and money mirror triggers are idempotent, so both paths end
+ * the same way. They run in one transaction because seeding deletes and
+ * reinserts every role permission: a failure partway through would otherwise
+ * leave roles stripped of access.
+ *
+ * Both callers have already installed the mirror triggers alongside the version
+ * stamp. Re-running them here is repair, not installation: it restores guards
+ * that were dropped outside the app, and it cannot be what makes version 12
+ * safe, because this step is allowed to fail.
  */
 function finishSchema(database: Database.Database, now: string): void {
   database.transaction(() => {
     runIdempotentSeeds(database, now);
     assertNoDuplicateOpenRentals(database);
     database.exec(allIndexSql);
+    database.exec(allMoneyMirrorTriggerSql);
   })();
 }
 

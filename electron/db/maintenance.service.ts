@@ -7,9 +7,11 @@ import {
   type MaintenanceRecord,
   type MaintenanceRecordWithVehicle,
 } from "../../src/shared/maintenance";
+import { fromMinorUnits, toMinorUnits } from "../../src/shared/money";
 import type { PageResult } from "../../src/shared/pagination";
 import { getDatabase } from "./database";
 import { createPageResult, normalizePageRequest, toLikeTerm } from "./listing";
+import { columnToMinor, moneyColumns } from "./money-write";
 import { maintenanceRecords, vehicles } from "./schema";
 import { getCurrentUserForService, requirePermissionForCurrentSession } from "./auth.service";
 import { logAuditEvent } from "./audit.service";
@@ -59,7 +61,7 @@ export function listMaintenance(
       vehicleId: maintenanceRecords.vehicleId,
       title: maintenanceRecords.title,
       description: maintenanceRecords.description,
-      cost: maintenanceRecords.cost,
+      costMinor: maintenanceRecords.costMinor,
       startDate: maintenanceRecords.startDate,
       endDate: maintenanceRecords.endDate,
       isArchived: maintenanceRecords.isArchived,
@@ -77,7 +79,16 @@ export function listMaintenance(
     .offset(pageRequest.offset)
     .all();
 
-  return createPageResult(rows, total, pageRequest);
+  return createPageResult(
+    rows.map(({ costMinor, ...row }) => ({
+      ...row,
+      cost: fromMinorUnits(
+        columnToMinor(costMinor, "maintenance_records.cost_minor"),
+      ),
+    })),
+    total,
+    pageRequest,
+  );
 }
 
 export function createMaintenance(input: MaintenanceInput): MaintenanceRecord {
@@ -109,6 +120,7 @@ export function createMaintenance(input: MaintenanceInput): MaintenanceRecord {
         .insert(maintenanceRecords)
         .values({
           ...values,
+          ...moneyColumns("cost", toMinorUnits(values.cost, "Cost")),
           isArchived: false,
           createdByUserId: actor?.id ?? null,
           lastUpdatedByUserId: actor?.id ?? null,
@@ -129,7 +141,7 @@ export function createMaintenance(input: MaintenanceInput): MaintenanceRecord {
         after: record,
       });
 
-      return record;
+      return toMaintenanceRecord(record);
     });
   } catch (error) {
     throw normalizeMaintenanceServiceError(error);
@@ -193,6 +205,7 @@ export function updateMaintenance(
         .update(maintenanceRecords)
         .set({
           ...values,
+          ...moneyColumns("cost", toMinorUnits(values.cost, "Cost")),
           completedByUserId:
             !existing.endDate && values.endDate ? actor?.id ?? null : existing.completedByUserId,
           lastUpdatedByUserId: actor?.id ?? null,
@@ -223,11 +236,34 @@ export function updateMaintenance(
         after: updated,
       });
 
-      return updated;
+      return toMaintenanceRecord(updated);
     });
   } catch (error) {
     throw normalizeMaintenanceServiceError(error);
   }
+}
+
+/**
+ * Stored integer in, major-unit record out. The REAL mirror is never read, and
+ * neither storage column is copied into the record the renderer receives.
+ */
+function toMaintenanceRecord(
+  row: typeof maintenanceRecords.$inferSelect,
+): MaintenanceRecord {
+  return {
+    id: row.id,
+    vehicleId: row.vehicleId,
+    title: row.title,
+    description: row.description,
+    cost: fromMinorUnits(
+      columnToMinor(row.costMinor, "maintenance_records.cost_minor"),
+    ),
+    startDate: row.startDate,
+    endDate: row.endDate,
+    isArchived: row.isArchived,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
 }
 
 export function archiveMaintenance(id: unknown): void {

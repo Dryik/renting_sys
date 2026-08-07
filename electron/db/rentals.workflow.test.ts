@@ -180,15 +180,17 @@ describe("the one-open-rental guarantee", () => {
     activateRental(buildActivationInput(customerId, vehicleId));
 
     // Bypass the service entirely: the database must still refuse a second
-    // open rental for the same vehicle.
+    // open rental for the same vehicle. The price is written to both columns of
+    // the pair, so the mirror trigger passes and the unique index is what fails.
     const insertDuplicate = () =>
       getSqliteDatabase()
         .prepare(
           `insert into rentals (
              contract_no, customer_id, vehicle_id, status,
-             start_datetime, expected_return_datetime, daily_price,
+             start_datetime, expected_return_datetime,
+             daily_price, daily_price_minor,
              created_at, updated_at
-           ) values (?, ?, ?, 'active', ?, ?, 100, ?, ?)`,
+           ) values (?, ?, ?, 'active', ?, ?, 100, 10000, ?, ?)`,
         )
         .run(
           "CNT-DUPLICATE",

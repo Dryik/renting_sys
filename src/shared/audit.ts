@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { fromMinorUnitsOrNull, isMoneyMinor } from "./money";
 import type { PageRequest } from "./pagination";
 
 export const auditActionValues = [
@@ -147,6 +148,7 @@ function redactValue(value: unknown): unknown {
     return value;
   }
 
+  const money = describeMoneyKeys(value as Record<string, unknown>);
   const result: Record<string, unknown> = {};
 
   for (const [key, child] of Object.entries(value)) {
@@ -163,8 +165,56 @@ function redactValue(value: unknown): unknown {
       continue;
     }
 
+    if (money.drop.has(key)) {
+      continue;
+    }
+
+    const majorKey = money.rename.get(key);
+
+    if (majorKey !== undefined) {
+      result[majorKey] = fromMinorUnitsOrNull(isMoneyMinor(child) ? child : null);
+      continue;
+    }
+
     result[key] = redactValue(child);
   }
 
   return result;
+}
+
+/**
+ * The activity screen shows these snapshots verbatim, so a raw table row would
+ * put the shop's staff in front of `amountMinor: 1235` and a mirror column they
+ * have no way to interpret. Storage names are folded back to the one name the
+ * rest of the app uses, in the units the rest of the app shows.
+ *
+ * Only a `*Minor` key holding an amount is folded, and only a `*Legacy` key with
+ * a `*Minor` sibling is dropped, so an unrelated field that happens to end in
+ * one of those words is left alone.
+ */
+function describeMoneyKeys(value: Record<string, unknown>): {
+  rename: Map<string, string>;
+  drop: Set<string>;
+} {
+  const rename = new Map<string, string>();
+  const drop = new Set<string>();
+
+  for (const [key, child] of Object.entries(value)) {
+    if (!key.endsWith("Minor") || key.length === "Minor".length) {
+      continue;
+    }
+
+    if (child !== null && !isMoneyMinor(child)) {
+      continue;
+    }
+
+    const base = key.slice(0, -"Minor".length);
+    rename.set(key, base);
+    // The stored integer is the source of truth, so a major-unit key already
+    // present is re-emitted from it rather than copied through.
+    drop.add(base);
+    drop.add(`${base}Legacy`);
+  }
+
+  return { rename, drop };
 }

@@ -5,9 +5,21 @@ import {
   type VehicleRecord,
   vehicleInputSchema,
 } from "../../src/shared/vehicles";
+import {
+  fromMinorUnits,
+  fromMinorUnitsOrNull,
+  toMinorUnits,
+  toMinorUnitsOrNull,
+} from "../../src/shared/money";
 import type { PageResult } from "../../src/shared/pagination";
 import { getDatabase } from "./database";
 import { createPageResult, normalizePageRequest, toLikeTerm } from "./listing";
+import {
+  columnToMinor,
+  moneyColumns,
+  nullableColumnToMinor,
+  nullableMoneyColumns,
+} from "./money-write";
 import { maintenanceRecords, rentals, vehicleSales, vehicles } from "./schema";
 import { getCurrentUserForService, requirePermissionForCurrentSession } from "./auth.service";
 import { logAuditEvent } from "./audit.service";
@@ -93,6 +105,7 @@ export function createVehicle(input: unknown): VehicleRecord {
       .insert(vehicles)
       .values({
         ...values,
+        ...toVehicleMoneyColumns(values),
         createdAt: now,
         updatedAt: now,
       })
@@ -154,6 +167,7 @@ export function updateVehicle(id: unknown, input: unknown): VehicleRecord {
         .update(vehicles)
         .set({
           ...values,
+          ...toVehicleMoneyColumns(values),
           updatedAt: new Date().toISOString(),
         })
         .where(eq(vehicles.id, vehicleId))
@@ -274,14 +288,66 @@ function isVehicleStatusFilter(
   );
 }
 
+/** Converts the caller's major-unit prices once, then writes both columns. */
+function toVehicleMoneyColumns(values: {
+  dailyPrice: number;
+  depositAmount: number;
+  commissionRateOverride: number | null;
+}) {
+  return {
+    ...moneyColumns("dailyPrice", toMinorUnits(values.dailyPrice, "Daily price")),
+    ...moneyColumns(
+      "depositAmount",
+      toMinorUnits(values.depositAmount, "Deposit amount"),
+    ),
+    ...nullableMoneyColumns(
+      "commissionRateOverride",
+      toMinorUnitsOrNull(values.commissionRateOverride, "Commission rate override"),
+    ),
+  };
+}
+
 function toVehicleRecord(row: {
   vehicle: typeof vehicles.$inferSelect;
   activeSaleId: number | null;
   activeSaleNo: string | null;
   soldAt: string | null;
 }): VehicleRecord {
+  // Listed field by field: spreading the row would attach the storage columns
+  // to a record whose declared type has no place for them.
   return {
-    ...row.vehicle,
+    id: row.vehicle.id,
+    type: row.vehicle.type,
+    brand: row.vehicle.brand,
+    model: row.vehicle.model,
+    plateNumber: row.vehicle.plateNumber,
+    chassisNumber: row.vehicle.chassisNumber,
+    color: row.vehicle.color,
+    year: row.vehicle.year,
+    status: row.vehicle.status,
+    mileage: row.vehicle.mileage,
+    insuranceExpiryDate: row.vehicle.insuranceExpiryDate,
+    registrationExpiryDate: row.vehicle.registrationExpiryDate,
+    technicalInspectionExpiryDate: row.vehicle.technicalInspectionExpiryDate,
+    lastOilChangeDate: row.vehicle.lastOilChangeDate,
+    lastOilChangeMileage: row.vehicle.lastOilChangeMileage,
+    notes: row.vehicle.notes,
+    createdAt: row.vehicle.createdAt,
+    updatedAt: row.vehicle.updatedAt,
+    // The outgoing record is major units, converted once from the stored
+    // integers. The REAL mirror is never read.
+    dailyPrice: fromMinorUnits(
+      columnToMinor(row.vehicle.dailyPriceMinor, "vehicles.daily_price_minor"),
+    ),
+    depositAmount: fromMinorUnits(
+      columnToMinor(row.vehicle.depositAmountMinor, "vehicles.deposit_amount_minor"),
+    ),
+    commissionRateOverride: fromMinorUnitsOrNull(
+      nullableColumnToMinor(
+        row.vehicle.commissionRateOverrideMinor,
+        "vehicles.commission_rate_override_minor",
+      ),
+    ),
     activeSaleId: row.activeSaleId,
     activeSaleNo: row.activeSaleNo,
     displayStatus: row.activeSaleId ? "sold" : row.vehicle.status,

@@ -1,3 +1,16 @@
+/**
+ * Money columns come in pairs since schema version 12.
+ *
+ * `*Minor` is an integer count of minor units and is what every calculation,
+ * comparison and SQL aggregate uses. `*Legacy` is the original REAL column,
+ * kept only as a compatibility mirror for an older installed build; nothing in
+ * this app may calculate from it. The `Legacy` suffix is deliberate — it turns
+ * an accidental read of the old column into something a reviewer notices and
+ * makes the compiler point at every site that still needs converting.
+ *
+ * See `money-columns.ts` for the audited inventory and the triggers that keep
+ * each pair in step.
+ */
 import { relations } from "drizzle-orm";
 import {
   integer,
@@ -78,8 +91,10 @@ export const vehicles = sqliteTable(
     chassisNumber: text("chassis_number"),
     color: text("color"),
     year: integer("year"),
-    dailyPrice: real("daily_price").notNull(),
-    depositAmount: real("deposit_amount").notNull().default(0),
+    dailyPriceLegacy: real("daily_price").notNull(),
+    dailyPriceMinor: integer("daily_price_minor").notNull().default(0),
+    depositAmountLegacy: real("deposit_amount").notNull().default(0),
+    depositAmountMinor: integer("deposit_amount_minor").notNull().default(0),
     status: text("status", {
       enum: ["available", "rented", "maintenance", "inactive"],
     })
@@ -92,7 +107,8 @@ export const vehicles = sqliteTable(
     lastOilChangeDate: text("last_oil_change_date"),
     lastOilChangeMileage: integer("last_oil_change_mileage"),
     notes: text("notes"),
-    commissionRateOverride: real("commission_rate_override"),
+    commissionRateOverrideLegacy: real("commission_rate_override"),
+    commissionRateOverrideMinor: integer("commission_rate_override_minor"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
@@ -121,7 +137,8 @@ export const vehicleSales = sqliteTable(
     buyerPhone: text("buyer_phone"),
     buyerIdNumber: text("buyer_id_number"),
     saleDate: text("sale_date").notNull(),
-    salePrice: real("sale_price").notNull(),
+    salePriceLegacy: real("sale_price").notNull(),
+    salePriceMinor: integer("sale_price_minor").notNull().default(0),
     paymentMethod: text("payment_method", {
       enum: ["cash", "card", "bank_transfer", "other"],
     }).notNull(),
@@ -198,9 +215,12 @@ export const rentals = sqliteTable(
     startDatetime: text("start_datetime").notNull(),
     expectedReturnDatetime: text("expected_return_datetime").notNull(),
     actualReturnDatetime: text("actual_return_datetime"),
-    dailyPrice: real("daily_price").notNull(),
-    depositRequired: real("deposit_required").notNull().default(0),
-    depositPaid: real("deposit_paid").notNull().default(0),
+    dailyPriceLegacy: real("daily_price").notNull(),
+    dailyPriceMinor: integer("daily_price_minor").notNull().default(0),
+    depositRequiredLegacy: real("deposit_required").notNull().default(0),
+    depositRequiredMinor: integer("deposit_required_minor").notNull().default(0),
+    depositPaidLegacy: real("deposit_paid").notNull().default(0),
+    depositPaidMinor: integer("deposit_paid_minor").notNull().default(0),
     mileageOut: integer("mileage_out"),
     mileageIn: integer("mileage_in"),
     fuelOut: text("fuel_out"),
@@ -208,18 +228,28 @@ export const rentals = sqliteTable(
     notesOut: text("notes_out"),
     notesIn: text("notes_in"),
     damageNotes: text("damage_notes"),
-    extraCharges: real("extra_charges").notNull().default(0),
-    accessoryCharges: real("accessory_charges").notNull().default(0),
-    discount: real("discount").notNull().default(0),
-    totalAmount: real("total_amount").notNull().default(0),
-    paidAmount: real("paid_amount").notNull().default(0),
-    remainingAmount: real("remaining_amount").notNull().default(0),
+    extraChargesLegacy: real("extra_charges").notNull().default(0),
+    extraChargesMinor: integer("extra_charges_minor").notNull().default(0),
+    accessoryChargesLegacy: real("accessory_charges").notNull().default(0),
+    accessoryChargesMinor: integer("accessory_charges_minor").notNull().default(0),
+    discountLegacy: real("discount").notNull().default(0),
+    discountMinor: integer("discount_minor").notNull().default(0),
+    totalAmountLegacy: real("total_amount").notNull().default(0),
+    totalAmountMinor: integer("total_amount_minor").notNull().default(0),
+    paidAmountLegacy: real("paid_amount").notNull().default(0),
+    paidAmountMinor: integer("paid_amount_minor").notNull().default(0),
+    remainingAmountLegacy: real("remaining_amount").notNull().default(0),
+    remainingAmountMinor: integer("remaining_amount_minor").notNull().default(0),
     cancelledAt: text("cancelled_at"),
     cancelReason: text("cancel_reason"),
     createdByUserId: integer("created_by_user_id").references(() => users.id),
     salesUserId: integer("sales_user_id").references(() => users.id),
-    commissionRatePerDay: real("commission_rate_per_day").notNull().default(0),
-    commissionAmount: real("commission_amount").notNull().default(0),
+    commissionRatePerDayLegacy: real("commission_rate_per_day").notNull().default(0),
+    commissionRatePerDayMinor: integer("commission_rate_per_day_minor")
+      .notNull()
+      .default(0),
+    commissionAmountLegacy: real("commission_amount").notNull().default(0),
+    commissionAmountMinor: integer("commission_amount_minor").notNull().default(0),
     activatedByUserId: integer("activated_by_user_id").references(() => users.id),
     returnedByUserId: integer("returned_by_user_id").references(() => users.id),
     cancelledByUserId: integer("cancelled_by_user_id").references(() => users.id),
@@ -254,7 +284,7 @@ export const rentals = sqliteTable(
     ),
     statusRemainingAmountIdx: index("rentals_status_remaining_amount_idx").on(
       table.status,
-      table.remainingAmount,
+      table.remainingAmountMinor,
     ),
     cancelledAtIdx: index("rentals_cancelled_at_idx").on(table.cancelledAt),
     customerIdIdx: index("rentals_customer_id_idx").on(table.customerId),
@@ -268,7 +298,8 @@ export const accessories = sqliteTable(
     id: integer("id").primaryKey({ autoIncrement: true }),
     name: text("name").notNull(),
     quantityOwned: integer("quantity_owned").notNull().default(0),
-    defaultCharge: real("default_charge").notNull().default(0),
+    defaultChargeLegacy: real("default_charge").notNull().default(0),
+    defaultChargeMinor: integer("default_charge_minor").notNull().default(0),
     isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
     notes: text("notes"),
     createdAt: text("created_at").notNull(),
@@ -291,7 +322,8 @@ export const rentalAccessories = sqliteTable(
       .notNull()
       .references(() => accessories.id),
     quantity: integer("quantity").notNull(),
-    unitCharge: real("unit_charge").notNull().default(0),
+    unitChargeLegacy: real("unit_charge").notNull().default(0),
+    unitChargeMinor: integer("unit_charge_minor").notNull().default(0),
     returnedQuantity: integer("returned_quantity").notNull().default(0),
     missingQuantity: integer("missing_quantity").notNull().default(0),
     notes: text("notes"),
@@ -323,7 +355,8 @@ export const rentalCollateralItems = sqliteTable(
     }).notNull(),
     description: text("description").notNull(),
     referenceNumber: text("reference_number"),
-    estimatedValue: real("estimated_value"),
+    estimatedValueLegacy: real("estimated_value"),
+    estimatedValueMinor: integer("estimated_value_minor"),
     currency: text("currency"),
     status: text("status", { enum: ["held", "returned"] }).notNull().default("held"),
     receivedAt: text("received_at").notNull(),
@@ -357,7 +390,8 @@ export const payments = sqliteTable(
     })
       .notNull()
       .default("posted"),
-    amount: real("amount").notNull(),
+    amountLegacy: real("amount").notNull(),
+    amountMinor: integer("amount_minor").notNull().default(0),
     paymentDate: text("payment_date").notNull(),
     notes: text("notes"),
     voidedAt: text("voided_at"),
@@ -383,7 +417,7 @@ export const payments = sqliteTable(
       table.status,
       table.type,
       table.rentalId,
-      table.amount,
+      table.amountMinor,
     ),
   }),
 );
@@ -423,7 +457,8 @@ export const expenses = sqliteTable(
     method: text("method", {
       enum: ["cash", "card", "bank_transfer", "other"],
     }).notNull(),
-    amount: real("amount").notNull(),
+    amountLegacy: real("amount").notNull(),
+    amountMinor: integer("amount_minor").notNull().default(0),
     expenseDate: text("expense_date").notNull(),
     vendorName: text("vendor_name"),
     vehicleId: integer("vehicle_id").references(() => vehicles.id),
@@ -464,7 +499,8 @@ export const cashMovements = sqliteTable(
     toLocation: text("to_location", {
       enum: ["cash_drawer", "shop_safe", "bank"],
     }).references(() => moneyLocations.key),
-    amount: real("amount").notNull(),
+    amountLegacy: real("amount").notNull(),
+    amountMinor: integer("amount_minor").notNull().default(0),
     movementDate: text("movement_date").notNull(),
     notes: text("notes"),
     status: text("status", {
@@ -496,12 +532,14 @@ export const employeeLoans = sqliteTable(
     employeeUserId: integer("employee_user_id")
       .notNull()
       .references(() => users.id),
-    amount: real("amount").notNull(),
+    amountLegacy: real("amount").notNull(),
+    amountMinor: integer("amount_minor").notNull().default(0),
     issuedAt: text("issued_at").notNull(),
     sourceLocation: text("source_location", {
       enum: ["cash_drawer", "shop_safe", "bank"],
     }).notNull(),
-    remainingAmount: real("remaining_amount").notNull(),
+    remainingAmountLegacy: real("remaining_amount").notNull(),
+    remainingAmountMinor: integer("remaining_amount_minor").notNull().default(0),
     status: text("status", { enum: ["open", "paid", "voided"] })
       .notNull()
       .default("open"),
@@ -528,7 +566,8 @@ export const employeeLoanPayments = sqliteTable(
     loanId: integer("loan_id")
       .notNull()
       .references(() => employeeLoans.id),
-    amount: real("amount").notNull(),
+    amountLegacy: real("amount").notNull(),
+    amountMinor: integer("amount_minor").notNull().default(0),
     paymentDate: text("payment_date").notNull(),
     method: text("method", {
       enum: ["cash", "card", "bank_transfer", "other"],
@@ -563,7 +602,8 @@ export const accountingAdjustments = sqliteTable(
     direction: text("direction", {
       enum: ["increase", "decrease"],
     }).notNull(),
-    amount: real("amount").notNull(),
+    amountLegacy: real("amount").notNull(),
+    amountMinor: integer("amount_minor").notNull().default(0),
     adjustmentDate: text("adjustment_date").notNull(),
     reason: text("reason").notNull(),
     notes: text("notes"),
@@ -596,7 +636,8 @@ export const maintenanceRecords = sqliteTable(
       .references(() => vehicles.id),
     title: text("title").notNull(),
     description: text("description"),
-    cost: real("cost").notNull().default(0),
+    costLegacy: real("cost").notNull().default(0),
+    costMinor: integer("cost_minor").notNull().default(0),
     startDate: text("start_date").notNull(),
     endDate: text("end_date"),
     isArchived: integer("is_archived", { mode: "boolean" }).notNull().default(false),
@@ -817,9 +858,12 @@ export const dailyClosings = sqliteTable(
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
     closingDate: text("closing_date").notNull(),
-    expectedCash: real("expected_cash").notNull().default(0),
-    countedCash: real("counted_cash").notNull().default(0),
-    difference: real("difference").notNull().default(0),
+    expectedCashLegacy: real("expected_cash").notNull().default(0),
+    expectedCashMinor: integer("expected_cash_minor").notNull().default(0),
+    countedCashLegacy: real("counted_cash").notNull().default(0),
+    countedCashMinor: integer("counted_cash_minor").notNull().default(0),
+    differenceLegacy: real("difference").notNull().default(0),
+    differenceMinor: integer("difference_minor").notNull().default(0),
     notes: text("notes"),
     closedAt: text("closed_at").notNull(),
     updatedAt: text("updated_at").notNull(),

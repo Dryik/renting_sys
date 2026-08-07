@@ -8,6 +8,11 @@
  * Every statement is `create table if not exists`, so re-running is harmless.
  * Column additions after a table's introduction belong in a migration, not
  * here — these definitions always describe the current shape.
+ *
+ * Money: every `*_minor` column is an integer count of minor units and is the
+ * value the app calculates with. The REAL column next to it keeps its original
+ * name and is a read-only mirror, maintained only so an older installed build
+ * still reads a recognisable number. See `money-columns.ts`.
  */
 
 // --- Version 1: the original core -----------------------------------------
@@ -30,7 +35,9 @@ export const vehiclesTableSql = `
     color text,
     year integer,
     daily_price real not null,
+    daily_price_minor integer not null default 0,
     deposit_amount real not null default 0,
+    deposit_amount_minor integer not null default 0,
     status text not null default 'available' check (status in ('available', 'rented', 'maintenance', 'inactive')),
     mileage integer,
     insurance_expiry_date text,
@@ -40,6 +47,7 @@ export const vehiclesTableSql = `
     last_oil_change_mileage integer,
     notes text,
     commission_rate_override real,
+    commission_rate_override_minor integer,
     created_at text not null,
     updated_at text not null
   );
@@ -73,8 +81,11 @@ export const rentalsTableSql = `
     expected_return_datetime text not null,
     actual_return_datetime text,
     daily_price real not null,
+    daily_price_minor integer not null default 0,
     deposit_required real not null default 0,
+    deposit_required_minor integer not null default 0,
     deposit_paid real not null default 0,
+    deposit_paid_minor integer not null default 0,
     mileage_out integer,
     mileage_in integer,
     fuel_out text,
@@ -83,17 +94,25 @@ export const rentalsTableSql = `
     notes_in text,
     damage_notes text,
     extra_charges real not null default 0,
+    extra_charges_minor integer not null default 0,
     accessory_charges real not null default 0,
+    accessory_charges_minor integer not null default 0,
     discount real not null default 0,
+    discount_minor integer not null default 0,
     total_amount real not null default 0,
+    total_amount_minor integer not null default 0,
     paid_amount real not null default 0,
+    paid_amount_minor integer not null default 0,
     remaining_amount real not null default 0,
+    remaining_amount_minor integer not null default 0,
     cancelled_at text,
     cancel_reason text,
     created_by_user_id integer references users(id),
     sales_user_id integer references users(id),
     commission_rate_per_day real not null default 0,
+    commission_rate_per_day_minor integer not null default 0,
     commission_amount real not null default 0,
+    commission_amount_minor integer not null default 0,
     activated_by_user_id integer references users(id),
     returned_by_user_id integer references users(id),
     cancelled_by_user_id integer references users(id),
@@ -112,6 +131,7 @@ export const paymentsTableSql = `
     receipt_no text unique,
     status text not null default 'posted' check (status in ('posted', 'voided')),
     amount real not null,
+    amount_minor integer not null default 0,
     payment_date text not null,
     notes text,
     voided_at text,
@@ -131,6 +151,7 @@ export const maintenanceRecordsTableSql = `
     title text not null,
     description text,
     cost real not null default 0,
+    cost_minor integer not null default 0,
     start_date text not null,
     end_date text,
     is_archived integer not null default 0,
@@ -324,6 +345,7 @@ export const expensesTableSql = `
     location text not null references money_locations(key),
     method text not null check (method in ('cash', 'card', 'bank_transfer', 'other')),
     amount real not null,
+    amount_minor integer not null default 0,
     expense_date text not null,
     vendor_name text,
     vehicle_id integer references vehicles(id),
@@ -345,6 +367,7 @@ export const cashMovementsTableSql = `
     from_location text not null references money_locations(key),
     to_location text references money_locations(key),
     amount real not null,
+    amount_minor integer not null default 0,
     movement_date text not null,
     notes text,
     status text not null default 'posted' check (status in ('posted', 'voided')),
@@ -362,8 +385,11 @@ export const dailyClosingsTableSql = `
     id integer primary key autoincrement,
     closing_date text not null unique,
     expected_cash real not null default 0,
+    expected_cash_minor integer not null default 0,
     counted_cash real not null default 0,
+    counted_cash_minor integer not null default 0,
     difference real not null default 0,
+    difference_minor integer not null default 0,
     notes text,
     closed_at text not null,
     updated_at text not null
@@ -378,6 +404,7 @@ export const accountingAdjustmentsTableSql = `
     location text not null references money_locations(key),
     direction text not null check (direction in ('increase', 'decrease')),
     amount real not null,
+    amount_minor integer not null default 0,
     adjustment_date text not null,
     reason text not null,
     notes text,
@@ -403,6 +430,7 @@ export const vehicleSalesTableSql = `
     buyer_id_number text,
     sale_date text not null,
     sale_price real not null,
+    sale_price_minor integer not null default 0,
     payment_method text not null check (payment_method in ('cash', 'card', 'bank_transfer', 'other')),
     status text not null default 'posted' check (status in ('posted', 'voided')),
     previous_vehicle_status text not null check (previous_vehicle_status in ('available', 'inactive')),
@@ -424,9 +452,11 @@ export const employeeLoansTableSql = `
     loan_no text not null unique,
     employee_user_id integer not null references users(id),
     amount real not null,
+    amount_minor integer not null default 0,
     issued_at text not null,
     source_location text not null check (source_location in ('cash_drawer', 'shop_safe', 'bank')),
     remaining_amount real not null,
+    remaining_amount_minor integer not null default 0,
     status text not null default 'open' check (status in ('open', 'paid', 'voided')),
     notes text,
     voided_at text,
@@ -443,6 +473,7 @@ export const employeeLoanPaymentsTableSql = `
     id integer primary key autoincrement,
     loan_id integer not null references employee_loans(id),
     amount real not null,
+    amount_minor integer not null default 0,
     payment_date text not null,
     method text not null check (method in ('cash', 'card', 'bank_transfer', 'other')),
     location text not null check (location in ('cash_drawer', 'shop_safe', 'bank')),
@@ -460,6 +491,7 @@ export const accessoriesTableSql = `
     name text not null unique,
     quantity_owned integer not null default 0,
     default_charge real not null default 0,
+    default_charge_minor integer not null default 0,
     is_active integer not null default 1,
     notes text,
     created_at text not null,
@@ -474,6 +506,7 @@ export const rentalAccessoriesTableSql = `
     accessory_id integer not null references accessories(id),
     quantity integer not null,
     unit_charge real not null default 0,
+    unit_charge_minor integer not null default 0,
     returned_quantity integer not null default 0,
     missing_quantity integer not null default 0,
     notes text,
@@ -490,6 +523,7 @@ export const rentalCollateralItemsTableSql = `
     description text not null,
     reference_number text,
     estimated_value real,
+    estimated_value_minor integer,
     currency text,
     status text not null default 'held' check (status in ('held', 'returned')),
     received_at text not null,
@@ -506,6 +540,11 @@ export const rentalCollateralItemsTableSql = `
  *
  * The partial unique index on rentals only builds against clean data, so the
  * runner checks for duplicate open rentals before calling this.
+ *
+ * The two money indexes target `*_minor` columns, because those are what the
+ * queries filter and order by. Migration 12 drops their version 11 definitions
+ * first — `if not exists` would otherwise keep an index pointing at a REAL
+ * column that nothing reads.
  */
 export const allIndexSql = `
   create index if not exists vehicles_status_idx on vehicles(status);
@@ -538,7 +577,7 @@ export const allIndexSql = `
   create index if not exists rentals_status_expected_return_idx on rentals(status, expected_return_datetime);
   create index if not exists rentals_actual_return_datetime_idx on rentals(actual_return_datetime);
   create index if not exists rentals_status_actual_return_idx on rentals(status, actual_return_datetime, created_at);
-  create index if not exists rentals_status_remaining_amount_idx on rentals(status, remaining_amount);
+  create index if not exists rentals_status_remaining_amount_idx on rentals(status, remaining_amount_minor);
   create index if not exists rentals_cancelled_at_idx on rentals(cancelled_at);
   create index if not exists rentals_customer_id_idx on rentals(customer_id);
   create index if not exists rentals_vehicle_id_idx on rentals(vehicle_id);
@@ -558,7 +597,7 @@ export const allIndexSql = `
   create index if not exists payments_type_idx on payments(type);
   create index if not exists payments_rental_id_idx on payments(rental_id);
   create index if not exists payments_status_type_rental_id_idx on payments(status, type, rental_id);
-  create index if not exists payments_status_type_rental_amount_idx on payments(status, type, rental_id, amount);
+  create index if not exists payments_status_type_rental_amount_idx on payments(status, type, rental_id, amount_minor);
 
   create unique index if not exists employee_loans_loan_no_idx on employee_loans(loan_no);
   create index if not exists employee_loans_employee_user_id_idx on employee_loans(employee_user_id);

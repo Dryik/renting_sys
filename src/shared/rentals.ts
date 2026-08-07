@@ -9,6 +9,16 @@ import {
 } from "./accessories";
 import { translate } from "./i18n";
 import type { LanguageCode } from "./language";
+import {
+  MONEY_MINOR_ZERO,
+  addMoney,
+  fromMinorUnits,
+  maxMoney,
+  multiplyMoney,
+  subtractMoney,
+  toMinorUnits,
+  type MoneyMinor,
+} from "./money";
 import type { PageRequest } from "./pagination";
 import { paymentInputSchema, type PaymentInput } from "./payments";
 import { approvalTokenSchema } from "./security";
@@ -503,12 +513,43 @@ export function calculateRentalDays(
   return Math.max(1, Math.ceil((expectedReturn - start) / millisecondsPerDay));
 }
 
+/** Rent for the booked period: a whole-day rate times whole days. */
+export function calculateRentalTotalMinor(
+  days: number,
+  dailyPriceMinor: MoneyMinor,
+): MoneyMinor {
+  return multiplyMoney(
+    maxMoney(dailyPriceMinor, MONEY_MINOR_ZERO),
+    Math.max(1, days),
+    "the rental total",
+  );
+}
+
 export function calculateRentalTotal(days: number, dailyPrice: number): number {
   if (!Number.isFinite(days) || !Number.isFinite(dailyPrice)) {
     return 0;
   }
 
-  return roundMoney(Math.max(1, days) * Math.max(0, dailyPrice));
+  return fromMinorUnits(
+    calculateRentalTotalMinor(Math.ceil(days), toMinorUnits(dailyPrice)),
+  );
+}
+
+export function calculateRentalSummaryMinor(
+  startDatetime: string,
+  expectedReturnDatetime: string,
+  dailyPriceMinor: MoneyMinor,
+  accessoryChargesMinor: MoneyMinor = MONEY_MINOR_ZERO,
+): { days: number; totalAmountMinor: MoneyMinor } {
+  const days = calculateRentalDays(startDatetime, expectedReturnDatetime);
+
+  return {
+    days,
+    totalAmountMinor: addMoney(
+      calculateRentalTotalMinor(days, dailyPriceMinor),
+      maxMoney(accessoryChargesMinor, MONEY_MINOR_ZERO),
+    ),
+  };
 }
 
 export function calculateRentalSummary(
@@ -517,13 +558,16 @@ export function calculateRentalSummary(
   dailyPrice: number,
   accessoryCharges = 0,
 ): { days: number; totalAmount: number } {
-  const days = calculateRentalDays(startDatetime, expectedReturnDatetime);
+  const summary = calculateRentalSummaryMinor(
+    startDatetime,
+    expectedReturnDatetime,
+    toMinorUnits(dailyPrice),
+    toMinorUnits(accessoryCharges),
+  );
 
   return {
-    days,
-    totalAmount: roundMoney(
-      calculateRentalTotal(days, dailyPrice) + Math.max(0, accessoryCharges),
-    ),
+    days: summary.days,
+    totalAmount: fromMinorUnits(summary.totalAmountMinor),
   };
 }
 
@@ -565,15 +609,38 @@ export type RentalInitialBalance = {
   remainingAmount: number;
 };
 
+export type RentalInitialBalanceMinor = {
+  paidAmountMinor: MoneyMinor;
+  remainingAmountMinor: MoneyMinor;
+};
+
+export function calculateInitialRentalBalanceMinor(
+  totalAmountMinor: MoneyMinor,
+  depositPaidMinor: MoneyMinor,
+): RentalInitialBalanceMinor {
+  const paidAmountMinor = maxMoney(depositPaidMinor, MONEY_MINOR_ZERO);
+
+  return {
+    paidAmountMinor,
+    remainingAmountMinor: subtractMoney(
+      maxMoney(totalAmountMinor, MONEY_MINOR_ZERO),
+      paidAmountMinor,
+    ),
+  };
+}
+
 export function calculateInitialRentalBalance(
   totalAmount: number,
   depositPaid: number,
 ): RentalInitialBalance {
-  const paidAmount = roundMoney(Math.max(0, depositPaid));
+  const balance = calculateInitialRentalBalanceMinor(
+    toMinorUnits(totalAmount),
+    toMinorUnits(depositPaid),
+  );
 
   return {
-    paidAmount,
-    remainingAmount: roundMoney(Math.max(0, totalAmount) - paidAmount),
+    paidAmount: fromMinorUnits(balance.paidAmountMinor),
+    remainingAmount: fromMinorUnits(balance.remainingAmountMinor),
   };
 }
 
@@ -586,28 +653,77 @@ export function calculateCancelledRentalBalance(): Pick<
   };
 }
 
-export function calculateReturnSummary(input: ReturnSummaryInput): ReturnSummary {
+export type ReturnSummaryMinorInput = {
+  expectedReturnDatetime: string | Date;
+  actualReturnDatetime: string | Date;
+  baseTotalAmountMinor: MoneyMinor;
+  paidAmountMinor: MoneyMinor;
+  lateFeePerDayMinor: MoneyMinor;
+  damageChargeMinor: MoneyMinor;
+  discountMinor: MoneyMinor;
+};
+
+export type ReturnSummaryMinor = {
+  lateDays: number;
+  lateFeeMinor: MoneyMinor;
+  extraChargesMinor: MoneyMinor;
+  finalAmountMinor: MoneyMinor;
+  remainingAmountMinor: MoneyMinor;
+};
+
+export function calculateReturnSummaryMinor(
+  input: ReturnSummaryMinorInput,
+): ReturnSummaryMinor {
   const lateDays = calculateLateDays(
     input.expectedReturnDatetime,
     input.actualReturnDatetime,
   );
-  const lateFee = roundMoney(lateDays * Math.max(0, input.lateFeePerDay));
-  const extraCharges = roundMoney(
-    Math.max(0, lateFee) + Math.max(0, input.damageCharge),
+  const lateFeeMinor = multiplyMoney(
+    maxMoney(input.lateFeePerDayMinor, MONEY_MINOR_ZERO),
+    lateDays,
+    "the late fee",
   );
-  const finalAmount = roundMoney(
-    Math.max(0, input.baseTotalAmount) +
-      extraCharges -
-      Math.max(0, input.discount),
+  const extraChargesMinor = addMoney(
+    lateFeeMinor,
+    maxMoney(input.damageChargeMinor, MONEY_MINOR_ZERO),
   );
-  const remainingAmount = roundMoney(finalAmount - Math.max(0, input.paidAmount));
+  const finalAmountMinor = subtractMoney(
+    addMoney(
+      maxMoney(input.baseTotalAmountMinor, MONEY_MINOR_ZERO),
+      extraChargesMinor,
+    ),
+    maxMoney(input.discountMinor, MONEY_MINOR_ZERO),
+  );
 
   return {
     lateDays,
-    lateFee,
-    extraCharges,
-    finalAmount,
-    remainingAmount,
+    lateFeeMinor,
+    extraChargesMinor,
+    finalAmountMinor,
+    remainingAmountMinor: subtractMoney(
+      finalAmountMinor,
+      maxMoney(input.paidAmountMinor, MONEY_MINOR_ZERO),
+    ),
+  };
+}
+
+export function calculateReturnSummary(input: ReturnSummaryInput): ReturnSummary {
+  const summary = calculateReturnSummaryMinor({
+    expectedReturnDatetime: input.expectedReturnDatetime,
+    actualReturnDatetime: input.actualReturnDatetime,
+    baseTotalAmountMinor: toMinorUnits(input.baseTotalAmount),
+    paidAmountMinor: toMinorUnits(input.paidAmount),
+    lateFeePerDayMinor: toMinorUnits(input.lateFeePerDay),
+    damageChargeMinor: toMinorUnits(input.damageCharge),
+    discountMinor: toMinorUnits(input.discount),
+  });
+
+  return {
+    lateDays: summary.lateDays,
+    lateFee: fromMinorUnits(summary.lateFeeMinor),
+    extraCharges: fromMinorUnits(summary.extraChargesMinor),
+    finalAmount: fromMinorUnits(summary.finalAmountMinor),
+    remainingAmount: fromMinorUnits(summary.remainingAmountMinor),
   };
 }
 
@@ -694,10 +810,6 @@ export type {
   RentalAccessoryRecord,
   RentalAccessoryReturnInput,
 };
-
-function roundMoney(value: number): number {
-  return Math.round(value * 100) / 100;
-}
 
 function roundToNearestMinutes(date: Date, minutes: number): Date {
   const interval = minutes * 60 * 1000;

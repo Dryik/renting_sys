@@ -3,6 +3,15 @@ import {
   moneyLocationValues,
   type MoneyLocation,
 } from "./accounting";
+import {
+  MONEY_MINOR_ZERO,
+  fromMinorUnits,
+  maxMoney,
+  subtractMoney,
+  sumMoney,
+  toMinorUnits,
+  type MoneyMinor,
+} from "./money";
 import type { PageRequest } from "./pagination";
 import { paymentMethodValues, type PaymentMethod } from "./payments";
 import { approvalTokenSchema } from "./security";
@@ -204,17 +213,48 @@ export function getDefaultEmployeeLoanRepaymentFormValues():
   };
 }
 
+export type EmployeeLoanRepaymentMinor = {
+  amountMinor: MoneyMinor;
+  status?: "posted" | "voided";
+};
+
+/** Never below zero: an overpaid loan is settled, not owed backwards. */
+export function calculateEmployeeLoanRemainingMinor(
+  amountMinor: MoneyMinor,
+  repayments: readonly EmployeeLoanRepaymentMinor[],
+): MoneyMinor {
+  const paidMinor = sumMoney(
+    repayments.flatMap((repayment) =>
+      repayment.status === "voided" ? [] : [repayment.amountMinor],
+    ),
+    "the loan repayments",
+  );
+
+  return maxMoney(subtractMoney(amountMinor, paidMinor), MONEY_MINOR_ZERO);
+}
+
 export function calculateEmployeeLoanRemaining(
   amount: number,
   repayments: Array<{ amount: number; status?: "posted" | "voided" }>,
 ): number {
-  const paid = repayments.reduce(
-    (total, repayment) =>
-      repayment.status === "voided" ? total : total + repayment.amount,
-    0,
+  return fromMinorUnits(
+    calculateEmployeeLoanRemainingMinor(
+      toMinorUnits(amount),
+      repayments.map((repayment) => ({
+        amountMinor: toMinorUnits(repayment.amount),
+        status: repayment.status,
+      })),
+    ),
   );
+}
 
-  return roundMoney(Math.max(0, amount - paid));
+export function getEmployeeLoanStatusMinor(
+  amountMinor: MoneyMinor,
+  repayments: readonly EmployeeLoanRepaymentMinor[],
+): EmployeeLoanStatus {
+  return calculateEmployeeLoanRemainingMinor(amountMinor, repayments) === 0
+    ? "paid"
+    : "open";
 }
 
 export function getEmployeeLoanStatus(
@@ -236,8 +276,4 @@ function toDatetimeLocalValue(date: Date): string {
 
 function pad(value: number): string {
   return String(value).padStart(2, "0");
-}
-
-function roundMoney(value: number): number {
-  return Math.round(value * 100) / 100;
 }

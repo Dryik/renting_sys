@@ -1,9 +1,9 @@
 import { and, asc, count, desc, eq, gte, like, lt, or, type SQL } from "drizzle-orm";
 import { ZodError } from "zod";
 import {
-  assertRefundWithinPaidAmount,
-  calculatePaidAmount,
-  calculateRemainingAmount,
+  assertRefundWithinPaidAmountMinor,
+  calculatePaidAmountMinor,
+  calculateRemainingAmountMinor,
   type PaymentListRecord,
   type PaymentListRequest,
   type PaymentRecord,
@@ -14,9 +14,18 @@ import {
   paymentVoidInputSchema,
   paymentCorrectionInputSchema,
 } from "../../src/shared/payments";
+import {
+  MONEY_MINOR_ZERO,
+  fromMinorUnits,
+  negateMoney,
+  sumMoney,
+  toMinorUnits,
+  type MoneyMinor,
+} from "../../src/shared/money";
 import type { PageResult } from "../../src/shared/pagination";
 import { getDatabase } from "./database";
 import { createPageResult, normalizePageRequest, toLikeTerm } from "./listing";
+import { columnToMinor, moneyColumns } from "./money-write";
 import { payments, rentals, customers, vehicles } from "./schema";
 import { getShopSettings } from "./settings.service";
 import { getNextSequenceValue } from "./numbering.service";
@@ -37,7 +46,39 @@ export function listPaymentsForRental(rentalId: unknown): PaymentRecord[] {
     .from(payments)
     .where(eq(payments.rentalId, parsedRentalId))
     .orderBy(asc(payments.paymentDate), asc(payments.id))
-    .all();
+    .all()
+    .map(toPaymentRecord);
+}
+
+/**
+ * Stored integer in, major-unit record out.
+ *
+ * Built field by field rather than spread from the row: a spread would carry
+ * both storage columns across the IPC boundary as invisible extras the declared
+ * type never mentions, and the renderer would then have two more
+ * plausible-looking amounts to pick the wrong one from.
+ */
+function toPaymentRecord(row: typeof payments.$inferSelect): PaymentRecord {
+  return {
+    id: row.id,
+    rentalId: row.rentalId,
+    type: row.type,
+    method: row.method,
+    amount: fromMinorUnits(paymentAmountMinor(row)),
+    paymentDate: row.paymentDate,
+    notes: row.notes,
+    receiptNo: row.receiptNo,
+    status: row.status,
+    voidedAt: row.voidedAt,
+    voidReason: row.voidReason,
+    correctedByPaymentId: row.correctedByPaymentId,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function paymentAmountMinor(row: { amountMinor: number }): MoneyMinor {
+  return columnToMinor(row.amountMinor, "payments.amount_minor");
 }
 
 export function createPayment(input: unknown): PaymentRecord {
@@ -49,6 +90,7 @@ export function createPayment(input: unknown): PaymentRecord {
   const now = new Date().toISOString();
   const settings = getShopSettings();
   const actor = getCurrentUserForService();
+  const amountMinor = toMinorUnits(values.amount, "Payment amount");
 
   if (!settings.enableClientDeposit && values.type === "deposit") {
     throw new Error("Client deposit is disabled in settings.");
@@ -60,7 +102,7 @@ export function createPayment(input: unknown): PaymentRecord {
         .select({
           id: rentals.id,
           status: rentals.status,
-          totalAmount: rentals.totalAmount,
+          totalAmountMinor: rentals.totalAmountMinor,
         })
         .from(rentals)
         .where(eq(rentals.id, values.rentalId))
@@ -77,7 +119,7 @@ export function createPayment(input: unknown): PaymentRecord {
       if (values.type === "refund") {
         const postedRentalPayments = tx
           .select({
-            amount: payments.amount,
+            amountMinor: payments.amountMinor,
             status: payments.status,
             type: payments.type,
           })
@@ -88,12 +130,18 @@ export function createPayment(input: unknown): PaymentRecord {
               eq(payments.status, "posted"),
             ),
           )
-          .all();
-        const totalPaidForRental = calculatePaidAmount(postedRentalPayments);
+          .all()
+          .map((payment) => ({
+            ...payment,
+            amountMinor: paymentAmountMinor(payment),
+          }));
 
-        assertRefundWithinPaidAmount(values.amount, totalPaidForRental);
+        assertRefundWithinPaidAmountMinor(
+          amountMinor,
+          calculatePaidAmountMinor(postedRentalPayments),
+        );
         assertAccountingBalanceDeltasAllowed(
-          getPaymentAccountingDeltas(values),
+          getPaymentAccountingDeltas({ ...values, amountMinor }),
         );
       }
 
@@ -102,6 +150,7 @@ export function createPayment(input: unknown): PaymentRecord {
         .insert(payments)
         .values({
           ...values,
+          ...moneyColumns("amount", amountMinor),
           receiptNo,
           status: "posted",
           createdByUserId: actor?.id ?? null,
@@ -111,7 +160,13 @@ export function createPayment(input: unknown): PaymentRecord {
         .returning()
         .get();
 
-      recalculateRentalPaymentState(tx, values.rentalId, rental.totalAmount, rental.status, now);
+      recalculateRentalPaymentState(
+        tx,
+        values.rentalId,
+        rentalTotalMinor(rental),
+        rental.status,
+        now,
+      );
       logAuditEvent(tx, {
         action: values.type === "refund" ? "payment.refunded" : "payment.created",
         entityType: "payment",
@@ -123,11 +178,15 @@ export function createPayment(input: unknown): PaymentRecord {
         metadata: { rentalId: values.rentalId },
       });
 
-      return payment;
+      return toPaymentRecord(payment);
     });
   } catch (error) {
     throw normalizePaymentServiceError(error);
   }
+}
+
+function rentalTotalMinor(rental: { totalAmountMinor: number }): MoneyMinor {
+  return columnToMinor(rental.totalAmountMinor, "rentals.total_amount_minor");
 }
 
 export function voidPayment(input: unknown): PaymentRecord {
@@ -153,10 +212,14 @@ export function voidPayment(input: unknown): PaymentRecord {
         throw new Error("Payment is already voided.");
       }
 
+      // Voiding takes the payment back out of the location it landed in.
       assertAccountingBalanceDeltasAllowed(
-        getPaymentAccountingDeltas(payment).map((delta) => ({
+        getPaymentAccountingDeltas({
+          ...payment,
+          amountMinor: paymentAmountMinor(payment),
+        }).map((delta) => ({
           ...delta,
-          amount: -delta.amount,
+          amountMinor: negateMoney(delta.amountMinor),
         })),
       );
 
@@ -164,7 +227,7 @@ export function voidPayment(input: unknown): PaymentRecord {
         .select({
           id: rentals.id,
           status: rentals.status,
-          totalAmount: rentals.totalAmount,
+          totalAmountMinor: rentals.totalAmountMinor,
         })
         .from(rentals)
         .where(eq(rentals.id, payment.rentalId))
@@ -187,7 +250,13 @@ export function voidPayment(input: unknown): PaymentRecord {
         .returning()
         .get();
 
-      recalculateRentalPaymentState(tx, rental.id, rental.totalAmount, rental.status, now);
+      recalculateRentalPaymentState(
+        tx,
+        rental.id,
+        rentalTotalMinor(rental),
+        rental.status,
+        now,
+      );
       recordAppEvent(tx, {
         eventType: "payment_voided",
         entityType: "payment",
@@ -209,7 +278,7 @@ export function voidPayment(input: unknown): PaymentRecord {
         reason: values.reason,
       });
 
-      return updatedPayment;
+      return toPaymentRecord(updatedPayment);
     });
   } catch (error) {
     throw normalizePaymentServiceError(error);
@@ -226,6 +295,10 @@ export function correctPayment(input: unknown): PaymentRecord {
   const now = new Date().toISOString();
   const settings = getShopSettings();
   const actor = getCurrentUserForService();
+  const replacementAmountMinor = toMinorUnits(
+    values.replacement.amount,
+    "Replacement payment amount",
+  );
 
   if (!settings.enableClientDeposit && values.replacement.type === "deposit") {
     throw new Error("Client deposit is disabled in settings.");
@@ -255,7 +328,7 @@ export function correctPayment(input: unknown): PaymentRecord {
         .select({
           id: rentals.id,
           status: rentals.status,
-          totalAmount: rentals.totalAmount,
+          totalAmountMinor: rentals.totalAmountMinor,
         })
         .from(rentals)
         .where(eq(rentals.id, original.rentalId))
@@ -269,12 +342,20 @@ export function correctPayment(input: unknown): PaymentRecord {
         throw new Error("Cannot correct payment for this rental.");
       }
 
+      // The original is reversed and the replacement applied in one check, so a
+      // correction that only moves money sideways is never refused.
       assertAccountingBalanceDeltasAllowed([
-        ...getPaymentAccountingDeltas(original).map((delta) => ({
+        ...getPaymentAccountingDeltas({
+          ...original,
+          amountMinor: paymentAmountMinor(original),
+        }).map((delta) => ({
           ...delta,
-          amount: -delta.amount,
+          amountMinor: negateMoney(delta.amountMinor),
         })),
-        ...getPaymentAccountingDeltas(values.replacement),
+        ...getPaymentAccountingDeltas({
+          ...values.replacement,
+          amountMinor: replacementAmountMinor,
+        }),
       ]);
 
       tx.update(payments)
@@ -293,6 +374,7 @@ export function correctPayment(input: unknown): PaymentRecord {
         .insert(payments)
         .values({
           ...values.replacement,
+          ...moneyColumns("amount", replacementAmountMinor),
           receiptNo,
           status: "posted",
           createdByUserId: actor?.id ?? null,
@@ -310,7 +392,13 @@ export function correctPayment(input: unknown): PaymentRecord {
         .where(eq(payments.id, values.paymentId))
         .run();
 
-      recalculateRentalPaymentState(tx, rental.id, rental.totalAmount, rental.status, now);
+      recalculateRentalPaymentState(
+        tx,
+        rental.id,
+        rentalTotalMinor(rental),
+        rental.status,
+        now,
+      );
       recordAppEvent(tx, {
         eventType: "payment_corrected",
         entityType: "payment",
@@ -340,7 +428,7 @@ export function correctPayment(input: unknown): PaymentRecord {
         reason: values.reason,
       });
 
-      return replacement;
+      return toPaymentRecord(replacement);
     });
   } catch (error) {
     throw normalizePaymentServiceError(error);
@@ -410,7 +498,7 @@ export function listPayments(request?: PaymentListRequest): PageResult<PaymentLi
       method: payments.method,
       receiptNo: payments.receiptNo,
       status: payments.status,
-      amount: payments.amount,
+      amountMinor: payments.amountMinor,
       paymentDate: payments.paymentDate,
       notes: payments.notes,
       voidedAt: payments.voidedAt,
@@ -426,17 +514,32 @@ export function listPayments(request?: PaymentListRequest): PageResult<PaymentLi
     .offset(pageRequest.offset)
     .all();
 
-  return createPageResult(rows, total, pageRequest);
+  return createPageResult(
+    rows.map(({ amountMinor, ...row }) => ({
+      ...row,
+      amount: fromMinorUnits(columnToMinor(amountMinor, "payments.amount_minor")),
+    })),
+    total,
+    pageRequest,
+  );
 }
 
 type PaymentTx = Parameters<
   Parameters<ReturnType<typeof getDatabase>["transaction"]>[0]
 >[0];
 
+/**
+ * Rewrites the rental's balance from its payments.
+ *
+ * Paid is posted payments minus posted refunds; remaining is the rental total
+ * minus paid, and a cancelled rental owes nothing regardless. All three are
+ * integer arithmetic, so a rental settled by many part payments lands on
+ * exactly zero rather than a fraction of a cent away from it.
+ */
 export function recalculateRentalPaymentState(
   tx: PaymentTx,
   rentalId: number,
-  totalAmount: number,
+  totalAmountMinor: MoneyMinor,
   rentalStatus: "draft" | "active" | "returned" | "cancelled" | "overdue",
   updatedAt: string,
 ): void {
@@ -445,21 +548,28 @@ export function recalculateRentalPaymentState(
     .from(payments)
     .where(eq(payments.rentalId, rentalId))
     .orderBy(desc(payments.createdAt))
-    .all();
-  const paidAmount = calculatePaidAmount(rentalPayments);
-  const remainingAmount =
+    .all()
+    .map((payment) => ({
+      ...payment,
+      amountMinor: paymentAmountMinor(payment),
+    }));
+  const paidAmountMinor = calculatePaidAmountMinor(rentalPayments);
+  const remainingAmountMinor =
     rentalStatus === "cancelled"
-      ? 0
-      : calculateRemainingAmount(totalAmount, paidAmount);
-  const depositPaid = rentalPayments
-    .filter((payment) => payment.status !== "voided" && payment.type === "deposit")
-    .reduce((sum, payment) => sum + payment.amount, 0);
+      ? MONEY_MINOR_ZERO
+      : calculateRemainingAmountMinor(totalAmountMinor, paidAmountMinor);
+  const depositPaidMinor = sumMoney(
+    rentalPayments
+      .filter((payment) => payment.status !== "voided" && payment.type === "deposit")
+      .map((payment) => payment.amountMinor),
+    "the deposit paid",
+  );
 
   tx.update(rentals)
     .set({
-      depositPaid,
-      paidAmount,
-      remainingAmount,
+      ...moneyColumns("depositPaid", depositPaidMinor),
+      ...moneyColumns("paidAmount", paidAmountMinor),
+      ...moneyColumns("remainingAmount", remainingAmountMinor),
       updatedAt,
     })
     .where(eq(rentals.id, rentalId))

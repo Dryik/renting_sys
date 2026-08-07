@@ -1,5 +1,11 @@
 import type Database from "better-sqlite3";
 import {
+  allMoneyMirrorTriggerSql,
+  backfillMoneyMinorColumns,
+  moneyColumnPairs,
+  moneyMinorColumnDefinition,
+} from "./money-columns";
+import {
   accessoriesTableSql,
   accountingAdjustmentsTableSql,
   appEventsTableSql,
@@ -210,6 +216,41 @@ export const migrations: Migration[] = [
       addColumnIfMissing(database, "rentals", "sales_user_id", "integer references users(id)");
       addColumnIfMissing(database, "rentals", "commission_rate_per_day", "real not null default 0");
       addColumnIfMissing(database, "rentals", "commission_amount", "real not null default 0");
+    },
+  },
+  {
+    version: 12,
+    name: "integer minor units for money",
+    up: (database) => {
+      for (const pair of moneyColumnPairs) {
+        addColumnIfMissing(
+          database,
+          pair.table,
+          pair.minorColumn,
+          moneyMinorColumnDefinition(pair),
+        );
+      }
+
+      // These two index the money column their queries filter and order by.
+      // `create index if not exists` cannot repoint an existing index, so the
+      // version 11 definitions are dropped and rebuilt by `finishSchema`.
+      database.exec(`
+        drop index if exists rentals_status_remaining_amount_idx;
+        drop index if exists payments_status_type_rental_amount_idx;
+      `);
+
+      // Runs inside the migration's transaction: any value that cannot convert
+      // rolls back the columns, the backfill and the version bump together, so
+      // the file stays a valid version 11 next to its safety backup.
+      backfillMoneyMinorColumns(database);
+
+      // The guards go on in the same transaction as the backfill and the
+      // version bump. A file that records version 12 has never once existed
+      // without them, so there is no window where an older build could write a
+      // REAL-only amount into it unnoticed. `finishSchema` re-runs the same
+      // idempotent statements afterwards purely to repair a file whose triggers
+      // were dropped by hand.
+      database.exec(allMoneyMirrorTriggerSql);
     },
   },
 ];

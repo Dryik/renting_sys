@@ -6,9 +6,11 @@ import {
   type AccessoryListRequest,
   type AccessoryRecord,
 } from "../../src/shared/accessories";
+import { fromMinorUnits, toMinorUnits } from "../../src/shared/money";
 import type { PageResult } from "../../src/shared/pagination";
 import { getDatabase, getSqliteDatabase } from "./database";
 import { createPageResult, normalizePageRequest, toLikeTerm } from "./listing";
+import { columnToMinor, moneyColumns } from "./money-write";
 import { requirePermissionForCurrentSession } from "./auth.service";
 import { logAuditEvent } from "./audit.service";
 import { accessories } from "./schema";
@@ -47,7 +49,7 @@ export function listAccessories(
           accessories.id,
           accessories.name,
           accessories.quantity_owned as quantityOwned,
-          accessories.default_charge as defaultCharge,
+          accessories.default_charge_minor as defaultChargeMinor,
           accessories.is_active as isActive,
           accessories.notes,
           accessories.created_at as createdAt,
@@ -86,6 +88,10 @@ export function createAccessory(input: unknown): AccessoryRecord {
         .insert(accessories)
         .values({
           ...values,
+          ...moneyColumns(
+            "defaultCharge",
+            toMinorUnits(values.defaultCharge, "Default charge"),
+          ),
           createdAt: now,
           updatedAt: now,
         })
@@ -133,6 +139,10 @@ export function updateAccessory(id: unknown, input: unknown): AccessoryRecord {
         .update(accessories)
         .set({
           ...values,
+          ...moneyColumns(
+            "defaultCharge",
+            toMinorUnits(values.defaultCharge, "Default charge"),
+          ),
           updatedAt: now,
         })
         .where(eq(accessories.id, accessoryId))
@@ -170,7 +180,7 @@ export function getAccessoryRecordById(id: number): AccessoryRecord | undefined 
           accessories.id,
           accessories.name,
           accessories.quantity_owned as quantityOwned,
-          accessories.default_charge as defaultCharge,
+          accessories.default_charge_minor as defaultChargeMinor,
           accessories.is_active as isActive,
           accessories.notes,
           accessories.created_at as createdAt,
@@ -198,7 +208,7 @@ export function getAccessoryRecordById(id: number): AccessoryRecord | undefined 
 function toAccessoryRecord(row: unknown): AccessoryRecord {
   const value = row as {
     createdAt: string;
-    defaultCharge: number;
+    defaultChargeMinor: number;
     id: number;
     isActive: boolean | number;
     name: string;
@@ -213,7 +223,9 @@ function toAccessoryRecord(row: unknown): AccessoryRecord {
     id: Number(value.id),
     name: value.name,
     quantityOwned: Number(value.quantityOwned),
-    defaultCharge: Number(value.defaultCharge),
+    defaultCharge: fromMinorUnits(
+      columnToMinor(value.defaultChargeMinor, "accessories.default_charge_minor"),
+    ),
     isActive: Boolean(value.isActive),
     notes: value.notes,
     quantityAssigned: Number(value.quantityAssigned),

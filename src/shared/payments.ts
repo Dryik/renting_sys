@@ -1,6 +1,16 @@
 import { z } from "zod";
 import { translate } from "./i18n";
 import type { LanguageCode } from "./language";
+import {
+  MONEY_MINOR_ZERO,
+  fromMinorUnits,
+  maxMoney,
+  negateMoney,
+  subtractMoney,
+  sumMoney,
+  toMinorUnits,
+  type MoneyMinor,
+} from "./money";
 import type { PageRequest } from "./pagination";
 import { approvalTokenSchema } from "./security";
 
@@ -20,6 +30,7 @@ export const paymentMethodValues = [
 
 export type PaymentType = (typeof paymentTypeValues)[number];
 export type PaymentMethod = (typeof paymentMethodValues)[number];
+export type PaymentStatus = "posted" | "voided";
 
 export type PaymentTypeFilter = "all" | PaymentType;
 
@@ -162,44 +173,93 @@ export function getDefaultPaymentFormValues(): PaymentFormValues {
   };
 }
 
+/** A payment as the balance rules see it: a stored positive amount plus the
+ * type and status that decide its sign and whether it counts at all. */
+export type PaymentAmountMinor = {
+  type: PaymentType;
+  amountMinor: MoneyMinor;
+  status?: PaymentStatus;
+};
+
+/**
+ * Posted payments minus posted refunds.
+ *
+ * Refunds are stored as positive amounts — a shop reads "refund 50", not
+ * "payment -50" — so the type, not the sign, decides the direction.
+ */
+export function calculatePaidAmountMinor(
+  payments: readonly PaymentAmountMinor[],
+): MoneyMinor {
+  return sumMoney(
+    payments.flatMap((payment) => {
+      if (payment.status === "voided") {
+        return [];
+      }
+
+      return [
+        payment.type === "refund"
+          ? negateMoney(payment.amountMinor)
+          : payment.amountMinor,
+      ];
+    }),
+    "the paid total",
+  );
+}
+
+/** Major-unit view for the renderer; the shop never sees minor units. */
 export function calculatePaidAmount(
   payments: (Pick<PaymentRecord, "type" | "amount"> &
     Partial<Pick<PaymentRecord, "status">>)[],
 ): number {
-  return roundMoney(
-    payments.reduce((total, payment) => {
-      if (payment.status === "voided") {
-        return total;
-      }
-
-      if (payment.type === "refund") {
-        return total - payment.amount;
-      }
-
-      return total + payment.amount;
-    }, 0),
+  return fromMinorUnits(
+    calculatePaidAmountMinor(
+      payments.map((payment) => ({
+        type: payment.type,
+        status: payment.status,
+        amountMinor: toMinorUnits(payment.amount),
+      })),
+    ),
   );
 }
 
-export function assertRefundWithinPaidAmount(
-  refundAmount: number,
-  totalPaidForRental: number,
+export function assertRefundWithinPaidAmountMinor(
+  refundAmountMinor: MoneyMinor,
+  totalPaidForRentalMinor: MoneyMinor,
 ): void {
-  if (
-    roundMoney(refundAmount) >
-    roundMoney(Math.max(0, totalPaidForRental))
-  ) {
+  if (refundAmountMinor > maxMoney(totalPaidForRentalMinor, MONEY_MINOR_ZERO)) {
     throw new Error(
       "Refund amount cannot exceed total posted payments for this rental.",
     );
   }
 }
 
+export function assertRefundWithinPaidAmount(
+  refundAmount: number,
+  totalPaidForRental: number,
+): void {
+  assertRefundWithinPaidAmountMinor(
+    toMinorUnits(refundAmount),
+    toMinorUnits(totalPaidForRental),
+  );
+}
+
+export function calculateRemainingAmountMinor(
+  totalAmountMinor: MoneyMinor,
+  paidAmountMinor: MoneyMinor,
+): MoneyMinor {
+  return subtractMoney(totalAmountMinor, paidAmountMinor);
+}
+
 export function calculateRemainingAmount(
   totalAmount: number,
   paidAmount: number,
 ): number {
-  return roundMoney(totalAmount - paidAmount);
+  return fromMinorUnits(
+    calculateRemainingAmountMinor(
+      toMinorUnits(totalAmount),
+      toMinorUnits(paidAmount),
+    ),
+  );
 }
 
 export function formatPaymentType(
@@ -228,10 +288,6 @@ export function formatPaymentMethod(
   };
 
   return translate(language, labels[method]);
-}
-
-function roundMoney(value: number): number {
-  return Math.round(value * 100) / 100;
 }
 
 function roundToNearestMinutes(date: Date, minutes: number): Date {

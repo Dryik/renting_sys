@@ -25,16 +25,26 @@ import {
   getLocaleForLanguage,
   type LanguageCode,
 } from "../../src/shared/language";
-import { formatMoney } from "../../src/shared/money";
+import {
+  formatMoney,
+  fromMinorUnits,
+  fromMinorUnitsOrNull,
+} from "../../src/shared/money";
 import { formatPaymentMethod, formatPaymentType } from "../../src/shared/payments";
 import type { PrintDocumentResult } from "../../src/shared/printing";
 import { formatVehicleType } from "../../src/shared/vehicles";
 import { getCurrentUserForService } from "./auth.service";
+import { columnToMinor, nullableColumnToMinor } from "./money-write";
 import {
   buildRentalContractHtml,
   type ContractPrintLanguage,
 } from "./rental-contract-document";
 import { renderHtmlToA4Pdf } from "../printing/pdf-renderer";
+
+/** Stored integer to the major-unit number a printed document shows. */
+function printedMoney(value: number, column: string): number {
+  return fromMinorUnits(columnToMinor(value, column));
+}
 
 // Helper to format dates for printable outputs
 function formatPrintDate(isoString: string, language: LanguageCode): string {
@@ -264,9 +274,9 @@ export async function printRentalContract(
       startDatetime: rentals.startDatetime,
       expectedReturnDatetime: rentals.expectedReturnDatetime,
       actualReturnDatetime: rentals.actualReturnDatetime,
-      dailyPrice: rentals.dailyPrice,
-      depositRequired: rentals.depositRequired,
-      depositPaid: rentals.depositPaid,
+      dailyPriceMinor: rentals.dailyPriceMinor,
+      depositRequiredMinor: rentals.depositRequiredMinor,
+      depositPaidMinor: rentals.depositPaidMinor,
       mileageOut: rentals.mileageOut,
       mileageIn: rentals.mileageIn,
       fuelOut: rentals.fuelOut,
@@ -274,12 +284,12 @@ export async function printRentalContract(
       notesOut: rentals.notesOut,
       notesIn: rentals.notesIn,
       damageNotes: rentals.damageNotes,
-      extraCharges: rentals.extraCharges,
-      accessoryCharges: rentals.accessoryCharges,
-      discount: rentals.discount,
-      totalAmount: rentals.totalAmount,
-      paidAmount: rentals.paidAmount,
-      remainingAmount: rentals.remainingAmount,
+      extraChargesMinor: rentals.extraChargesMinor,
+      accessoryChargesMinor: rentals.accessoryChargesMinor,
+      discountMinor: rentals.discountMinor,
+      totalAmountMinor: rentals.totalAmountMinor,
+      paidAmountMinor: rentals.paidAmountMinor,
+      remainingAmountMinor: rentals.remainingAmountMinor,
       customerName: customers.fullName,
       customerPhone: customers.phone,
       customerNationalId: customers.nationalId,
@@ -315,12 +325,48 @@ export async function printRentalContract(
     throw new Error("Rental not found.");
   }
 
+  // The printed contract is a customer-facing document, so every figure on it
+  // is a major-unit number converted once from the stored integers.
+  const {
+    dailyPriceMinor,
+    depositRequiredMinor,
+    depositPaidMinor,
+    extraChargesMinor,
+    accessoryChargesMinor,
+    discountMinor,
+    totalAmountMinor,
+    paidAmountMinor,
+    remainingAmountMinor,
+    ...rentalRest
+  } = rental;
+  const printableRental = {
+    ...rentalRest,
+    dailyPrice: printedMoney(dailyPriceMinor, "rentals.daily_price_minor"),
+    depositRequired: printedMoney(
+      depositRequiredMinor,
+      "rentals.deposit_required_minor",
+    ),
+    depositPaid: printedMoney(depositPaidMinor, "rentals.deposit_paid_minor"),
+    extraCharges: printedMoney(extraChargesMinor, "rentals.extra_charges_minor"),
+    accessoryCharges: printedMoney(
+      accessoryChargesMinor,
+      "rentals.accessory_charges_minor",
+    ),
+    discount: printedMoney(discountMinor, "rentals.discount_minor"),
+    totalAmount: printedMoney(totalAmountMinor, "rentals.total_amount_minor"),
+    paidAmount: printedMoney(paidAmountMinor, "rentals.paid_amount_minor"),
+    remainingAmount: printedMoney(
+      remainingAmountMinor,
+      "rentals.remaining_amount_minor",
+    ),
+  };
+
   const assignedAccessories = db
     .select({
       id: rentalAccessories.id,
       name: accessories.name,
       quantity: rentalAccessories.quantity,
-      unitCharge: rentalAccessories.unitCharge,
+      unitChargeMinor: rentalAccessories.unitChargeMinor,
       returnedQuantity: rentalAccessories.returnedQuantity,
       missingQuantity: rentalAccessories.missingQuantity,
       notes: rentalAccessories.notes,
@@ -328,21 +374,37 @@ export async function printRentalContract(
     .from(rentalAccessories)
     .innerJoin(accessories, eq(rentalAccessories.accessoryId, accessories.id))
     .where(eq(rentalAccessories.rentalId, rentalId))
-    .all();
+    .all()
+    .map(({ unitChargeMinor, ...row }) => ({
+      ...row,
+      unitCharge: printedMoney(
+        unitChargeMinor,
+        "rental_accessories.unit_charge_minor",
+      ),
+    }));
   const collateralItems = db
     .select({
       id: rentalCollateralItems.id,
       type: rentalCollateralItems.type,
       description: rentalCollateralItems.description,
       referenceNumber: rentalCollateralItems.referenceNumber,
-      estimatedValue: rentalCollateralItems.estimatedValue,
+      estimatedValueMinor: rentalCollateralItems.estimatedValueMinor,
       currency: rentalCollateralItems.currency,
       status: rentalCollateralItems.status,
       notes: rentalCollateralItems.notes,
     })
     .from(rentalCollateralItems)
     .where(eq(rentalCollateralItems.rentalId, rentalId))
-    .all();
+    .all()
+    .map(({ estimatedValueMinor, ...row }) => ({
+      ...row,
+      estimatedValue: fromMinorUnitsOrNull(
+        nullableColumnToMinor(
+          estimatedValueMinor,
+          "rental_collateral_items.estimated_value_minor",
+        ),
+      ),
+    }));
 
   const currentUser = getCurrentUserForService();
   const issuedByName =
@@ -353,7 +415,7 @@ export async function printRentalContract(
     currentUser?.username ??
     null;
   const html = buildRentalContractHtml({
-    rental,
+    rental: printableRental,
     settings,
     accessories: assignedAccessories,
     collateralItems,
@@ -383,7 +445,7 @@ export async function printPaymentReceipt(
     .select({
       id: payments.id,
       receiptNo: payments.receiptNo,
-      amount: payments.amount,
+      amountMinor: payments.amountMinor,
       type: payments.type,
       method: payments.method,
       status: payments.status,
@@ -600,7 +662,7 @@ export async function printPaymentReceipt(
 
         <div class="amount-row">
           <span class="label">${escapeHtml(paymentInfo.type === "refund" ? tr("Refund") : tr("Amount Paid"))}</span>
-          <span class="value">${ltrHtml(formatPrintMoney(paymentInfo.amount, currency, language))}</span>
+          <span class="value">${ltrHtml(formatPrintMoney(printedMoney(paymentInfo.amountMinor, "payments.amount_minor"), currency, language))}</span>
         </div>
 
         ${
@@ -669,7 +731,7 @@ export async function printVehicleSaleReceipt(
       buyerPhone: vehicleSales.buyerPhone,
       buyerIdNumber: vehicleSales.buyerIdNumber,
       saleDate: vehicleSales.saleDate,
-      salePrice: vehicleSales.salePrice,
+      salePriceMinor: vehicleSales.salePriceMinor,
       paymentMethod: vehicleSales.paymentMethod,
       status: vehicleSales.status,
       voidedAt: vehicleSales.voidedAt,
@@ -931,7 +993,7 @@ export async function printVehicleSaleReceipt(
         </div>
         <div class="amount-row">
           <span class="label">${escapeHtml(tr("Sale Price"))}</span>
-          <span class="value">${ltrHtml(formatPrintMoney(sale.salePrice, currency, language))}</span>
+          <span class="value">${ltrHtml(formatPrintMoney(printedMoney(sale.salePriceMinor, "vehicle_sales.sale_price_minor"), currency, language))}</span>
         </div>
 
         ${

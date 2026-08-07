@@ -427,21 +427,57 @@ describe("upgrading from the released schemas", () => {
     }
   });
 
-  it("opens a released v0.3.9 (schema 11) database unchanged", () => {
+  it("upgrades a released v0.3.9 (schema 11) database and preserves its amounts", () => {
     const database = openDatabaseFile();
 
     try {
       database.exec(releasedV11Sql);
       seedReleasedBusiness(database);
+      expect(schemaVersion(database)).toBe("11");
 
       const outcome = migrateDatabase(database, migrateOptions());
 
-      expect(outcome).toEqual({ kind: "current", version: 11 });
-      expect(schemaVersion(database)).toBe("11");
-      expect(listBackups()).toHaveLength(0);
+      expect(outcome).toMatchObject({ kind: "upgraded", fromVersion: 11 });
+      expect(schemaVersion(database)).toBe(String(LATEST_SCHEMA_VERSION));
+
+      // The REAL columns keep the shop's original values untouched; the minor
+      // columns beside them are what the app now calculates with.
+      const rental = database
+        .prepare(
+          `select total_amount, total_amount_minor, remaining_amount, remaining_amount_minor
+           from rentals where id = 1`,
+        )
+        .get() as Record<string, number>;
+      expect(rental).toEqual({
+        total_amount: 166.5,
+        total_amount_minor: 16650,
+        remaining_amount: 66.5,
+        remaining_amount_minor: 6650,
+      });
+
       expect(database.pragma("foreign_key_check")).toHaveLength(0);
     } finally {
       database.close();
+    }
+  });
+
+  it("gives a released v11 upgrade the same schema as a fresh database", () => {
+    const upgraded = openDatabaseFile();
+    const fresh = openDatabaseFile("fresh.db");
+
+    try {
+      upgraded.exec(releasedV11Sql);
+      migrateDatabase(upgraded, migrateOptions());
+      migrateDatabase(
+        fresh,
+        migrateOptions({ databasePath: databaseFilePath("fresh.db") }),
+      );
+
+      expect(tableNames(upgraded)).toEqual(tableNames(fresh));
+      expect(schemaFingerprint(upgraded)).toEqual(schemaFingerprint(fresh));
+    } finally {
+      upgraded.close();
+      fresh.close();
     }
   });
 
@@ -891,7 +927,7 @@ describe("failure handling", () => {
     }
   });
 
-  it("rolls a failing migration back and leaves the recorded version untouched", () => {
+  it("rolls a failing migration back without recording its version", () => {
     const failing: Migration = {
       version: LATEST_SCHEMA_VERSION + 1,
       name: "failing test migration",
@@ -919,8 +955,11 @@ describe("failure handling", () => {
       expect(thrown?.safetyBackupPath).toBeTruthy();
       expect(thrown?.fromVersion).toBe(11);
       expect(fs.existsSync(thrown!.safetyBackupPath!)).toBe(true);
+      // Each migration commits with its own version bump, so the steps that
+      // succeeded before the failure stay applied and recorded. Only the
+      // failing step is rolled back, and its version is never written.
       expect(tableNames(database)).not.toContain("migration_probe");
-      expect(schemaVersion(database)).toBe("11");
+      expect(schemaVersion(database)).toBe(String(LATEST_SCHEMA_VERSION));
     } finally {
       migrations.pop();
       database.close();
@@ -983,3 +1022,186 @@ describe("failure handling", () => {
     }
   });
 });
+
+/**
+ * A database that records version 12 has told every future reader that its
+ * amounts live in the `*_minor` columns. If it could ever reach that state
+ * without the mirror triggers, an older installed build could open it and write
+ * REAL-only amounts that nothing would catch. These tests break the upgrade at
+ * each point where that gap could open and show the guards are already there.
+ */
+describe("money mirror triggers arriving with the version stamp", () => {
+  function assertGuarded(database: Database.Database): void {
+    expect(schemaVersion(database)).toBe(String(LATEST_SCHEMA_VERSION));
+    expect(mirrorTriggerCount(database)).toBe(58);
+
+    // The guards are not merely present, they bite: this is what an old build's
+    // write looks like.
+    expect(() =>
+      database.prepare("update payments set amount = 999 where id = 1").run(),
+    ).toThrow(/payments\.amount and payments\.amount_minor disagree/);
+  }
+
+  it("has all 58 triggers when a later migration fails after version 12 commits", () => {
+    const failing: Migration = {
+      version: LATEST_SCHEMA_VERSION + 1,
+      name: "failing test migration",
+      up: () => {
+        throw new Error("forced migration failure");
+      },
+    };
+
+    const database = openDatabaseFile();
+    migrations.push(failing);
+
+    try {
+      database.exec(releasedV11Sql);
+      seedPayment(database);
+
+      expect(() => migrateDatabase(database, migrateOptions())).toThrow(
+        /forced migration failure/,
+      );
+
+      // Version 12 legitimately stays committed — its own step succeeded — so
+      // its triggers must have committed with it.
+      assertGuarded(database);
+    } finally {
+      migrations.pop();
+      database.close();
+    }
+  });
+
+  it("has all 58 triggers when schema finishing fails after a v11 upgrade", () => {
+    const database = openDatabaseFile();
+
+    try {
+      database.exec(releasedV11Sql);
+      seedPayment(database);
+      breakSchemaFinishing(database);
+
+      expect(() => migrateDatabase(database, migrateOptions())).toThrow(
+        /forced schema finishing failure/,
+      );
+
+      assertGuarded(database);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("has all 58 triggers when schema finishing fails after a v8 upgrade", () => {
+    const database = openDatabaseFile();
+
+    try {
+      database.exec(releasedV8Sql);
+      seedPayment(database);
+      breakSchemaFinishing(database);
+
+      expect(() => migrateDatabase(database, migrateOptions())).toThrow(
+        /forced schema finishing failure/,
+      );
+
+      assertGuarded(database);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("creates a fresh database's triggers in the same transaction as its tables", () => {
+    const database = openDatabaseFile();
+
+    try {
+      // A view keeps the file looking fresh — the check counts tables — while
+      // occupying an index name, so schema finishing fails right after the
+      // table-creation transaction commits.
+      database.exec("create view accessories_is_active_idx as select 1 as x;");
+
+      expect(() => migrateDatabase(database, migrateOptions())).toThrow(
+        /accessories_is_active_idx/,
+      );
+
+      expect(schemaVersion(database)).toBe(String(LATEST_SCHEMA_VERSION));
+      expect(mirrorTriggerCount(database)).toBe(58);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("creates a fresh database at version 12 with its guards live", () => {
+    const database = openDatabaseFile();
+
+    try {
+      migrateDatabase(database, migrateOptions());
+
+      expect(schemaVersion(database)).toBe(String(LATEST_SCHEMA_VERSION));
+      expect(mirrorTriggerCount(database)).toBe(58);
+      expect(() =>
+        database
+          .prepare(
+            `insert into vehicles (type, brand, model, plate_number, daily_price, deposit_amount, status, created_at, updated_at)
+             values ('car', 'Old', 'Build', 'OLD-1', 42, 0, 'available', '', '')`,
+          )
+          .run(),
+      ).toThrow(/vehicles\.daily_price and vehicles\.daily_price_minor disagree/);
+    } finally {
+      database.close();
+    }
+  });
+});
+
+function mirrorTriggerCount(database: Database.Database): number {
+  return (
+    database
+      .prepare(
+        "select count(*) as count from sqlite_master where type = 'trigger' and name like '%\\_ck' escape '\\'",
+      )
+      .get() as { count: number }
+  ).count;
+}
+
+/** Gives the old-style-write assertions a payment row to aim at. */
+function seedPayment(database: Database.Database): void {
+  const now = "2026-02-02T00:00:00.000Z";
+
+  database
+    .prepare(
+      `insert into vehicles (type, brand, model, plate_number, daily_price, deposit_amount, status, created_at, updated_at)
+       values ('car', 'Toyota', 'Corolla', 'GUARD-1', 50, 0, 'available', ?, ?)`,
+    )
+    .run(now, now);
+  database
+    .prepare(
+      `insert into customers (full_name, phone, created_at, updated_at)
+       values ('Guard Customer', '0921111111', ?, ?)`,
+    )
+    .run(now, now);
+  database
+    .prepare(
+      `insert into rentals (contract_no, customer_id, vehicle_id, status, start_datetime,
+         expected_return_datetime, daily_price, total_amount, paid_amount, remaining_amount, created_at, updated_at)
+       values ('CNT-GUARD-1', 1, 1, 'returned', ?, ?, 50, 50, 50, 0, ?, ?)`,
+    )
+    .run(now, now, now, now);
+  database
+    .prepare(
+      `insert into payments (rental_id, type, method, amount, payment_date, status, created_at, updated_at)
+       values (1, 'rent', 'cash', 50, ?, 'posted', ?, ?)`,
+    )
+    .run(now, now, now);
+}
+
+/**
+ * Aborts permission reseeding, which is the first thing schema finishing does.
+ * That puts the failure after every migration has committed but before any of
+ * finishSchema's own repair work runs — the exact window in which a version 12
+ * file could otherwise exist without its triggers.
+ */
+function breakSchemaFinishing(database: Database.Database): void {
+  database.exec(`
+    create trigger test_abort_schema_finishing
+    before insert on role_permissions
+    begin
+      select raise(abort, 'forced schema finishing failure');
+    end;
+  `);
+}

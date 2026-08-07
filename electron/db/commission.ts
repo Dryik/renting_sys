@@ -1,38 +1,58 @@
+import {
+  MONEY_MINOR_ZERO,
+  maxMoney,
+  multiplyMoney,
+  type MoneyMinor,
+} from "../../src/shared/money";
+
 export interface CommissionCalculationParams {
   rentedDays: number;
-  dailyRate: number;
+  dailyRateMinor: MoneyMinor;
   status: "draft" | "active" | "returned" | "cancelled" | "overdue";
   userEarnsCommission: boolean;
   commissionEnabled?: boolean;
 }
 
+/**
+ * A whole-day rate times whole rented days.
+ *
+ * The rate is kept even where the amount is zero, so a draft or cancelled
+ * rental still records what it would have paid if it had run.
+ */
 export function calculateCommission(params: CommissionCalculationParams): {
-  commissionRatePerDay: number;
-  commissionAmount: number;
+  commissionRatePerDayMinor: MoneyMinor;
+  commissionAmountMinor: MoneyMinor;
 } {
   const {
     rentedDays,
-    dailyRate,
+    dailyRateMinor,
     status,
     userEarnsCommission,
     commissionEnabled = true,
   } = params;
 
-  const effectiveRate = Math.max(0, dailyRate);
+  const effectiveRateMinor = maxMoney(dailyRateMinor, MONEY_MINOR_ZERO);
 
   if (!commissionEnabled || !userEarnsCommission) {
-    return { commissionRatePerDay: 0, commissionAmount: 0 };
+    return {
+      commissionRatePerDayMinor: MONEY_MINOR_ZERO,
+      commissionAmountMinor: MONEY_MINOR_ZERO,
+    };
   }
 
   if (status === "cancelled" || status === "draft") {
-    return { commissionRatePerDay: effectiveRate, commissionAmount: 0 };
+    return {
+      commissionRatePerDayMinor: effectiveRateMinor,
+      commissionAmountMinor: MONEY_MINOR_ZERO,
+    };
   }
 
-  const effectiveDays = Math.max(1, rentedDays);
-  const amount = Number((effectiveDays * effectiveRate).toFixed(3));
-
   return {
-    commissionRatePerDay: effectiveRate,
-    commissionAmount: amount,
+    commissionRatePerDayMinor: effectiveRateMinor,
+    commissionAmountMinor: multiplyMoney(
+      effectiveRateMinor,
+      Math.max(1, Math.trunc(rentedDays)),
+      "the commission amount",
+    ),
   };
 }

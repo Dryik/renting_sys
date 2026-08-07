@@ -4,6 +4,16 @@ import {
   type PaymentMethod,
 } from "./payments";
 import type { LanguageCode } from "./language";
+import {
+  MONEY_MINOR_ZERO,
+  addMoney,
+  fromMinorUnits,
+  negateMoney,
+  subtractMoney,
+  sumMoney,
+  toMinorUnits,
+  type MoneyMinor,
+} from "./money";
 import type { PageRequest } from "./pagination";
 import { approvalTokenSchema } from "./security";
 import { translate } from "./i18n";
@@ -199,6 +209,7 @@ export type AccountingTransactionRecord = {
 };
 
 export type LocationBalances = Record<MoneyLocation, number>;
+export type LocationBalancesMinor = Record<MoneyLocation, MoneyMinor>;
 
 export type AccountingBalanceInput = {
   kind: Exclude<AccountingTransactionKind, "all">;
@@ -211,9 +222,18 @@ export type AccountingBalanceInput = {
   adjustmentDirection?: AccountingAdjustmentDirection;
 };
 
+export type AccountingBalanceInputMinor = Omit<AccountingBalanceInput, "amount"> & {
+  amountMinor: MoneyMinor;
+};
+
 export type AccountingBalanceDelta = {
   location: MoneyLocation;
   amount: number;
+};
+
+export type AccountingBalanceDeltaMinor = {
+  location: MoneyLocation;
+  amountMinor: MoneyMinor;
 };
 
 export type AccountingTotals = {
@@ -222,6 +242,14 @@ export type AccountingTotals = {
   expenses: number;
   ownerWithdrawals: number;
   netAfterExpenses: number;
+};
+
+export type AccountingTotalsMinor = {
+  moneyInMinor: MoneyMinor;
+  refundsMinor: MoneyMinor;
+  expensesMinor: MoneyMinor;
+  ownerWithdrawalsMinor: MoneyMinor;
+  netAfterExpensesMinor: MoneyMinor;
 };
 
 export type AccountingSummary = AccountingTotals & {
@@ -482,13 +510,16 @@ export function getPaymentMoneyLocation(method: PaymentMethod): MoneyLocation {
   return "cash_drawer";
 }
 
-export function calculateLocationBalances(
-  transactions: AccountingBalanceInput[],
-): LocationBalances {
-  const balances: LocationBalances = {
-    bank: 0,
-    cash_drawer: 0,
-    shop_safe: 0,
+export function calculateLocationBalancesMinor(
+  transactions: readonly AccountingBalanceInputMinor[],
+): LocationBalancesMinor {
+  const balances: Record<MoneyLocation, MoneyMinor> = {
+    bank: MONEY_MINOR_ZERO,
+    cash_drawer: MONEY_MINOR_ZERO,
+    shop_safe: MONEY_MINOR_ZERO,
+  };
+  const add = (location: MoneyLocation, amount: MoneyMinor): void => {
+    balances[location] = addMoney(balances[location], amount);
   };
 
   for (const transaction of transactions) {
@@ -497,45 +528,79 @@ export function calculateLocationBalances(
     }
 
     if (transaction.kind === "money_in" && transaction.location) {
-      balances[transaction.location] += transaction.amount;
+      add(transaction.location, transaction.amountMinor);
     }
 
     if (transaction.kind === "money_out" && transaction.location) {
-      balances[transaction.location] -= transaction.amount;
+      add(transaction.location, negateMoney(transaction.amountMinor));
     }
 
     if (transaction.kind === "transfer") {
       if (transaction.fromLocation) {
-        balances[transaction.fromLocation] -= transaction.amount;
+        add(transaction.fromLocation, negateMoney(transaction.amountMinor));
       }
 
       if (transaction.toLocation) {
-        balances[transaction.toLocation] += transaction.amount;
+        add(transaction.toLocation, transaction.amountMinor);
       }
     }
 
     if (transaction.kind === "adjustment" && transaction.location) {
-      balances[transaction.location] +=
+      add(
+        transaction.location,
         transaction.adjustmentDirection === "decrease"
-          ? -transaction.amount
-          : transaction.amount;
+          ? negateMoney(transaction.amountMinor)
+          : transaction.amountMinor,
+      );
     }
   }
 
-  return roundBalances(balances);
+  return balances;
+}
+
+export function calculateLocationBalances(
+  transactions: AccountingBalanceInput[],
+): LocationBalances {
+  return fromBalancesMinor(
+    calculateLocationBalancesMinor(transactions.map(toBalanceInputMinor)),
+  );
+}
+
+export function applyBalanceDeltasMinor(
+  balances: LocationBalancesMinor,
+  deltas: readonly AccountingBalanceDeltaMinor[],
+): LocationBalancesMinor {
+  const projected = { ...balances };
+
+  for (const delta of deltas) {
+    projected[delta.location] = addMoney(
+      projected[delta.location],
+      delta.amountMinor,
+    );
+  }
+
+  return projected;
 }
 
 export function applyBalanceDeltas(
   balances: LocationBalances,
   deltas: AccountingBalanceDelta[],
 ): LocationBalances {
-  const projected = { ...balances };
+  return fromBalancesMinor(
+    applyBalanceDeltasMinor(
+      toBalancesMinor(balances),
+      deltas.map((delta) => ({
+        location: delta.location,
+        amountMinor: toMinorUnits(delta.amount),
+      })),
+    ),
+  );
+}
 
-  for (const delta of deltas) {
-    projected[delta.location] += delta.amount;
-  }
-
-  return roundBalances(projected);
+export function getNegativeBalanceLocationsMinor(
+  balances: LocationBalancesMinor,
+): MoneyLocation[] {
+  return moneyLocationValues.filter((location) => balances[location] < 0);
 }
 
 export function getNegativeBalanceLocations(
@@ -544,56 +609,110 @@ export function getNegativeBalanceLocations(
   return moneyLocationValues.filter((location) => balances[location] < 0);
 }
 
+export function calculateAccountingTotalsMinor(
+  transactions: readonly AccountingBalanceInputMinor[],
+): AccountingTotalsMinor {
+  const moneyIn: MoneyMinor[] = [];
+  const refunds: MoneyMinor[] = [];
+  const expenses: MoneyMinor[] = [];
+  const ownerWithdrawals: MoneyMinor[] = [];
+
+  for (const transaction of transactions) {
+    if (transaction.status === "voided") {
+      continue;
+    }
+
+    if (transaction.kind === "money_in") {
+      moneyIn.push(transaction.amountMinor);
+    }
+
+    if (transaction.kind === "money_out") {
+      if (transaction.outflowType === "refund") {
+        refunds.push(transaction.amountMinor);
+      } else if (transaction.outflowType === "owner_withdrawal") {
+        ownerWithdrawals.push(transaction.amountMinor);
+      } else {
+        expenses.push(transaction.amountMinor);
+      }
+    }
+  }
+
+  const moneyInMinor = sumMoney(moneyIn, "money in");
+  const refundsMinor = sumMoney(refunds, "refunds");
+  const expensesMinor = sumMoney(expenses, "expenses");
+
+  return {
+    moneyInMinor,
+    refundsMinor,
+    expensesMinor,
+    ownerWithdrawalsMinor: sumMoney(ownerWithdrawals, "owner withdrawals"),
+    netAfterExpensesMinor: subtractMoney(
+      subtractMoney(moneyInMinor, refundsMinor),
+      expensesMinor,
+    ),
+  };
+}
+
 export function calculateAccountingTotals(
   transactions: AccountingBalanceInput[],
 ): AccountingTotals {
-  const totals = transactions.reduce(
-    (summary, transaction) => {
-      if (transaction.status === "voided") {
-        return summary;
-      }
-
-      if (transaction.kind === "money_in") {
-        summary.moneyIn += transaction.amount;
-      }
-
-      if (transaction.kind === "money_out") {
-        if (transaction.outflowType === "refund") {
-          summary.refunds += transaction.amount;
-        } else if (transaction.outflowType === "owner_withdrawal") {
-          summary.ownerWithdrawals += transaction.amount;
-        } else {
-          summary.expenses += transaction.amount;
-        }
-      }
-
-      return summary;
-    },
-    {
-      expenses: 0,
-      moneyIn: 0,
-      netAfterExpenses: 0,
-      ownerWithdrawals: 0,
-      refunds: 0,
-    },
+  return fromTotalsMinor(
+    calculateAccountingTotalsMinor(transactions.map(toBalanceInputMinor)),
   );
+}
 
-  totals.netAfterExpenses = roundMoney(
-    totals.moneyIn - totals.refunds - totals.expenses,
-  );
-  totals.moneyIn = roundMoney(totals.moneyIn);
-  totals.refunds = roundMoney(totals.refunds);
-  totals.expenses = roundMoney(totals.expenses);
-  totals.ownerWithdrawals = roundMoney(totals.ownerWithdrawals);
-
-  return totals;
+/** Counted minus expected, so a short drawer reads as a negative difference. */
+export function calculateDailyClosingDifferenceMinor(
+  expectedCashMinor: MoneyMinor,
+  countedCashMinor: MoneyMinor,
+): MoneyMinor {
+  return subtractMoney(countedCashMinor, expectedCashMinor);
 }
 
 export function calculateDailyClosingDifference(
   expectedCash: number,
   countedCash: number,
 ): number {
-  return roundMoney(countedCash - expectedCash);
+  return fromMinorUnits(
+    calculateDailyClosingDifferenceMinor(
+      toMinorUnits(expectedCash),
+      toMinorUnits(countedCash),
+    ),
+  );
+}
+
+export function toBalancesMinor(balances: LocationBalances): LocationBalancesMinor {
+  return {
+    bank: toMinorUnits(balances.bank),
+    cash_drawer: toMinorUnits(balances.cash_drawer),
+    shop_safe: toMinorUnits(balances.shop_safe),
+  };
+}
+
+export function fromBalancesMinor(balances: LocationBalancesMinor): LocationBalances {
+  return {
+    bank: fromMinorUnits(balances.bank),
+    cash_drawer: fromMinorUnits(balances.cash_drawer),
+    shop_safe: fromMinorUnits(balances.shop_safe),
+  };
+}
+
+export function fromTotalsMinor(totals: AccountingTotalsMinor): AccountingTotals {
+  return {
+    moneyIn: fromMinorUnits(totals.moneyInMinor),
+    refunds: fromMinorUnits(totals.refundsMinor),
+    expenses: fromMinorUnits(totals.expensesMinor),
+    ownerWithdrawals: fromMinorUnits(totals.ownerWithdrawalsMinor),
+    netAfterExpenses: fromMinorUnits(totals.netAfterExpensesMinor),
+  };
+}
+
+function toBalanceInputMinor(
+  transaction: AccountingBalanceInput,
+): AccountingBalanceInputMinor {
+  const { amount, ...rest } = transaction;
+
+  return { ...rest, amountMinor: toMinorUnits(amount) };
 }
 
 export function formatMoneyLocation(
@@ -649,18 +768,6 @@ export function formatAccountingAdjustmentDirection(
   };
 
   return translate(language, labels[direction]);
-}
-
-function roundBalances(balances: LocationBalances): LocationBalances {
-  return {
-    bank: roundMoney(balances.bank),
-    cash_drawer: roundMoney(balances.cash_drawer),
-    shop_safe: roundMoney(balances.shop_safe),
-  };
-}
-
-function roundMoney(value: number): number {
-  return Math.round(value * 100) / 100;
 }
 
 function toDatetimeLocalValue(date: Date): string {

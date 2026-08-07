@@ -10,8 +10,10 @@ import {
 } from "../../src/shared/vehicle-sales";
 import type { PageResult } from "../../src/shared/pagination";
 import { getPaymentMoneyLocation } from "../../src/shared/accounting";
+import { fromMinorUnits, negateMoney, toMinorUnits } from "../../src/shared/money";
 import { getDatabase } from "./database";
 import { createPageResult, normalizePageRequest, toLikeTerm } from "./listing";
+import { columnToMinor, moneyColumns } from "./money-write";
 import { maintenanceRecords, rentals, vehicleSales, vehicles } from "./schema";
 import { getNextSequenceValue } from "./numbering.service";
 import {
@@ -96,7 +98,7 @@ export function queryVehicleSales(
     .offset(pageRequest.offset)
     .all();
 
-  return createPageResult(rows, total, pageRequest);
+  return createPageResult(rows.map(toVehicleSaleListRecord), total, pageRequest);
 }
 
 export function getVehicleSaleForVehicle(
@@ -105,13 +107,15 @@ export function getVehicleSaleForVehicle(
   requirePermissionForCurrentSession("vehicleSales.view");
   const parsedVehicleId = parseId(vehicleId, "Vehicle");
 
-  return getDatabase()
+  const row = getDatabase()
     .select(getVehicleSaleListFields())
     .from(vehicleSales)
     .innerJoin(vehicles, eq(vehicleSales.vehicleId, vehicles.id))
     .where(and(eq(vehicleSales.vehicleId, parsedVehicleId), eq(vehicleSales.status, "posted")))
     .orderBy(desc(vehicleSales.saleDate), desc(vehicleSales.id))
-    .get() ?? null;
+    .get();
+
+  return row ? toVehicleSaleListRecord(row) : null;
 }
 
 export function createVehicleSale(input: unknown): VehicleSaleRecord {
@@ -143,6 +147,7 @@ export function createVehicleSale(input: unknown): VehicleSaleRecord {
         .insert(vehicleSales)
         .values({
           ...values,
+          ...moneyColumns("salePrice", toMinorUnits(values.salePrice, "Sale price")),
           saleNo,
           status: "posted",
           previousVehicleStatus: vehicle.status,
@@ -183,7 +188,7 @@ export function createVehicleSale(input: unknown): VehicleSaleRecord {
         metadata: { vehicleId: values.vehicleId, plateNumber: vehicle.plateNumber },
       });
 
-      return sale;
+      return toVehicleSaleRecord(sale);
     });
   } catch (error) {
     throw normalizeVehicleSaleServiceError(error);
@@ -216,7 +221,10 @@ export function voidVehicleSale(input: unknown): VehicleSaleRecord {
       assertAccountingBalanceDeltasAllowed([
         {
           location: getPaymentMoneyLocation(sale.paymentMethod),
-          amount: -sale.salePrice,
+          // Voiding takes the sale proceeds back out of the location.
+          amountMinor: negateMoney(
+            columnToMinor(sale.salePriceMinor, "vehicle_sales.sale_price_minor"),
+          ),
         },
       ]);
 
@@ -256,11 +264,50 @@ export function voidVehicleSale(input: unknown): VehicleSaleRecord {
         reason: values.reason,
       });
 
-      return updated;
+      return toVehicleSaleRecord(updated);
     });
   } catch (error) {
     throw normalizeVehicleSaleServiceError(error);
   }
+}
+
+function toVehicleSaleRecord(
+  row: typeof vehicleSales.$inferSelect,
+): VehicleSaleRecord {
+  // Named fields, not a spread: the storage pair must not ride along.
+  return {
+    id: row.id,
+    saleNo: row.saleNo,
+    vehicleId: row.vehicleId,
+    buyerName: row.buyerName,
+    buyerPhone: row.buyerPhone,
+    buyerIdNumber: row.buyerIdNumber,
+    saleDate: row.saleDate,
+    salePrice: fromMinorUnits(
+      columnToMinor(row.salePriceMinor, "vehicle_sales.sale_price_minor"),
+    ),
+    paymentMethod: row.paymentMethod,
+    notes: row.notes,
+    status: row.status,
+    previousVehicleStatus: row.previousVehicleStatus,
+    voidedAt: row.voidedAt,
+    voidReason: row.voidReason,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function toVehicleSaleListRecord<Row extends { salePriceMinor: number }>(
+  row: Row,
+): Omit<Row, "salePriceMinor"> & { salePrice: number } {
+  const { salePriceMinor, ...rest } = row;
+
+  return {
+    ...rest,
+    salePrice: fromMinorUnits(
+      columnToMinor(salePriceMinor, "vehicle_sales.sale_price_minor"),
+    ),
+  };
 }
 
 function getVehicleSaleListFields() {
@@ -272,7 +319,7 @@ function getVehicleSaleListFields() {
     buyerPhone: vehicleSales.buyerPhone,
     buyerIdNumber: vehicleSales.buyerIdNumber,
     saleDate: vehicleSales.saleDate,
-    salePrice: vehicleSales.salePrice,
+    salePriceMinor: vehicleSales.salePriceMinor,
     paymentMethod: vehicleSales.paymentMethod,
     status: vehicleSales.status,
     previousVehicleStatus: vehicleSales.previousVehicleStatus,

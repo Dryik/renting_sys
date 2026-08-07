@@ -1,19 +1,26 @@
 import { and, asc, count, desc, eq, like, ne, or, type SQL } from "drizzle-orm";
 import { ZodError } from "zod";
 import {
-  calculateEmployeeLoanRemaining,
+  calculateEmployeeLoanRemainingMinor,
   employeeLoanInputSchema,
   employeeLoanRepaymentInputSchema,
   employeeLoanVoidInputSchema,
-  getEmployeeLoanStatus,
+  getEmployeeLoanStatusMinor,
   type EmployeeLoanEmployeeOption,
   type EmployeeLoanListRequest,
   type EmployeeLoanPaymentRecord,
   type EmployeeLoanRecord,
 } from "../../src/shared/employee-loans";
+import {
+  MONEY_MINOR_ZERO,
+  fromMinorUnits,
+  negateMoney,
+  toMinorUnits,
+} from "../../src/shared/money";
 import type { PageResult } from "../../src/shared/pagination";
 import { getDatabase } from "./database";
 import { createPageResult, normalizePageRequest, toLikeTerm } from "./listing";
+import { columnToMinor, moneyColumns } from "./money-write";
 import { employeeLoanPayments, employeeLoans, users } from "./schema";
 import { getCurrentUserForService, requirePermissionForCurrentSession } from "./auth.service";
 import { getNextSequenceValue } from "./numbering.service";
@@ -98,7 +105,28 @@ export function listEmployeeLoanPayments(
     .from(employeeLoanPayments)
     .where(eq(employeeLoanPayments.loanId, id))
     .orderBy(desc(employeeLoanPayments.paymentDate), desc(employeeLoanPayments.id))
-    .all();
+    .all()
+    .map(toEmployeeLoanPaymentRecord);
+}
+
+/** Named fields only, so the storage pair stops at the service boundary. */
+function toEmployeeLoanPaymentRecord(
+  row: typeof employeeLoanPayments.$inferSelect,
+): EmployeeLoanPaymentRecord {
+  return {
+    id: row.id,
+    loanId: row.loanId,
+    amount: fromMinorUnits(
+      columnToMinor(row.amountMinor, "employee_loan_payments.amount_minor"),
+    ),
+    paymentDate: row.paymentDate,
+    method: row.method,
+    location: row.location,
+    status: row.status,
+    notes: row.notes,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
 }
 
 export function createEmployeeLoan(input: unknown): EmployeeLoanRecord {
@@ -106,8 +134,9 @@ export function createEmployeeLoan(input: unknown): EmployeeLoanRecord {
   const values = employeeLoanInputSchema.parse(input);
   const now = new Date().toISOString();
   const actor = getCurrentUserForService();
+  const amountMinor = toMinorUnits(values.amount, "Loan amount");
   assertAccountingBalanceDeltasAllowed([
-    { location: values.sourceLocation, amount: -values.amount },
+    { location: values.sourceLocation, amountMinor: negateMoney(amountMinor) },
   ]);
 
   try {
@@ -132,10 +161,11 @@ export function createEmployeeLoan(input: unknown): EmployeeLoanRecord {
         .values({
           loanNo,
           employeeUserId: values.employeeUserId,
-          amount: values.amount,
+          ...moneyColumns("amount", amountMinor),
           issuedAt: values.issuedAt,
           sourceLocation: values.sourceLocation,
-          remainingAmount: values.amount,
+          // Nothing is repaid yet, so the whole loan is still outstanding.
+          ...moneyColumns("remainingAmount", amountMinor),
           status: "open",
           notes: values.notes,
           voidedAt: null,
@@ -194,7 +224,16 @@ export function recordEmployeeLoanRepayment(input: unknown): EmployeeLoanRecord 
         throw new Error("Only open employee loans can receive repayments.");
       }
 
-      if (values.amount > loan.remainingAmount) {
+      const loanAmountMinor = columnToMinor(
+        loan.amountMinor,
+        "employee_loans.amount_minor",
+      );
+      const repaymentMinor = toMinorUnits(values.amount, "Repayment amount");
+
+      if (
+        repaymentMinor >
+        columnToMinor(loan.remainingAmountMinor, "employee_loans.remaining_amount_minor")
+      ) {
         throw new Error("Repayment cannot be more than the remaining loan balance.");
       }
 
@@ -202,7 +241,7 @@ export function recordEmployeeLoanRepayment(input: unknown): EmployeeLoanRecord 
         .insert(employeeLoanPayments)
         .values({
           loanId: values.loanId,
-          amount: values.amount,
+          ...moneyColumns("amount", repaymentMinor),
           paymentDate: values.paymentDate,
           method: values.method,
           location: values.location,
@@ -215,21 +254,29 @@ export function recordEmployeeLoanRepayment(input: unknown): EmployeeLoanRecord 
         .returning()
         .get();
 
-      const payments = tx
+      const repayments = tx
         .select({
-          amount: employeeLoanPayments.amount,
+          amountMinor: employeeLoanPayments.amountMinor,
           status: employeeLoanPayments.status,
         })
         .from(employeeLoanPayments)
         .where(eq(employeeLoanPayments.loanId, values.loanId))
-        .all();
-      const remainingAmount = calculateEmployeeLoanRemaining(loan.amount, payments);
-      const status = getEmployeeLoanStatus(loan.amount, payments);
+        .all()
+        .map((row) => ({
+          amountMinor: columnToMinor(
+            row.amountMinor,
+            "employee_loan_payments.amount_minor",
+          ),
+          status: row.status,
+        }));
 
       tx.update(employeeLoans)
         .set({
-          remainingAmount,
-          status,
+          ...moneyColumns(
+            "remainingAmount",
+            calculateEmployeeLoanRemainingMinor(loanAmountMinor, repayments),
+          ),
+          status: getEmployeeLoanStatusMinor(loanAmountMinor, repayments),
           updatedAt: now,
         })
         .where(eq(employeeLoans.id, values.loanId))
@@ -300,7 +347,7 @@ export function voidEmployeeLoan(input: unknown): EmployeeLoanRecord {
       const updated = tx
         .update(employeeLoans)
         .set({
-          remainingAmount: 0,
+          ...moneyColumns("remainingAmount", MONEY_MINOR_ZERO),
           status: "voided",
           voidedAt: now,
           voidedByUserId: actor?.id ?? null,
@@ -358,7 +405,26 @@ function toEmployeeLoanRecord(row: {
   employeeUsername: string;
 }): EmployeeLoanRecord {
   return {
-    ...row.loan,
+    id: row.loan.id,
+    loanNo: row.loan.loanNo,
+    employeeUserId: row.loan.employeeUserId,
+    issuedAt: row.loan.issuedAt,
+    sourceLocation: row.loan.sourceLocation,
+    status: row.loan.status,
+    notes: row.loan.notes,
+    voidedAt: row.loan.voidedAt,
+    voidReason: row.loan.voidReason,
+    createdAt: row.loan.createdAt,
+    updatedAt: row.loan.updatedAt,
+    amount: fromMinorUnits(
+      columnToMinor(row.loan.amountMinor, "employee_loans.amount_minor"),
+    ),
+    remainingAmount: fromMinorUnits(
+      columnToMinor(
+        row.loan.remainingAmountMinor,
+        "employee_loans.remaining_amount_minor",
+      ),
+    ),
     employeeName: row.employeeName,
     employeeUsername: row.employeeUsername,
   };

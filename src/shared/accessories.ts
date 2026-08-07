@@ -1,4 +1,13 @@
 import { z } from "zod";
+import {
+  MONEY_MINOR_ZERO,
+  fromMinorUnits,
+  maxMoney,
+  multiplyMoney,
+  sumMoney,
+  toMinorUnits,
+  type MoneyMinor,
+} from "./money";
 import type { PageRequest } from "./pagination";
 
 export type AccessoryListRequest = PageRequest & {
@@ -116,21 +125,52 @@ export function accessoryToFormValues(accessory: AccessoryRecord): AccessoryForm
   };
 }
 
+/** A line is a whole quantity at a per-item charge, so the product is exact. */
+export function calculateAccessoryLineTotalMinor(
+  quantity: number,
+  unitChargeMinor: MoneyMinor,
+): MoneyMinor {
+  return multiplyMoney(
+    maxMoney(unitChargeMinor, MONEY_MINOR_ZERO),
+    Math.max(0, Math.trunc(quantity)),
+    "the accessory line total",
+  );
+}
+
 export function calculateAccessoryLineTotal(
   quantity: number,
   unitCharge: number,
 ): number {
-  return roundMoney(Math.max(0, quantity) * Math.max(0, unitCharge));
+  return fromMinorUnits(
+    calculateAccessoryLineTotalMinor(quantity, toMinorUnits(unitCharge)),
+  );
+}
+
+export type AccessoryChargeLineMinor = {
+  quantity: number;
+  unitChargeMinor: MoneyMinor;
+};
+
+export function calculateAccessoryChargeTotalMinor(
+  accessories: readonly AccessoryChargeLineMinor[],
+): MoneyMinor {
+  return sumMoney(
+    accessories.map((accessory) =>
+      calculateAccessoryLineTotalMinor(accessory.quantity, accessory.unitChargeMinor),
+    ),
+    "the accessory charges",
+  );
 }
 
 export function calculateAccessoryChargeTotal(
   accessories: Array<Pick<RentalAccessoryInput, "quantity" | "unitCharge">>,
 ): number {
-  return roundMoney(
-    accessories.reduce(
-      (total, accessory) =>
-        total + calculateAccessoryLineTotal(accessory.quantity, accessory.unitCharge),
-      0,
+  return fromMinorUnits(
+    calculateAccessoryChargeTotalMinor(
+      accessories.map((accessory) => ({
+        quantity: accessory.quantity,
+        unitChargeMinor: toMinorUnits(accessory.unitCharge),
+      })),
     ),
   );
 }
@@ -190,8 +230,4 @@ function numericMoneyField(label: string) {
 
       return numberValue;
     });
-}
-
-function roundMoney(value: number): number {
-  return Math.round(value * 100) / 100;
 }

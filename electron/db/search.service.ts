@@ -68,7 +68,6 @@ export function globalSearch(query: unknown): GlobalSearchResult[] {
       status: effectiveRentalStatusSql(now),
       customerName: customers.fullName,
       plateNumber: vehicles.plateNumber,
-      remainingAmount: rentals.remainingAmount,
     })
     .from(rentals)
     .innerJoin(customers, eq(rentals.customerId, customers.id))

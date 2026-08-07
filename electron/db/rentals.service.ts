@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, gte, inArray, isNull, like, lt, or, sql, type SQL } from "drizzle-orm";
 import { ZodError } from "zod";
 import {
-  calculateAccessoryChargeTotal,
+  calculateAccessoryChargeTotalMinor,
   type AccessoryRecord,
   type RentalAccessoryInput,
   type RentalAccessoryRecord,
@@ -9,10 +9,10 @@ import {
 } from "../../src/shared/accessories";
 import {
   calculateCancelledRentalBalance,
-  calculateInitialRentalBalance,
+  calculateInitialRentalBalanceMinor,
   calculateRentalDays,
-  calculateReturnSummary,
-  calculateRentalSummary,
+  calculateReturnSummaryMinor,
+  calculateRentalSummaryMinor,
   getOpenRentalStatusForExpectedReturn,
   validateMileageProgression,
   type RentalActivationInput,
@@ -23,6 +23,7 @@ import {
   type RentalFormOptions,
   type RentalListRequest,
   type RentalListRecord,
+  type RentalInitialBalanceMinor,
   type RentalListSummary,
   type RentalQueue,
   type RentalReturnInput,
@@ -34,7 +35,23 @@ import {
   rentalReturnWithPaymentInputSchema,
 } from "../../src/shared/rentals";
 import { paymentInputSchema, type PaymentRecord } from "../../src/shared/payments";
+import {
+  MONEY_MINOR_ZERO,
+  fromMinorUnits,
+  fromMinorUnitsOrNull,
+  subtractMoney,
+  toMinorUnits,
+  toMinorUnitsOrNull,
+  type MoneyMinor,
+} from "../../src/shared/money";
 import type { PageResult } from "../../src/shared/pagination";
+import {
+  columnToMinor,
+  moneyColumns,
+  nullableColumnToMinor,
+  nullableMoneyColumns,
+  sumToMinor,
+} from "./money-write";
 import {
   accessories,
   customers,
@@ -81,9 +98,9 @@ function getRentalListFields(nowIso: string) {
     startDatetime: rentals.startDatetime,
     expectedReturnDatetime: rentals.expectedReturnDatetime,
     actualReturnDatetime: rentals.actualReturnDatetime,
-    dailyPrice: rentals.dailyPrice,
-    depositRequired: rentals.depositRequired,
-    depositPaid: rentals.depositPaid,
+    dailyPriceMinor: rentals.dailyPriceMinor,
+    depositRequiredMinor: rentals.depositRequiredMinor,
+    depositPaidMinor: rentals.depositPaidMinor,
     mileageOut: rentals.mileageOut,
     mileageIn: rentals.mileageIn,
     fuelOut: rentals.fuelOut,
@@ -91,18 +108,69 @@ function getRentalListFields(nowIso: string) {
     notesOut: rentals.notesOut,
     notesIn: rentals.notesIn,
     damageNotes: rentals.damageNotes,
-    extraCharges: rentals.extraCharges,
-    accessoryCharges: rentals.accessoryCharges,
-    discount: rentals.discount,
-    totalAmount: rentals.totalAmount,
-    paidAmount: rentals.paidAmount,
-    remainingAmount: rentals.remainingAmount,
+    extraChargesMinor: rentals.extraChargesMinor,
+    accessoryChargesMinor: rentals.accessoryChargesMinor,
+    discountMinor: rentals.discountMinor,
+    totalAmountMinor: rentals.totalAmountMinor,
+    paidAmountMinor: rentals.paidAmountMinor,
+    remainingAmountMinor: rentals.remainingAmountMinor,
     cancelledAt: rentals.cancelledAt,
     cancelReason: rentals.cancelReason,
     salesUserId: rentals.salesUserId,
     createdAt: rentals.createdAt,
     updatedAt: rentals.updatedAt,
   };
+}
+
+type RentalListRow = Omit<RentalListRecord, RentalMoneyField> & {
+  [Key in `${RentalMoneyField}Minor`]: number;
+};
+
+type RentalMoneyField =
+  | "dailyPrice"
+  | "depositRequired"
+  | "depositPaid"
+  | "extraCharges"
+  | "accessoryCharges"
+  | "discount"
+  | "totalAmount"
+  | "paidAmount"
+  | "remainingAmount";
+
+/**
+ * The one place a listed rental's stored integers become the major-unit
+ * numbers the screen, the contract print and the export all read.
+ */
+function toRentalListRecord(row: RentalListRow): RentalListRecord {
+  const {
+    dailyPriceMinor,
+    depositRequiredMinor,
+    depositPaidMinor,
+    extraChargesMinor,
+    accessoryChargesMinor,
+    discountMinor,
+    totalAmountMinor,
+    paidAmountMinor,
+    remainingAmountMinor,
+    ...rest
+  } = row;
+
+  return {
+    ...rest,
+    dailyPrice: rentalMoney(dailyPriceMinor, "daily_price_minor"),
+    depositRequired: rentalMoney(depositRequiredMinor, "deposit_required_minor"),
+    depositPaid: rentalMoney(depositPaidMinor, "deposit_paid_minor"),
+    extraCharges: rentalMoney(extraChargesMinor, "extra_charges_minor"),
+    accessoryCharges: rentalMoney(accessoryChargesMinor, "accessory_charges_minor"),
+    discount: rentalMoney(discountMinor, "discount_minor"),
+    totalAmount: rentalMoney(totalAmountMinor, "total_amount_minor"),
+    paidAmount: rentalMoney(paidAmountMinor, "paid_amount_minor"),
+    remainingAmount: rentalMoney(remainingAmountMinor, "remaining_amount_minor"),
+  };
+}
+
+function rentalMoney(value: number, column: string): number {
+  return fromMinorUnits(columnToMinor(value, `rentals.${column}`));
 }
 
 function assertVehicleHasNoPostedSale(tx: RentalTx, vehicleId: number): void {
@@ -179,7 +247,7 @@ export function listRentals(
       active: sql<number>`sum(case when ${effectiveStatus} = 'active' then 1 else 0 end)`.mapWith(Number),
       overdue: sql<number>`sum(case when ${effectiveStatus} = 'overdue' then 1 else 0 end)`.mapWith(Number),
       returned: sql<number>`sum(case when ${rentals.status} = 'returned' then 1 else 0 end)`.mapWith(Number),
-      amount: sql<number>`coalesce(sum(${rentals.totalAmount}), 0)`.mapWith(Number),
+      amount: sql<number>`coalesce(sum(${rentals.totalAmountMinor}), 0)`,
     })
     .from(rentals)
     .innerJoin(customers, eq(rentals.customerId, customers.id))
@@ -205,7 +273,9 @@ export function listRentals(
     active: summaryRow?.active ?? 0,
     overdue: summaryRow?.overdue ?? 0,
     returned: summaryRow?.returned ?? 0,
-    amount: summaryRow?.amount ?? 0,
+    amount: fromMinorUnits(
+      sumToMinor(summaryRow?.amount, "The rental list total"),
+    ),
   });
 }
 
@@ -229,8 +299,8 @@ export function getRentalFormOptions(): RentalFormOptions {
         plateNumber: vehicles.plateNumber,
         brand: vehicles.brand,
         model: vehicles.model,
-        dailyPrice: vehicles.dailyPrice,
-        depositAmount: vehicles.depositAmount,
+        dailyPriceMinor: vehicles.dailyPriceMinor,
+        depositAmountMinor: vehicles.depositAmountMinor,
         mileage: vehicles.mileage,
       })
       .from(vehicles)
@@ -240,7 +310,16 @@ export function getRentalFormOptions(): RentalFormOptions {
       )
       .where(and(eq(vehicles.status, "available"), isNull(vehicleSales.id)))
       .orderBy(asc(vehicles.plateNumber))
-      .all(),
+      .all()
+      .map(({ dailyPriceMinor, depositAmountMinor, ...vehicle }) => ({
+        ...vehicle,
+        dailyPrice: fromMinorUnits(
+          columnToMinor(dailyPriceMinor, "vehicles.daily_price_minor"),
+        ),
+        depositAmount: fromMinorUnits(
+          columnToMinor(depositAmountMinor, "vehicles.deposit_amount_minor"),
+        ),
+      })),
     accessories: loadRentalFormAccessories(),
     salesUsers: db
       .select({
@@ -267,16 +346,19 @@ export function activateRental(input: unknown): RentalListRecord {
         depositPaid: 0,
       };
   const now = new Date().toISOString();
-  const accessoryCharges = calculateAccessoryChargeTotal(values.accessories);
-  const { totalAmount } = calculateRentalSummary(
+  const accessoryChargesMinor = calculateAccessoryChargeTotalMinor(
+    toAccessoryChargeLines(values.accessories),
+  );
+  const depositPaidMinor = toMinorUnits(values.depositPaid, "Deposit paid");
+  const { totalAmountMinor } = calculateRentalSummaryMinor(
     values.startDatetime,
     values.expectedReturnDatetime,
-    values.dailyPrice,
-    accessoryCharges,
+    toMinorUnits(values.dailyPrice, "Daily price"),
+    accessoryChargesMinor,
   );
-  const initialBalance = calculateInitialRentalBalance(
-    totalAmount,
-    values.depositPaid,
+  const initialBalance = calculateInitialRentalBalanceMinor(
+    totalAmountMinor,
+    depositPaidMinor,
   );
   const actor = getCurrentUserForService();
 
@@ -346,8 +428,8 @@ export function activateRental(input: unknown): RentalListRecord {
             now,
             contractNo,
             "active",
-            totalAmount,
-            accessoryCharges,
+            totalAmountMinor,
+            accessoryChargesMinor,
             initialBalance,
             actor?.id ?? null,
           ),
@@ -370,7 +452,7 @@ export function activateRental(input: unknown): RentalListRecord {
             method: "cash",
             receiptNo,
             status: "posted",
-            amount: values.depositPaid,
+            ...moneyColumns("amount", depositPaidMinor),
             paymentDate: now,
             notes: "Deposit paid at rental start.",
             createdByUserId: actor?.id ?? null,
@@ -431,7 +513,12 @@ export function activateRental(input: unknown): RentalListRecord {
         entityLabel: contractNo,
         summaryAr: `تم تفعيل عقد ${contractNo}`,
         summaryEn: `Rental ${contractNo} was activated.`,
-        after: { ...values, contractNo, totalAmount, accessoryCharges },
+        after: {
+          ...values,
+          contractNo,
+          totalAmount: fromMinorUnits(totalAmountMinor),
+          accessoryCharges: fromMinorUnits(accessoryChargesMinor),
+        },
         metadata: { vehicleId: values.vehicleId, customerId: values.customerId },
       });
 
@@ -462,14 +549,20 @@ export function createDraftRental(input: unknown): RentalListRecord {
         depositPaid: 0,
       };
   const now = new Date().toISOString();
-  const accessoryCharges = calculateAccessoryChargeTotal(values.accessories);
-  const { totalAmount } = calculateRentalSummary(
+  const accessoryChargesMinor = calculateAccessoryChargeTotalMinor(
+    toAccessoryChargeLines(values.accessories),
+  );
+  const { totalAmountMinor } = calculateRentalSummaryMinor(
     values.startDatetime,
     values.expectedReturnDatetime,
-    values.dailyPrice,
-    accessoryCharges,
+    toMinorUnits(values.dailyPrice, "Daily price"),
+    accessoryChargesMinor,
   );
-  const initialBalance = calculateInitialRentalBalance(totalAmount, 0);
+  // A draft has taken no money yet, so nothing is paid against it.
+  const initialBalance = calculateInitialRentalBalanceMinor(
+    totalAmountMinor,
+    MONEY_MINOR_ZERO,
+  );
   const actor = getCurrentUserForService();
 
   try {
@@ -506,8 +599,8 @@ export function createDraftRental(input: unknown): RentalListRecord {
             now,
             contractNo,
             "draft",
-            totalAmount,
-            accessoryCharges,
+            totalAmountMinor,
+            accessoryChargesMinor,
             initialBalance,
             actor?.id ?? null,
           ),
@@ -533,7 +626,12 @@ export function createDraftRental(input: unknown): RentalListRecord {
         entityLabel: contractNo,
         summaryAr: `تم إنشاء مسودة عقد ${contractNo}`,
         summaryEn: `Draft rental ${contractNo} was created.`,
-        after: { ...values, contractNo, totalAmount, accessoryCharges },
+        after: {
+          ...values,
+          contractNo,
+          totalAmount: fromMinorUnits(totalAmountMinor),
+          accessoryCharges: fromMinorUnits(accessoryChargesMinor),
+        },
       });
 
       return insertedRental.id;
@@ -556,12 +654,14 @@ export function updateDraftRental(id: unknown, input: unknown): RentalListRecord
   const rentalId = parseRentalId(id);
   const values = rentalActivationInputSchema.parse(input);
   const now = new Date().toISOString();
-  const accessoryCharges = calculateAccessoryChargeTotal(values.accessories);
-  const { totalAmount } = calculateRentalSummary(
+  const accessoryChargesMinor = calculateAccessoryChargeTotalMinor(
+    toAccessoryChargeLines(values.accessories),
+  );
+  const { totalAmountMinor } = calculateRentalSummaryMinor(
     values.startDatetime,
     values.expectedReturnDatetime,
-    values.dailyPrice,
-    accessoryCharges,
+    toMinorUnits(values.dailyPrice, "Daily price"),
+    accessoryChargesMinor,
   );
   const actor = getCurrentUserForService();
 
@@ -589,16 +689,20 @@ export function updateDraftRental(id: unknown, input: unknown): RentalListRecord
           vehicleId: values.vehicleId,
           startDatetime: values.startDatetime,
           expectedReturnDatetime: values.expectedReturnDatetime,
-          dailyPrice: values.dailyPrice,
-          depositRequired: values.depositRequired,
-          depositPaid: 0,
+          ...moneyColumns("dailyPrice", toMinorUnits(values.dailyPrice, "Daily price")),
+          ...moneyColumns(
+            "depositRequired",
+            toMinorUnits(values.depositRequired, "Deposit required"),
+          ),
+          ...moneyColumns("depositPaid", MONEY_MINOR_ZERO),
           mileageOut: values.mileageOut,
           fuelOut: values.fuelOut,
           notesOut: values.notesOut,
-          accessoryCharges,
-          totalAmount,
-          paidAmount: 0,
-          remainingAmount: totalAmount,
+          ...moneyColumns("accessoryCharges", accessoryChargesMinor),
+          ...moneyColumns("totalAmount", totalAmountMinor),
+          // A draft has taken no money, so the whole total is still owed.
+          ...moneyColumns("paidAmount", MONEY_MINOR_ZERO),
+          ...moneyColumns("remainingAmount", totalAmountMinor),
           lastUpdatedByUserId: actor?.id ?? null,
           updatedAt: now,
         })
@@ -621,7 +725,11 @@ export function updateDraftRental(id: unknown, input: unknown): RentalListRecord
         summaryAr: "تم تحديث مسودة عقد",
         summaryEn: "Draft rental was updated.",
         before: rental,
-        after: { ...values, totalAmount, accessoryCharges },
+        after: {
+          ...values,
+          totalAmount: fromMinorUnits(totalAmountMinor),
+          accessoryCharges: fromMinorUnits(accessoryChargesMinor),
+        },
       });
 
       return rentalId;
@@ -794,8 +902,8 @@ export function updateActiveRental(input: unknown): RentalListRecord {
           id: rentals.id,
           status: rentals.status,
           startDatetime: rentals.startDatetime,
-          accessoryCharges: rentals.accessoryCharges,
-          paidAmount: rentals.paidAmount,
+          accessoryChargesMinor: rentals.accessoryChargesMinor,
+          paidAmountMinor: rentals.paidAmountMinor,
         })
         .from(rentals)
         .where(eq(rentals.id, values.rentalId))
@@ -816,28 +924,41 @@ export function updateActiveRental(input: unknown): RentalListRecord {
         throw new Error("Expected return must be after the start date and time.");
       }
 
-      const { totalAmount } = calculateRentalSummary(
+      const { totalAmountMinor } = calculateRentalSummaryMinor(
         rental.startDatetime,
         values.expectedReturnDatetime,
-        values.dailyPrice,
-        rental.accessoryCharges,
+        toMinorUnits(values.dailyPrice, "Daily price"),
+        columnToMinor(
+          rental.accessoryChargesMinor,
+          "rentals.accessory_charges_minor",
+        ),
       );
       const status = getOpenRentalStatusForExpectedReturn(
         values.expectedReturnDatetime,
         now,
       );
+      const totalAmount = fromMinorUnits(totalAmountMinor);
 
       tx.update(rentals)
         .set({
           status,
           expectedReturnDatetime: values.expectedReturnDatetime,
-          dailyPrice: values.dailyPrice,
-          depositRequired: values.depositRequired,
+          ...moneyColumns("dailyPrice", toMinorUnits(values.dailyPrice, "Daily price")),
+          ...moneyColumns(
+            "depositRequired",
+            toMinorUnits(values.depositRequired, "Deposit required"),
+          ),
           mileageOut: values.mileageOut,
           fuelOut: values.fuelOut,
           notesOut: values.notesOut,
-          totalAmount,
-          remainingAmount: totalAmount - rental.paidAmount,
+          ...moneyColumns("totalAmount", totalAmountMinor),
+          ...moneyColumns(
+            "remainingAmount",
+            subtractMoney(
+              totalAmountMinor,
+              columnToMinor(rental.paidAmountMinor, "rentals.paid_amount_minor"),
+            ),
+          ),
           lastUpdatedByUserId: actor?.id ?? null,
           updatedAt: now,
         })
@@ -905,8 +1026,9 @@ export function cancelRental(input: unknown): RentalListRecord {
       tx.update(rentals)
         .set({
           status: "cancelled",
-          remainingAmount,
-          commissionAmount: 0,
+          // A cancelled rental owes nothing and earns no commission.
+          ...moneyColumns("remainingAmount", toMinorUnits(remainingAmount)),
+          ...moneyColumns("commissionAmount", MONEY_MINOR_ZERO),
           cancelledAt: now,
           cancelReason: parsed.reason,
           cancelledByUserId: actor?.id ?? null,
@@ -1019,7 +1141,7 @@ export function returnRentalWithPayment(input: unknown): {
           .select({
             id: rentals.id,
             status: rentals.status,
-            totalAmount: rentals.totalAmount,
+            totalAmountMinor: rentals.totalAmountMinor,
           })
           .from(rentals)
           .where(eq(rentals.id, rentalId))
@@ -1034,6 +1156,10 @@ export function returnRentalWithPayment(input: unknown): {
           .insert(payments)
           .values({
             ...paymentValues,
+            ...moneyColumns(
+              "amount",
+              toMinorUnits(paymentValues.amount, "Payment amount"),
+            ),
             receiptNo,
             status: "posted",
             createdByUserId: actor?.id ?? null,
@@ -1046,7 +1172,7 @@ export function returnRentalWithPayment(input: unknown): {
         recalculateRentalPaymentState(
           tx,
           rental.id,
-          rental.totalAmount,
+          columnToMinor(rental.totalAmountMinor, "rentals.total_amount_minor"),
           rental.status,
           now,
         );
@@ -1127,16 +1253,23 @@ function getRentalById(id: number): RentalListRecord | undefined {
 }
 
 function getPaymentById(id: number): PaymentRecord | undefined {
-  return getDatabase().select().from(payments).where(eq(payments.id, id)).get();
+  const row = getDatabase().select().from(payments).where(eq(payments.id, id)).get();
+
+  return row
+    ? {
+        ...row,
+        amount: fromMinorUnits(columnToMinor(row.amountMinor, "payments.amount_minor")),
+      }
+    : undefined;
 }
 
-function hydrateRentalRecord(rental: RentalListRecord): RentalListRecord {
-  return hydrateRentalRecords([rental])[0] ?? rental;
+function hydrateRentalRecord(rental: RentalListRow): RentalListRecord {
+  return hydrateRentalRecords([rental])[0] ?? toRentalListRecord(rental);
 }
 
-function hydrateRentalRecords(rows: RentalListRecord[]): RentalListRecord[] {
+function hydrateRentalRecords(rows: RentalListRow[]): RentalListRecord[] {
   if (rows.length === 0) {
-    return rows;
+    return [];
   }
 
   const rentalIds = rows.map((rental) => rental.id);
@@ -1144,7 +1277,7 @@ function hydrateRentalRecords(rows: RentalListRecord[]): RentalListRecord[] {
   const collateralByRental = loadRentalCollateralForRentals(rentalIds);
 
   return rows.map((rental) => ({
-    ...rental,
+    ...toRentalListRecord(rental),
     accessories: accessoriesByRental.get(rental.id) ?? [],
     collateralItems: collateralByRental.get(rental.id) ?? [],
   }));
@@ -1166,7 +1299,7 @@ function loadRentalAccessoriesForRentals(
       accessoryId: rentalAccessories.accessoryId,
       accessoryName: accessories.name,
       quantity: rentalAccessories.quantity,
-      unitCharge: rentalAccessories.unitCharge,
+      unitChargeMinor: rentalAccessories.unitChargeMinor,
       returnedQuantity: rentalAccessories.returnedQuantity,
       missingQuantity: rentalAccessories.missingQuantity,
       notes: rentalAccessories.notes,
@@ -1177,9 +1310,14 @@ function loadRentalAccessoriesForRentals(
     .orderBy(asc(accessories.name))
     .all();
 
-  for (const row of rows) {
+  for (const { unitChargeMinor, ...row } of rows) {
     const list = map.get(row.rentalId) ?? [];
-    list.push(row);
+    list.push({
+      ...row,
+      unitCharge: fromMinorUnits(
+        columnToMinor(unitChargeMinor, "rental_accessories.unit_charge_minor"),
+      ),
+    });
     map.set(row.rentalId, list);
   }
 
@@ -1202,7 +1340,7 @@ function loadRentalCollateralForRentals(
       type: rentalCollateralItems.type,
       description: rentalCollateralItems.description,
       referenceNumber: rentalCollateralItems.referenceNumber,
-      estimatedValue: rentalCollateralItems.estimatedValue,
+      estimatedValueMinor: rentalCollateralItems.estimatedValueMinor,
       currency: rentalCollateralItems.currency,
       status: rentalCollateralItems.status,
       receivedAt: rentalCollateralItems.receivedAt,
@@ -1214,9 +1352,18 @@ function loadRentalCollateralForRentals(
     .orderBy(asc(rentalCollateralItems.id))
     .all();
 
-  for (const row of rows) {
+  for (const { estimatedValueMinor, ...row } of rows) {
     const list = map.get(row.rentalId) ?? [];
-    list.push(row);
+    // An item held as security may have no stated value; null stays null.
+    list.push({
+      ...row,
+      estimatedValue: fromMinorUnitsOrNull(
+        nullableColumnToMinor(
+          estimatedValueMinor,
+          "rental_collateral_items.estimated_value_minor",
+        ),
+      ),
+    });
     map.set(row.rentalId, list);
   }
 
@@ -1231,7 +1378,7 @@ function loadRentalFormAccessories(): AccessoryRecord[] {
           accessories.id,
           accessories.name,
           accessories.quantity_owned as quantityOwned,
-          accessories.default_charge as defaultCharge,
+          accessories.default_charge_minor as defaultChargeMinor,
           accessories.is_active as isActive,
           accessories.notes,
           accessories.created_at as createdAt,
@@ -1256,7 +1403,7 @@ function loadRentalFormAccessories(): AccessoryRecord[] {
     .map((row) => {
       const value = row as {
         createdAt: string;
-        defaultCharge: number;
+        defaultChargeMinor: number;
         id: number;
         isActive: boolean | number;
         name: string;
@@ -1271,7 +1418,9 @@ function loadRentalFormAccessories(): AccessoryRecord[] {
         id: Number(value.id),
         name: value.name,
         quantityOwned: Number(value.quantityOwned),
-        defaultCharge: Number(value.defaultCharge),
+        defaultCharge: fromMinorUnits(
+          columnToMinor(value.defaultChargeMinor, "accessories.default_charge_minor"),
+        ),
         isActive: Boolean(value.isActive),
         notes: value.notes,
         quantityAssigned: Number(value.quantityAssigned),
@@ -1391,12 +1540,28 @@ function loadRentalAccessoryInputsForRental(
     .select({
       accessoryId: rentalAccessories.accessoryId,
       quantity: rentalAccessories.quantity,
-      unitCharge: rentalAccessories.unitCharge,
+      unitChargeMinor: rentalAccessories.unitChargeMinor,
       notes: rentalAccessories.notes,
     })
     .from(rentalAccessories)
     .where(eq(rentalAccessories.rentalId, rentalId))
-    .all();
+    .all()
+    .map(({ unitChargeMinor, ...row }) => ({
+      ...row,
+      unitCharge: fromMinorUnits(
+        columnToMinor(unitChargeMinor, "rental_accessories.unit_charge_minor"),
+      ),
+    }));
+}
+
+/** Accessory inputs arrive in major units; charges are calculated in minor. */
+function toAccessoryChargeLines(
+  rentalAccessoryInputs: readonly RentalAccessoryInput[],
+) {
+  return rentalAccessoryInputs.map((rentalAccessory) => ({
+    quantity: rentalAccessory.quantity,
+    unitChargeMinor: toMinorUnits(rentalAccessory.unitCharge, "Accessory unit charge"),
+  }));
 }
 
 function insertRentalAccessories(
@@ -1415,7 +1580,10 @@ function insertRentalAccessories(
         rentalId,
         accessoryId: rentalAccessory.accessoryId,
         quantity: rentalAccessory.quantity,
-        unitCharge: rentalAccessory.unitCharge,
+        ...moneyColumns(
+          "unitCharge",
+          toMinorUnits(rentalAccessory.unitCharge, "Accessory unit charge"),
+        ),
         returnedQuantity: 0,
         missingQuantity: 0,
         notes: rentalAccessory.notes,
@@ -1443,7 +1611,10 @@ function insertRentalCollateralItems(
         type: item.type,
         description: item.description,
         referenceNumber: item.referenceNumber,
-        estimatedValue: item.estimatedValue,
+        ...nullableMoneyColumns(
+          "estimatedValue",
+          toMinorUnitsOrNull(item.estimatedValue, "Estimated value"),
+        ),
         currency: item.currency,
         status: "held" as const,
         receivedAt: now,
@@ -1572,11 +1743,11 @@ function returnRentalInTransaction(
       status: rentals.status,
       startDatetime: rentals.startDatetime,
       expectedReturnDatetime: rentals.expectedReturnDatetime,
-      totalAmount: rentals.totalAmount,
-      paidAmount: rentals.paidAmount,
+      totalAmountMinor: rentals.totalAmountMinor,
+      paidAmountMinor: rentals.paidAmountMinor,
       mileageOut: rentals.mileageOut,
       salesUserId: rentals.salesUserId,
-      commissionRatePerDay: rentals.commissionRatePerDay,
+      commissionRatePerDayMinor: rentals.commissionRatePerDayMinor,
     })
     .from(rentals)
     .where(eq(rentals.id, values.rentalId))
@@ -1620,17 +1791,20 @@ function returnRentalInTransaction(
     throw new Error(mileageError);
   }
 
-  const summary = calculateReturnSummary({
+  const summary = calculateReturnSummaryMinor({
     expectedReturnDatetime: rental.expectedReturnDatetime,
     actualReturnDatetime: values.actualReturnDatetime,
-    baseTotalAmount: rental.totalAmount,
-    paidAmount: rental.paidAmount,
-    lateFeePerDay: values.lateFeePerDay,
-    damageCharge: values.damageCharge,
-    discount: values.discount,
+    baseTotalAmountMinor: columnToMinor(
+      rental.totalAmountMinor,
+      "rentals.total_amount_minor",
+    ),
+    paidAmountMinor: columnToMinor(rental.paidAmountMinor, "rentals.paid_amount_minor"),
+    lateFeePerDayMinor: toMinorUnits(values.lateFeePerDay, "Late fee per day"),
+    damageChargeMinor: toMinorUnits(values.damageCharge, "Damage charge"),
+    discountMinor: toMinorUnits(values.discount, "Discount"),
   });
 
-  if (summary.finalAmount < 0) {
+  if (summary.finalAmountMinor < 0) {
     throw new Error("Discount cannot be more than the total charges.");
   }
 
@@ -1651,7 +1825,10 @@ function returnRentalInTransaction(
   );
   const updatedCommission = calculateCommission({
     rentedDays: actualDays,
-    dailyRate: rental.commissionRatePerDay ?? 0,
+    dailyRateMinor: columnToMinor(
+      rental.commissionRatePerDayMinor,
+      "rentals.commission_rate_per_day_minor",
+    ),
     status: "returned",
     userEarnsCommission: Boolean(salesUserRow?.earnsCommission),
     commissionEnabled: getShopSettings().enableSalesCommission,
@@ -1665,11 +1842,11 @@ function returnRentalInTransaction(
       fuelIn: values.fuelIn,
       notesIn: values.notesIn,
       damageNotes: values.damageNotes,
-      extraCharges: summary.extraCharges,
-      discount: values.discount,
-      totalAmount: summary.finalAmount,
-      remainingAmount: summary.remainingAmount,
-      commissionAmount: updatedCommission.commissionAmount,
+      ...moneyColumns("extraCharges", summary.extraChargesMinor),
+      ...moneyColumns("discount", toMinorUnits(values.discount, "Discount")),
+      ...moneyColumns("totalAmount", summary.finalAmountMinor),
+      ...moneyColumns("remainingAmount", summary.remainingAmountMinor),
+      ...moneyColumns("commissionAmount", updatedCommission.commissionAmountMinor),
       returnedByUserId: actor?.id ?? null,
       lastUpdatedByUserId: actor?.id ?? null,
       updatedAt: now,
@@ -1720,7 +1897,7 @@ function returnRentalInTransaction(
           values.maintenanceDescription?.trim() ||
           values.damageNotes?.trim() ||
           null,
-        cost: 0,
+        ...moneyColumns("cost", MONEY_MINOR_ZERO),
         startDate: toDateInputValue(new Date(values.actualReturnDatetime)),
         endDate: null,
         isArchived: false,
@@ -1766,8 +1943,8 @@ function returnRentalInTransaction(
     after: {
       status: "returned",
       actualReturnDatetime: values.actualReturnDatetime,
-      totalAmount: summary.finalAmount,
-      remainingAmount: summary.remainingAmount,
+      totalAmount: fromMinorUnits(summary.finalAmountMinor),
+      remainingAmount: fromMinorUnits(summary.remainingAmountMinor),
       vehicleStatus: values.vehicleStatus,
     },
     metadata: {
@@ -1844,16 +2021,16 @@ function toRentalInsert(
   now: string,
   contractNo: string,
   status: "draft" | "active",
-  totalAmount: number,
-  accessoryCharges: number,
-  initialBalance: { paidAmount: number; remainingAmount: number },
+  totalAmountMinor: MoneyMinor,
+  accessoryChargesMinor: MoneyMinor,
+  initialBalance: RentalInitialBalanceMinor,
   actorId: number | null,
 ) {
   const settings = getShopSettings();
   const salesUserId =
     values.salesUserId && values.salesUserId > 0 ? values.salesUserId : actorId;
-  let commissionRatePerDay = 0;
-  let commissionAmount = 0;
+  let commissionRatePerDayMinor = MONEY_MINOR_ZERO;
+  let commissionAmountMinor = MONEY_MINOR_ZERO;
 
   if (settings.enableSalesCommission && salesUserId) {
     const userRow = tx
@@ -1863,25 +2040,35 @@ function toRentalInsert(
       .get();
     if (userRow?.earnsCommission) {
       const vehicleRow = tx
-        .select({ commissionRateOverride: vehicles.commissionRateOverride })
+        .select({
+          commissionRateOverrideMinor: vehicles.commissionRateOverrideMinor,
+        })
         .from(vehicles)
         .where(eq(vehicles.id, values.vehicleId))
         .get();
-      const dailyRate =
-        vehicleRow?.commissionRateOverride ?? settings.defaultDailyCommissionRate;
-      const rentedDays = calculateRentalDays(
-        values.startDatetime,
-        values.expectedReturnDatetime,
-      );
+      // The shop-wide default rate is a major-unit setting, converted here at
+      // the point it enters a calculation.
+      const dailyRateMinor =
+        nullableColumnToMinor(
+          vehicleRow?.commissionRateOverrideMinor,
+          "vehicles.commission_rate_override_minor",
+        ) ??
+        toMinorUnits(
+          settings.defaultDailyCommissionRate,
+          "Default daily commission rate",
+        );
       const calc = calculateCommission({
-        rentedDays,
-        dailyRate,
+        rentedDays: calculateRentalDays(
+          values.startDatetime,
+          values.expectedReturnDatetime,
+        ),
+        dailyRateMinor,
         status,
         userEarnsCommission: true,
         commissionEnabled: true,
       });
-      commissionRatePerDay = calc.commissionRatePerDay;
-      commissionAmount = calc.commissionAmount;
+      commissionRatePerDayMinor = calc.commissionRatePerDayMinor;
+      commissionAmountMinor = calc.commissionAmountMinor;
     }
   }
 
@@ -1893,9 +2080,12 @@ function toRentalInsert(
     startDatetime: values.startDatetime,
     expectedReturnDatetime: values.expectedReturnDatetime,
     actualReturnDatetime: null,
-    dailyPrice: values.dailyPrice,
-    depositRequired: values.depositRequired,
-    depositPaid: values.depositPaid,
+    ...moneyColumns("dailyPrice", toMinorUnits(values.dailyPrice, "Daily price")),
+    ...moneyColumns(
+      "depositRequired",
+      toMinorUnits(values.depositRequired, "Deposit required"),
+    ),
+    ...moneyColumns("depositPaid", toMinorUnits(values.depositPaid, "Deposit paid")),
     mileageOut: values.mileageOut,
     mileageIn: null,
     fuelOut: values.fuelOut,
@@ -1903,15 +2093,15 @@ function toRentalInsert(
     notesOut: values.notesOut,
     notesIn: null,
     damageNotes: null,
-    extraCharges: 0,
-    accessoryCharges,
-    discount: 0,
-    totalAmount,
-    paidAmount: initialBalance.paidAmount,
-    remainingAmount: initialBalance.remainingAmount,
+    ...moneyColumns("extraCharges", MONEY_MINOR_ZERO),
+    ...moneyColumns("accessoryCharges", accessoryChargesMinor),
+    ...moneyColumns("discount", MONEY_MINOR_ZERO),
+    ...moneyColumns("totalAmount", totalAmountMinor),
+    ...moneyColumns("paidAmount", initialBalance.paidAmountMinor),
+    ...moneyColumns("remainingAmount", initialBalance.remainingAmountMinor),
     salesUserId,
-    commissionRatePerDay,
-    commissionAmount,
+    ...moneyColumns("commissionRatePerDay", commissionRatePerDayMinor),
+    ...moneyColumns("commissionAmount", commissionAmountMinor),
     cancelledAt: null,
     cancelReason: null,
     createdAt: now,

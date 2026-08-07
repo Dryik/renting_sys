@@ -23,8 +23,18 @@ import type {
   VehicleIncomeRecord,
   VehicleUtilizationRecord,
 } from "../../src/shared/reports";
+import {
+  MONEY_MINOR_ZERO,
+  fromMinorUnits,
+  maxMoney,
+  subtractMoney,
+  sumMoney,
+  toMinorUnits,
+  type MoneyMinor,
+} from "../../src/shared/money";
 import { getDatabase, getSqliteDatabase } from "./database";
 import { createPageResult, normalizePageRequest, type NormalizedPageRequest } from "./listing";
+import { columnToMinor, sumToMinor } from "./money-write";
 import { customers, maintenanceRecords, payments, rentals, users, vehicleSales, vehicles } from "./schema";
 import { getShopSettings } from "./settings.service";
 import { requirePermissionForCurrentSession } from "./auth.service";
@@ -52,9 +62,9 @@ function getRentalListFields(nowIso: string) {
     startDatetime: rentals.startDatetime,
     expectedReturnDatetime: rentals.expectedReturnDatetime,
     actualReturnDatetime: rentals.actualReturnDatetime,
-    dailyPrice: rentals.dailyPrice,
-    depositRequired: rentals.depositRequired,
-    depositPaid: rentals.depositPaid,
+    dailyPriceMinor: rentals.dailyPriceMinor,
+    depositRequiredMinor: rentals.depositRequiredMinor,
+    depositPaidMinor: rentals.depositPaidMinor,
     mileageOut: rentals.mileageOut,
     mileageIn: rentals.mileageIn,
     fuelOut: rentals.fuelOut,
@@ -62,17 +72,70 @@ function getRentalListFields(nowIso: string) {
     notesOut: rentals.notesOut,
     notesIn: rentals.notesIn,
     damageNotes: rentals.damageNotes,
-    extraCharges: rentals.extraCharges,
-    accessoryCharges: rentals.accessoryCharges,
-    discount: rentals.discount,
-    totalAmount: rentals.totalAmount,
-    paidAmount: rentals.paidAmount,
-    remainingAmount: rentals.remainingAmount,
+    extraChargesMinor: rentals.extraChargesMinor,
+    accessoryChargesMinor: rentals.accessoryChargesMinor,
+    discountMinor: rentals.discountMinor,
+    totalAmountMinor: rentals.totalAmountMinor,
+    paidAmountMinor: rentals.paidAmountMinor,
+    remainingAmountMinor: rentals.remainingAmountMinor,
     cancelledAt: rentals.cancelledAt,
     cancelReason: rentals.cancelReason,
     createdAt: rentals.createdAt,
     updatedAt: rentals.updatedAt,
   };
+}
+
+type ReportRentalRow = {
+  [Key in keyof ReturnType<typeof getRentalListFields>]: Key extends `${string}Minor`
+    ? number
+    : unknown;
+};
+
+/**
+ * Reports show the same major-unit figures as every other screen, so the
+ * stored integers are converted once here, on the way out.
+ */
+function toReportRentalRecord(row: ReportRentalRow): RentalListRecord {
+  const {
+    dailyPriceMinor,
+    depositRequiredMinor,
+    depositPaidMinor,
+    extraChargesMinor,
+    accessoryChargesMinor,
+    discountMinor,
+    totalAmountMinor,
+    paidAmountMinor,
+    remainingAmountMinor,
+    ...rest
+  } = row;
+
+  return {
+    ...(rest as Omit<RentalListRecord, RentalReportMoneyField>),
+    dailyPrice: reportMoney(dailyPriceMinor, "daily_price_minor"),
+    depositRequired: reportMoney(depositRequiredMinor, "deposit_required_minor"),
+    depositPaid: reportMoney(depositPaidMinor, "deposit_paid_minor"),
+    extraCharges: reportMoney(extraChargesMinor, "extra_charges_minor"),
+    accessoryCharges: reportMoney(accessoryChargesMinor, "accessory_charges_minor"),
+    discount: reportMoney(discountMinor, "discount_minor"),
+    totalAmount: reportMoney(totalAmountMinor, "total_amount_minor"),
+    paidAmount: reportMoney(paidAmountMinor, "paid_amount_minor"),
+    remainingAmount: reportMoney(remainingAmountMinor, "remaining_amount_minor"),
+  };
+}
+
+type RentalReportMoneyField =
+  | "dailyPrice"
+  | "depositRequired"
+  | "depositPaid"
+  | "extraCharges"
+  | "accessoryCharges"
+  | "discount"
+  | "totalAmount"
+  | "paidAmount"
+  | "remainingAmount";
+
+function reportMoney(value: number, column: string): number {
+  return fromMinorUnits(columnToMinor(value, `rentals.${column}`));
 }
 
 export function getActiveRentals(): RentalListRecord[] {
@@ -86,7 +149,8 @@ export function getActiveRentals(): RentalListRecord[] {
     .innerJoin(vehicles, eq(rentals.vehicleId, vehicles.id))
     .where(effectiveActiveRentalFilter(now))
     .orderBy(desc(rentals.createdAt))
-    .all();
+    .all()
+    .map(toReportRentalRecord);
 }
 
 export function getOverdueRentals(): RentalListRecord[] {
@@ -100,7 +164,8 @@ export function getOverdueRentals(): RentalListRecord[] {
     .innerJoin(vehicles, eq(rentals.vehicleId, vehicles.id))
     .where(effectiveOverdueRentalFilter(now))
     .orderBy(desc(rentals.createdAt))
-    .all();
+    .all()
+    .map(toReportRentalRecord);
 }
 
 export function getReturnedRentals(
@@ -137,7 +202,7 @@ export function getReturnedRentals(
     .offset(pageRequest.offset)
     .all();
 
-  return createPageResult(rows, total, pageRequest);
+  return createPageResult(rows.map(toReportRentalRecord), total, pageRequest);
 }
 
 export function getCustomerRentalHistory(
@@ -173,7 +238,7 @@ export function getCustomerRentalHistory(
     .offset(pageRequest.offset)
     .all();
 
-  return createPageResult(rows, total, pageRequest);
+  return createPageResult(rows.map(toReportRentalRecord), total, pageRequest);
 }
 
 export function getDailyPayments(
@@ -207,7 +272,7 @@ export function getDailyPayments(
       customerName: customers.fullName,
       type: payments.type,
       method: payments.method,
-      amount: payments.amount,
+      amountMinor: payments.amountMinor,
       paymentDate: payments.paymentDate,
       notes: payments.notes,
       createdAt: payments.createdAt,
@@ -221,7 +286,14 @@ export function getDailyPayments(
     .offset(pageRequest.offset)
     .all();
 
-  return createPageResult(rows, total, pageRequest);
+  return createPageResult(
+    rows.map(({ amountMinor, ...row }) => ({
+      ...row,
+      amount: fromMinorUnits(columnToMinor(amountMinor, "payments.amount_minor")),
+    })),
+    total,
+    pageRequest,
+  );
 }
 
 export function getVehicleIncome(
@@ -259,7 +331,9 @@ export function getVehicleIncome(
     plateNumber: r.plateNumber,
     brand: r.brand,
     model: r.model,
-    totalIncome: r.totalIncome || 0,
+    totalIncome: fromMinorUnits(
+      sumToMinor(r.totalIncome, `Vehicle ${r.plateNumber} income`),
+    ),
     rentalCount: r.rentalCount || 0,
   }));
 }
@@ -276,9 +350,9 @@ export function getOutstandingBalances(): OutstandingBalanceRecord[] {
       customerPhone: customers.phone,
       vehiclePlateNumber: vehicles.plateNumber,
       status: effectiveRentalStatusSql(now),
-      totalAmount: rentals.totalAmount,
-      paidAmount: rentals.paidAmount,
-      remainingAmount: rentals.remainingAmount,
+      totalAmountMinor: rentals.totalAmountMinor,
+      paidAmountMinor: rentals.paidAmountMinor,
+      remainingAmountMinor: rentals.remainingAmountMinor,
       expectedReturnDatetime: rentals.expectedReturnDatetime,
     })
     .from(rentals)
@@ -287,11 +361,29 @@ export function getOutstandingBalances(): OutstandingBalanceRecord[] {
     .where(
       and(
         inArray(rentals.status, ["active", "overdue", "returned"]),
-        sql`${rentals.remainingAmount} > 0`,
+        sql`${rentals.remainingAmountMinor} > 0`,
       ),
     )
-    .orderBy(desc(rentals.remainingAmount))
-    .all();
+    .orderBy(desc(rentals.remainingAmountMinor))
+    .all()
+    .map(toOutstandingBalanceRecord);
+}
+
+function toOutstandingBalanceRecord<
+  Row extends {
+    totalAmountMinor: number;
+    paidAmountMinor: number;
+    remainingAmountMinor: number;
+  },
+>(row: Row) {
+  const { totalAmountMinor, paidAmountMinor, remainingAmountMinor, ...rest } = row;
+
+  return {
+    ...rest,
+    totalAmount: reportMoney(totalAmountMinor, "total_amount_minor"),
+    paidAmount: reportMoney(paidAmountMinor, "paid_amount_minor"),
+    remainingAmount: reportMoney(remainingAmountMinor, "remaining_amount_minor"),
+  };
 }
 
 export function listOutstandingBalances(
@@ -316,22 +408,22 @@ export function listOutstandingBalances(
       customerPhone: customers.phone,
       vehiclePlateNumber: vehicles.plateNumber,
       status: effectiveRentalStatusSql(now),
-      totalAmount: rentals.totalAmount,
-      paidAmount: rentals.paidAmount,
-      remainingAmount: rentals.remainingAmount,
+      totalAmountMinor: rentals.totalAmountMinor,
+      paidAmountMinor: rentals.paidAmountMinor,
+      remainingAmountMinor: rentals.remainingAmountMinor,
       expectedReturnDatetime: rentals.expectedReturnDatetime,
     })
     .from(rentals)
     .innerJoin(customers, eq(rentals.customerId, customers.id))
     .innerJoin(vehicles, eq(rentals.vehicleId, vehicles.id))
     .where(whereFilter)
-    .orderBy(desc(rentals.remainingAmount))
+    .orderBy(desc(rentals.remainingAmountMinor))
     .limit(pageRequest.pageSize)
     .offset(pageRequest.offset)
     .all();
 
   return createPageResult(
-    rows,
+    rows.map(toOutstandingBalanceRecord),
     total ?? pageRequest.offset + rows.length,
     pageRequest,
   );
@@ -345,38 +437,38 @@ export function getDailyClosing(date: string): DailyClosingRecord {
       cashPayments: sql<number>`
         coalesce(sum(case
           when ${payments.type} != 'refund' and ${payments.method} = 'cash'
-          then ${payments.amount}
+          then ${payments.amountMinor}
           else 0
         end), 0)
-      `.mapWith(Number),
+      `,
       cardPayments: sql<number>`
         coalesce(sum(case
           when ${payments.type} != 'refund' and ${payments.method} = 'card'
-          then ${payments.amount}
+          then ${payments.amountMinor}
           else 0
         end), 0)
-      `.mapWith(Number),
+      `,
       bankTransfers: sql<number>`
         coalesce(sum(case
           when ${payments.type} != 'refund' and ${payments.method} = 'bank_transfer'
-          then ${payments.amount}
+          then ${payments.amountMinor}
           else 0
         end), 0)
-      `.mapWith(Number),
+      `,
       otherPayments: sql<number>`
         coalesce(sum(case
           when ${payments.type} != 'refund' and ${payments.method} = 'other'
-          then ${payments.amount}
+          then ${payments.amountMinor}
           else 0
         end), 0)
-      `.mapWith(Number),
+      `,
       refunds: sql<number>`
         coalesce(sum(case
           when ${payments.type} = 'refund'
-          then ${payments.amount}
+          then ${payments.amountMinor}
           else 0
         end), 0)
-      `.mapWith(Number),
+      `,
     })
     .from(payments)
     .where(
@@ -395,7 +487,7 @@ export function getDailyClosing(date: string): DailyClosingRecord {
     };
   const vehicleSaleTotals = getDatabase()
     .select({
-      vehicleSales: sql<number>`coalesce(sum(${vehicleSales.salePrice}), 0)`.mapWith(Number),
+      vehicleSales: sql<number>`coalesce(sum(${vehicleSales.salePriceMinor}), 0)`,
     })
     .from(vehicleSales)
     .where(
@@ -415,7 +507,7 @@ export function getDailyClosing(date: string): DailyClosingRecord {
           inArray(rentals.status, ["active", "overdue", "returned"]),
           gte(rentals.expectedReturnDatetime, range.start),
           lt(rentals.expectedReturnDatetime, range.end),
-          sql`${rentals.remainingAmount} > 0`,
+          sql`${rentals.remainingAmountMinor} > 0`,
         ),
       )
       .get()?.count ?? 0;
@@ -428,23 +520,50 @@ export function getDailyClosing(date: string): DailyClosingRecord {
           eq(rentals.status, "returned"),
           gte(rentals.actualReturnDatetime, range.start),
           lt(rentals.actualReturnDatetime, range.end),
-          sql`${rentals.remainingAmount} > 0`,
+          sql`${rentals.remainingAmountMinor} > 0`,
         ),
       )
       .get()?.count ?? 0;
 
+  const cashPaymentsMinor = sumToMinor(paymentTotals.cashPayments, "Cash payments");
+  const cardPaymentsMinor = sumToMinor(paymentTotals.cardPayments, "Card payments");
+  const bankTransfersMinor = sumToMinor(paymentTotals.bankTransfers, "Bank transfers");
+  const otherPaymentsMinor = sumToMinor(paymentTotals.otherPayments, "Other payments");
+  const refundsMinor = sumToMinor(paymentTotals.refunds, "Refunds");
+  const vehicleSalesMinor = sumToMinor(
+    vehicleSaleTotals.vehicleSales,
+    "Vehicle sales",
+  );
+  // Expenses come back from the accounting service already in major units, so
+  // they re-enter integer arithmetic here rather than being added as floats.
+  const expensesMinor = toMinorUnits(accountingTotals.expenses, "Expenses");
+
   return {
     date,
-    ...paymentTotals,
-    totalCollected:
-      paymentTotals.cashPayments +
-      paymentTotals.cardPayments +
-      paymentTotals.bankTransfers +
-      paymentTotals.otherPayments +
-      vehicleSaleTotals.vehicleSales -
-      paymentTotals.refunds -
-      accountingTotals.expenses,
-    vehicleSales: vehicleSaleTotals.vehicleSales,
+    cashPayments: fromMinorUnits(cashPaymentsMinor),
+    cardPayments: fromMinorUnits(cardPaymentsMinor),
+    bankTransfers: fromMinorUnits(bankTransfersMinor),
+    otherPayments: fromMinorUnits(otherPaymentsMinor),
+    refunds: fromMinorUnits(refundsMinor),
+    totalCollected: fromMinorUnits(
+      subtractMoney(
+        subtractMoney(
+          sumMoney(
+            [
+              cashPaymentsMinor,
+              cardPaymentsMinor,
+              bankTransfersMinor,
+              otherPaymentsMinor,
+              vehicleSalesMinor,
+            ],
+            "the day's collections",
+          ),
+          refundsMinor,
+        ),
+        expensesMinor,
+      ),
+    ),
+    vehicleSales: fromMinorUnits(vehicleSalesMinor),
     expenses: accountingTotals.expenses,
     ownerWithdrawals: accountingTotals.ownerWithdrawals,
     expectedCash: accountingTotals.expectedCash,
@@ -469,13 +588,18 @@ export function getDeposits(): DepositReportRecord[] {
   const refundByRental = getDatabase()
     .select({
       rentalId: payments.rentalId,
-      refunded: sql<number>`coalesce(sum(${payments.amount}), 0)`.mapWith(Number),
+      refunded: sql<number>`coalesce(sum(${payments.amountMinor}), 0)`,
     })
     .from(payments)
     .where(and(eq(payments.status, "posted"), eq(payments.type, "refund")))
     .groupBy(payments.rentalId)
     .all();
-  const refundMap = new Map(refundByRental.map((row) => [row.rentalId, row.refunded]));
+  const refundMap = new Map(
+    refundByRental.map((row) => [
+      row.rentalId,
+      sumToMinor(row.refunded, `Rental ${row.rentalId} refunds`),
+    ]),
+  );
 
   return getDatabase()
     .select({
@@ -484,8 +608,8 @@ export function getDeposits(): DepositReportRecord[] {
       customerName: customers.fullName,
       vehiclePlateNumber: vehicles.plateNumber,
       status: effectiveRentalStatusSql(now),
-      depositRequired: rentals.depositRequired,
-      depositPaid: rentals.depositPaid,
+      depositRequiredMinor: rentals.depositRequiredMinor,
+      depositPaidMinor: rentals.depositPaidMinor,
     })
     .from(rentals)
     .innerJoin(customers, eq(rentals.customerId, customers.id))
@@ -493,15 +617,27 @@ export function getDeposits(): DepositReportRecord[] {
     .where(inArray(rentals.status, ["active", "overdue", "returned"]))
     .orderBy(desc(rentals.createdAt))
     .all()
-    .map((row) => {
-      const depositRefunded = refundMap.get(row.rentalId) ?? 0;
+    .map((row) =>
+      toDepositRecord(row, refundMap.get(row.rentalId) ?? MONEY_MINOR_ZERO),
+    );
+}
 
-      return {
-        ...row,
-        depositRefunded,
-        depositHeld: Math.max(0, row.depositPaid - depositRefunded),
-      };
-    });
+/** Held is what was paid less what has been refunded, never below zero. */
+function toDepositRecord<
+  Row extends { depositRequiredMinor: number; depositPaidMinor: number },
+>(row: Row, depositRefundedMinor: MoneyMinor) {
+  const { depositRequiredMinor, depositPaidMinor, ...rest } = row;
+  const paidMinor = columnToMinor(depositPaidMinor, "rentals.deposit_paid_minor");
+
+  return {
+    ...rest,
+    depositRequired: reportMoney(depositRequiredMinor, "deposit_required_minor"),
+    depositPaid: fromMinorUnits(paidMinor),
+    depositRefunded: fromMinorUnits(depositRefundedMinor),
+    depositHeld: fromMinorUnits(
+      maxMoney(subtractMoney(paidMinor, depositRefundedMinor), MONEY_MINOR_ZERO),
+    ),
+  };
 }
 
 export function listDeposits(
@@ -527,8 +663,8 @@ export function listDeposits(
       customerName: customers.fullName,
       vehiclePlateNumber: vehicles.plateNumber,
       status: effectiveRentalStatusSql(now),
-      depositRequired: rentals.depositRequired,
-      depositPaid: rentals.depositPaid,
+      depositRequiredMinor: rentals.depositRequiredMinor,
+      depositPaidMinor: rentals.depositPaidMinor,
     })
     .from(rentals)
     .innerJoin(customers, eq(rentals.customerId, customers.id))
@@ -597,7 +733,7 @@ export function getVehicleNetSummary(
   const maintenance = getDatabase()
     .select({
       vehicleId: maintenanceRecords.vehicleId,
-      cost: sql<number>`coalesce(sum(${maintenanceRecords.cost}), 0)`.mapWith(Number),
+      cost: sql<number>`coalesce(sum(${maintenanceRecords.costMinor}), 0)`,
     })
     .from(maintenanceRecords)
     .where(
@@ -609,10 +745,19 @@ export function getVehicleNetSummary(
     )
     .groupBy(maintenanceRecords.vehicleId)
     .all();
-  const maintenanceMap = new Map(maintenance.map((row) => [row.vehicleId, row.cost]));
+  const maintenanceMap = new Map(
+    maintenance.map((row) => [
+      row.vehicleId,
+      sumToMinor(row.cost, `Vehicle ${row.vehicleId} maintenance cost`),
+    ]),
+  );
 
   return income.map((row) => {
-    const maintenanceCost = maintenanceMap.get(row.vehicleId) ?? 0;
+    const maintenanceCostMinor =
+      maintenanceMap.get(row.vehicleId) ?? MONEY_MINOR_ZERO;
+    // `getVehicleIncome` already converted to major units, so the subtraction
+    // returns to integers rather than doing float arithmetic here.
+    const rentalIncomeMinor = toMinorUnits(row.totalIncome, "Rental income");
 
     return {
       vehicleId: row.vehicleId,
@@ -620,8 +765,10 @@ export function getVehicleNetSummary(
       brand: row.brand,
       model: row.model,
       rentalIncome: row.totalIncome,
-      maintenanceCost,
-      simpleNet: row.totalIncome - maintenanceCost,
+      maintenanceCost: fromMinorUnits(maintenanceCostMinor),
+      simpleNet: fromMinorUnits(
+        subtractMoney(rentalIncomeMinor, maintenanceCostMinor),
+      ),
     };
   });
 }
@@ -685,14 +832,18 @@ export function getCancelledRentals(): CancelledRentalRecord[] {
       vehiclePlateNumber: vehicles.plateNumber,
       cancelledAt: rentals.cancelledAt,
       cancelReason: rentals.cancelReason,
-      totalAmount: rentals.totalAmount,
+      totalAmountMinor: rentals.totalAmountMinor,
     })
     .from(rentals)
     .innerJoin(customers, eq(rentals.customerId, customers.id))
     .innerJoin(vehicles, eq(rentals.vehicleId, vehicles.id))
     .where(eq(rentals.status, "cancelled"))
     .orderBy(desc(rentals.cancelledAt))
-    .all();
+    .all()
+    .map(({ totalAmountMinor, ...row }) => ({
+      ...row,
+      totalAmount: reportMoney(totalAmountMinor, "total_amount_minor"),
+    }));
 }
 
 export function getPaymentVoids(): PaymentVoidRecord[] {
@@ -704,7 +855,7 @@ export function getPaymentVoids(): PaymentVoidRecord[] {
       customerName: customers.fullName,
       type: payments.type,
       method: payments.method,
-      amount: payments.amount,
+      amountMinor: payments.amountMinor,
       voidedAt: payments.voidedAt,
       voidReason: payments.voidReason,
     })
@@ -713,7 +864,11 @@ export function getPaymentVoids(): PaymentVoidRecord[] {
     .innerJoin(customers, eq(rentals.customerId, customers.id))
     .where(eq(payments.status, "voided"))
     .orderBy(desc(payments.voidedAt))
-    .all();
+    .all()
+    .map(({ amountMinor, ...row }) => ({
+      ...row,
+      amount: fromMinorUnits(columnToMinor(amountMinor, "payments.amount_minor")),
+    }));
 }
 
 function rentalOverlapDaysSql(range: { start: string; end: string }) {
@@ -790,16 +945,20 @@ function refreshOverdueRentals(now = new Date().toISOString()): void {
     .run();
 }
 
+/** Posted payments minus posted refunds, summed as integers in SQL. */
 function netPaymentTotalSql() {
-  return sql<number>`coalesce(sum(CASE WHEN ${payments.type} = 'refund' THEN -${payments.amount} ELSE ${payments.amount} END), 0)`.mapWith(Number);
+  return sql<number>`coalesce(sum(CASE WHEN ${payments.type} = 'refund' THEN -${payments.amountMinor} ELSE ${payments.amountMinor} END), 0)`;
 }
 
-type DepositBaseRecord = Omit<
+type DepositBaseRow = Omit<
   DepositReportRecord,
-  "depositRefunded" | "depositHeld"
->;
+  "depositRefunded" | "depositHeld" | "depositRequired" | "depositPaid"
+> & {
+  depositRequiredMinor: number;
+  depositPaidMinor: number;
+};
 
-function applyDepositRefunds(rows: DepositBaseRecord[]): DepositReportRecord[] {
+function applyDepositRefunds(rows: DepositBaseRow[]): DepositReportRecord[] {
   if (rows.length === 0) {
     return [];
   }
@@ -808,7 +967,7 @@ function applyDepositRefunds(rows: DepositBaseRecord[]): DepositReportRecord[] {
   const refundByRental = getDatabase()
     .select({
       rentalId: payments.rentalId,
-      refunded: sql<number>`coalesce(sum(${payments.amount}), 0)`.mapWith(Number),
+      refunded: sql<number>`coalesce(sum(${payments.amountMinor}), 0)`,
     })
     .from(payments)
     .where(
@@ -820,23 +979,22 @@ function applyDepositRefunds(rows: DepositBaseRecord[]): DepositReportRecord[] {
     )
     .groupBy(payments.rentalId)
     .all();
-  const refundMap = new Map(refundByRental.map((row) => [row.rentalId, row.refunded]));
+  const refundMap = new Map(
+    refundByRental.map((row) => [
+      row.rentalId,
+      sumToMinor(row.refunded, `Rental ${row.rentalId} refunds`),
+    ]),
+  );
 
-  return rows.map((row) => {
-    const depositRefunded = refundMap.get(row.rentalId) ?? 0;
-
-    return {
-      ...row,
-      depositRefunded,
-      depositHeld: Math.max(0, row.depositPaid - depositRefunded),
-    };
-  });
+  return rows.map((row) =>
+    toDepositRecord(row, refundMap.get(row.rentalId) ?? MONEY_MINOR_ZERO),
+  );
 }
 
 function outstandingBalanceFilter() {
   return and(
     inArray(rentals.status, ["active", "overdue", "returned"]),
-    sql`${rentals.remainingAmount} > 0`,
+    sql`${rentals.remainingAmountMinor} > 0`,
   );
 }
 
@@ -851,7 +1009,7 @@ function listHeldDeposits(
   const now = new Date().toISOString();
   const database = getSqliteDatabase();
   const total = database
-    .prepare(`${heldDepositCteSql()} select count(*) as count from (${heldDepositBaseSql()}) deposits where depositHeld > 0`)
+    .prepare(`${heldDepositCteSql()} select count(*) as count from (${heldDepositBaseSql()}) deposits where depositHeldMinor > 0`)
     .get(now) as { count?: number } | undefined;
   const rows = database
     .prepare(`
@@ -862,19 +1020,27 @@ function listHeldDeposits(
         customerName,
         vehiclePlateNumber,
         status,
-        depositRequired,
-        depositPaid,
-        depositRefunded,
-        depositHeld
+        depositRequiredMinor,
+        depositPaidMinor,
+        depositRefundedMinor
       from (${heldDepositBaseSql()}) deposits
-      where depositHeld > 0
+      where depositHeldMinor > 0
       order by createdAt desc
       limit ? offset ?
     `)
-    .all(now, pageRequest.pageSize, pageRequest.offset) as DepositReportRecord[];
+    .all(now, pageRequest.pageSize, pageRequest.offset) as Array<
+    DepositBaseRow & { depositRefundedMinor: number }
+  >;
 
   return createPageResult(
-    rows,
+    // `depositHeld` is re-derived here rather than read from the query, so the
+    // one clamp-at-zero rule lives in a single place.
+    rows.map((row) =>
+      toDepositRecord(
+        row,
+        sumToMinor(row.depositRefundedMinor, `Rental ${row.rentalId} refunds`),
+      ),
+    ),
     Number(total?.count ?? 0),
     pageRequest,
   );
@@ -902,17 +1068,17 @@ function listHeldDepositsWithoutTotal(
             when rentals.status = 'active' and rentals.expected_return_datetime < ? then 'overdue'
             else rentals.status
           end as status,
-          rentals.deposit_required as depositRequired,
-          rentals.deposit_paid as depositPaid
+          rentals.deposit_required_minor as depositRequiredMinor,
+          rentals.deposit_paid_minor as depositPaidMinor
         from rentals indexed by rentals_created_at_idx
         inner join customers on rentals.customer_id = customers.id
         inner join vehicles on rentals.vehicle_id = vehicles.id
         where rentals.status in ('active', 'overdue', 'returned')
-          and rentals.deposit_paid > 0
+          and rentals.deposit_paid_minor > 0
         order by rentals.created_at desc
         limit ? offset ?
       `)
-      .all(now, chunkSize, scanOffset) as DepositBaseRecord[];
+      .all(now, chunkSize, scanOffset) as DepositBaseRow[];
 
     if (candidates.length === 0) {
       break;
@@ -945,7 +1111,7 @@ function heldDepositCteSql(): string {
     with refund_by_rental as (
       select
         rental_id as rentalId,
-        coalesce(sum(amount), 0) as refunded
+        coalesce(sum(amount_minor), 0) as refunded
       from payments
       where status = 'posted' and type = 'refund'
       group by rental_id
@@ -964,17 +1130,17 @@ function heldDepositBaseSql(): string {
         when rentals.status = 'active' and rentals.expected_return_datetime < ? then 'overdue'
         else rentals.status
       end as status,
-      rentals.deposit_required as depositRequired,
-      rentals.deposit_paid as depositPaid,
-      coalesce(refund_by_rental.refunded, 0) as depositRefunded,
-      max(0, rentals.deposit_paid - coalesce(refund_by_rental.refunded, 0)) as depositHeld,
+      rentals.deposit_required_minor as depositRequiredMinor,
+      rentals.deposit_paid_minor as depositPaidMinor,
+      coalesce(refund_by_rental.refunded, 0) as depositRefundedMinor,
+      max(0, rentals.deposit_paid_minor - coalesce(refund_by_rental.refunded, 0)) as depositHeldMinor,
       rentals.created_at as createdAt
     from rentals
     inner join customers on rentals.customer_id = customers.id
     inner join vehicles on rentals.vehicle_id = vehicles.id
     left join refund_by_rental on refund_by_rental.rentalId = rentals.id
     where rentals.status in ('active', 'overdue', 'returned')
-      and rentals.deposit_paid > 0
+      and rentals.deposit_paid_minor > 0
   `;
 }
 
@@ -1062,8 +1228,8 @@ export function getCommissionReport(
       startDatetime: rentals.startDatetime,
       expectedReturnDatetime: rentals.expectedReturnDatetime,
       actualReturnDatetime: rentals.actualReturnDatetime,
-      commissionRatePerDay: rentals.commissionRatePerDay,
-      commissionAmount: rentals.commissionAmount,
+      commissionRatePerDayMinor: rentals.commissionRatePerDayMinor,
+      commissionAmountMinor: rentals.commissionAmountMinor,
       createdAt: rentals.createdAt,
     })
     .from(rentals)
@@ -1074,6 +1240,9 @@ export function getCommissionReport(
     .orderBy(desc(rentals.createdAt))
     .all();
 
+  const commissionAmountsMinor = rows.map((r) =>
+    columnToMinor(r.commissionAmountMinor, "rentals.commission_amount_minor"),
+  );
   const records: CommissionReportRecord[] = rows.map((r) => {
     const endDatetime = r.actualReturnDatetime ?? r.expectedReturnDatetime;
     const rentedDays = calculateRentalDays(r.startDatetime, endDatetime);
@@ -1094,20 +1263,25 @@ export function getCommissionReport(
       expectedReturnDatetime: r.expectedReturnDatetime,
       actualReturnDatetime: r.actualReturnDatetime,
       rentedDays,
-      commissionRatePerDay: r.commissionRatePerDay,
-      commissionAmount: r.commissionAmount,
+      commissionRatePerDay: reportMoney(
+        r.commissionRatePerDayMinor,
+        "commission_rate_per_day_minor",
+      ),
+      commissionAmount: reportMoney(
+        r.commissionAmountMinor,
+        "commission_amount_minor",
+      ),
       createdAt: r.createdAt,
     };
   });
 
-  const totalRentals = records.length;
-  const totalDays = records.reduce((acc, r) => acc + r.rentedDays, 0);
-  const totalCommission = records.reduce((acc, r) => acc + r.commissionAmount, 0);
-
   return {
     records,
-    totalRentals,
-    totalDays,
-    totalCommission,
+    totalRentals: records.length,
+    totalDays: records.reduce((acc, r) => acc + r.rentedDays, 0),
+    // Summed from the stored integers, not from the converted report rows.
+    totalCommission: fromMinorUnits(
+      sumMoney(commissionAmountsMinor, "the commission total"),
+    ),
   };
 }
