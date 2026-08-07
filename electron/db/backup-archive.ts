@@ -1,4 +1,6 @@
 import AdmZip from "adm-zip";
+import DatabaseConstructor from "better-sqlite3";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -114,6 +116,236 @@ export function writeBackupZip(
   }
 
   zip.writeZip(filePath);
+}
+
+/** Windows paths are case-insensitive, so compare them case-folded there. */
+function normalizeForComparison(target: string): string {
+  const resolved = path.resolve(target);
+
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+function isInsideDirectory(candidate: string, directory: string): boolean {
+  const relative = path.relative(
+    normalizeForComparison(directory),
+    normalizeForComparison(candidate),
+  );
+
+  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+/**
+ * A backup must never be written on top of the data it is backing up. Writing
+ * to rental_app.db, one of its sidecars, or anywhere inside uploads would
+ * destroy live data at the moment the user asked to protect it.
+ */
+export function assertBackupDestinationIsSafe(
+  finalPath: string,
+  databasePath: string,
+  uploadsPath: string,
+): void {
+  const target = normalizeForComparison(finalPath);
+  const protectedFiles = [
+    databasePath,
+    `${databasePath}-wal`,
+    `${databasePath}-shm`,
+    `${databasePath}-journal`,
+  ].map(normalizeForComparison);
+
+  if (protectedFiles.includes(target)) {
+    throw new Error(
+      "A backup cannot be saved over the app's own data file. Choose a different location.",
+    );
+  }
+
+  if (
+    target === normalizeForComparison(uploadsPath) ||
+    isInsideDirectory(finalPath, uploadsPath)
+  ) {
+    throw new Error(
+      "A backup cannot be saved inside the app's uploads folder. Choose a location outside it.",
+    );
+  }
+}
+
+export type VerifiedBackupRequest = {
+  /** Final destination; the archive only appears here once it is proven good. */
+  finalPath: string;
+  databasePath: string;
+  uploadsPath: string;
+  backupType: BackupType;
+  appVersion: string;
+  extraMetadata?: Partial<BackupMetadata>;
+  /** When set, the archived database must record exactly this schema version. */
+  expectedSchemaVersion?: number | null;
+};
+
+/**
+ * Writes an archive to a unique `.partial` name, proves it is restorable, and
+ * only then renames it into place. A caller that sees the returned path knows
+ * the file at it has been reopened, structurally validated, extracted, and
+ * checked for integrity, foreign keys, schema version and upload completeness.
+ *
+ * Nothing is ever pruned here: retention is the caller's decision and must
+ * happen after this returns, so a failed attempt cannot cost an existing good
+ * archive.
+ */
+export function writeVerifiedBackupArchive(request: VerifiedBackupRequest): string {
+  // Enforced here, not only at the UI layer, so no caller can route around it.
+  assertBackupDestinationIsSafe(
+    request.finalPath,
+    request.databasePath,
+    request.uploadsPath,
+  );
+
+  const directory = path.dirname(request.finalPath);
+  fs.mkdirSync(directory, { recursive: true });
+
+  const uniqueSuffix = `${process.pid}-${randomUUID()}`;
+  const partialPath = `${request.finalPath}.${uniqueSuffix}.partial`;
+  const stagingPath = path.join(directory, `.verify-${uniqueSuffix}`);
+
+  try {
+    writeBackupZip(
+      partialPath,
+      request.databasePath,
+      request.uploadsPath,
+      request.backupType,
+      request.extraMetadata ?? {},
+      request.appVersion,
+    );
+
+    verifyBackupArchive(partialPath, stagingPath, request);
+    fs.renameSync(partialPath, request.finalPath);
+  } catch (error) {
+    fs.rmSync(partialPath, { force: true });
+    throw error;
+  } finally {
+    fs.rmSync(stagingPath, { recursive: true, force: true });
+  }
+
+  return request.finalPath;
+}
+
+function verifyBackupArchive(
+  archivePath: string,
+  stagingPath: string,
+  request: VerifiedBackupRequest,
+): void {
+  const archive = openBackupArchive(archivePath);
+  assertRestorableStructure(archive);
+  assertMetadataUsable(archive.readMetadata(), request);
+  assertUploadsRepresented(archive.entryNames, request.uploadsPath);
+  archive.extractTo(stagingPath);
+
+  const restoredDatabasePath = path.join(stagingPath, "rental_app.db");
+
+  if (!fs.existsSync(restoredDatabasePath)) {
+    throw new Error("The backup did not contain a restorable data file.");
+  }
+
+  const restored = new DatabaseConstructor(restoredDatabasePath, { readonly: true });
+
+  try {
+    const integrity = restored.pragma("integrity_check", { simple: true }) as string;
+
+    if (integrity !== "ok") {
+      throw new Error(`The backup failed its integrity check (${integrity}).`);
+    }
+
+    if ((restored.pragma("foreign_key_check") as unknown[]).length > 0) {
+      throw new Error("The backup failed its foreign key check.");
+    }
+
+    if (request.expectedSchemaVersion != null) {
+      const row = restored
+        .prepare("select value from app_settings where key = 'schema_version'")
+        .get() as { value?: string } | undefined;
+
+      if (Number(row?.value) !== request.expectedSchemaVersion) {
+        throw new Error(
+          `The backup records schema version ${row?.value ?? "none"} but the data file is at version ${request.expectedSchemaVersion}.`,
+        );
+      }
+    }
+  } finally {
+    restored.close();
+  }
+}
+
+/** The metadata must be readable and describe the archive we just asked for. */
+function assertMetadataUsable(
+  metadata: BackupMetadata,
+  request: VerifiedBackupRequest,
+): void {
+  if (metadata.backupType !== request.backupType) {
+    throw new Error(
+      `The backup records type "${metadata.backupType ?? "none"}" instead of "${request.backupType}".`,
+    );
+  }
+
+  if (typeof metadata.backupDate !== "string" || Number.isNaN(Date.parse(metadata.backupDate))) {
+    throw new Error("The backup does not record a usable backup date.");
+  }
+
+  if (typeof metadata.appVersion !== "string") {
+    throw new Error("The backup does not record the app version.");
+  }
+
+  for (const field of ["sourceSchemaVersion", "targetSchemaVersion"] as const) {
+    const expected = request.extraMetadata?.[field];
+
+    if (expected === undefined) {
+      continue;
+    }
+
+    if (!Number.isInteger(metadata[field]) || metadata[field] !== expected) {
+      throw new Error(
+        `The backup records ${field} ${String(metadata[field])} instead of ${String(expected)}.`,
+      );
+    }
+  }
+}
+
+/** Every upload eligible for backup must actually be in the archive. */
+export function assertUploadsRepresented(
+  entryNames: string[],
+  uploadsPath: string,
+): void {
+  if (!fs.existsSync(uploadsPath)) {
+    return;
+  }
+
+  const archived = new Set(entryNames);
+
+  for (const relativePath of listBackupEligibleUploads(uploadsPath)) {
+    if (!archived.has(`uploads/${relativePath}`)) {
+      throw new Error(`The backup is missing an uploaded file (${relativePath}).`);
+    }
+  }
+}
+
+export function listBackupEligibleUploads(uploadsPath: string): string[] {
+  const found: string[] = [];
+
+  const walk = (directory: string, prefix: string): void => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+
+      if (entry.isDirectory()) {
+        walk(path.join(directory, entry.name), relativePath);
+        continue;
+      }
+
+      if (shouldIncludeBackupUploadPath(uploadsPath, path.join(uploadsPath, relativePath))) {
+        found.push(relativePath);
+      }
+    }
+  };
+
+  walk(uploadsPath, "");
+
+  return found;
 }
 
 export function shouldIncludeBackupUploadPath(

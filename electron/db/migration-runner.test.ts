@@ -6,12 +6,12 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   MigrationFailedError,
-  assertWalFullyCheckpointed,
   migrateDatabase,
   migrationBackupsDirectoryName,
   retainedMigrationBackups,
   writeMigrationSafetyBackup,
 } from "./migration-runner";
+import { assertWalFullyCheckpointed } from "./wal-checkpoint";
 import { LATEST_SCHEMA_VERSION, migrations, type Migration } from "./migrations";
 import { openBackupArchive } from "./backup-archive";
 

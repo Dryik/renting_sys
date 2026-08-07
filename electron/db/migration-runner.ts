@@ -1,13 +1,9 @@
-import DatabaseConstructor from "better-sqlite3";
 import type Database from "better-sqlite3";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import {
-  assertRestorableStructure,
-  openBackupArchive,
-  shouldIncludeBackupUploadPath,
-  writeBackupZip,
-} from "./backup-archive";
+import { writeVerifiedBackupArchive } from "./backup-archive";
+import { assertWalFullyCheckpointed } from "./wal-checkpoint";
 import { LATEST_SCHEMA_VERSION, migrations } from "./migrations";
 import { runIdempotentSeeds } from "./seeds";
 import { allIndexSql, allTableSql } from "./table-ddl";
@@ -290,65 +286,21 @@ function createSafetyBackup(
     return options.createSafetyBackup(context);
   }
 
-  assertWalFullyCheckpointed(database);
+  try {
+    assertWalFullyCheckpointed(database);
+  } catch (error) {
+    throw new MigrationFailedError(
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 
   return writeMigrationSafetyBackup(context);
 }
 
 /**
- * The archive copies rental_app.db off disk, so any WAL frame that has not been
- * folded back into the main file would be silently missing from the backup.
- * A backup that quietly loses recent writes is worse than no backup, so an
- * incomplete or busy checkpoint aborts the upgrade rather than being ignored.
- */
-export function assertWalFullyCheckpointed(database: Database.Database): void {
-  let result: unknown;
-
-  try {
-    result = database.pragma("wal_checkpoint(TRUNCATE)");
-  } catch (error) {
-    throw new MigrationFailedError(
-      `Could not flush pending writes before backing up the data file: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
-  }
-
-  const row = Array.isArray(result) ? (result[0] as Record<string, unknown>) : undefined;
-
-  if (!row || typeof row !== "object") {
-    throw new MigrationFailedError(
-      "Could not confirm pending writes were flushed before backing up the data file.",
-    );
-  }
-
-  const busy = Number(row.busy);
-  const log = Number(row.log);
-  const checkpointed = Number(row.checkpointed);
-
-  if (!Number.isFinite(busy) || !Number.isFinite(log) || !Number.isFinite(checkpointed)) {
-    throw new MigrationFailedError(
-      "Could not confirm pending writes were flushed before backing up the data file.",
-    );
-  }
-
-  if (busy !== 0) {
-    throw new MigrationFailedError(
-      "Another process is using the data file, so a safe backup could not be taken. Close other copies of the app and try again.",
-    );
-  }
-
-  if (log !== checkpointed) {
-    throw new MigrationFailedError(
-      `Only ${checkpointed} of ${log} pending writes could be flushed, so the backup would be incomplete.`,
-    );
-  }
-}
-
-/**
- * Writes to a `.partial` name, proves the archive is restorable, and only then
- * renames it into place. Older backups are pruned after that rename, so a
- * failed attempt never costs the user a previously good backup.
+ * Delegates to the shared verified-archive writer, then prunes. Pruning only
+ * happens after a verified rename, so a failed attempt never costs the user a
+ * previously good backup.
  */
 export function writeMigrationSafetyBackup(context: SafetyBackupContext): string {
   const backupsDirectory = path.join(
@@ -357,135 +309,38 @@ export function writeMigrationSafetyBackup(context: SafetyBackupContext): string
   );
   fs.mkdirSync(backupsDirectory, { recursive: true });
 
-  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-  const baseName = `migration_backup_v${context.fromVersion}_to_v${context.toVersion}_${stamp}`;
-  const partialPath = path.join(backupsDirectory, `${baseName}.${process.pid}.partial`);
-  const finalPath = path.join(backupsDirectory, `${baseName}.zip`);
-  const stagingPath = path.join(
+  // Milliseconds plus a UUID: two upgrades starting in the same second, or two
+  // processes racing, must not target the same filename.
+  const stamp = `${Date.now()}-${randomUUID()}`;
+  const finalPath = path.join(
     backupsDirectory,
-    `.verify-${baseName}.${process.pid}`,
+    `migration_backup_v${context.fromVersion}_to_v${context.toVersion}_${stamp}.zip`,
   );
 
   try {
-    writeBackupZip(
-      partialPath,
-      context.databasePath,
-      context.uploadsPath,
-      "safety_before_migration",
-      {
+    writeVerifiedBackupArchive({
+      finalPath,
+      databasePath: context.databasePath,
+      uploadsPath: context.uploadsPath,
+      backupType: "safety_before_migration",
+      appVersion: context.appVersion,
+      extraMetadata: {
         sourceSchemaVersion: context.fromVersion,
         targetSchemaVersion: context.toVersion,
       },
-      context.appVersion,
-    );
-
-    verifySafetyBackup(partialPath, stagingPath, context);
-    fs.renameSync(partialPath, finalPath);
+      expectedSchemaVersion: context.fromVersion,
+    });
   } catch (error) {
-    fs.rmSync(partialPath, { force: true });
-    throw error instanceof MigrationFailedError
-      ? error
-      : new MigrationFailedError(
-          `The safety backup could not be verified, so the upgrade was stopped: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-  } finally {
-    fs.rmSync(stagingPath, { recursive: true, force: true });
+    throw new MigrationFailedError(
+      `The safety backup could not be verified, so the upgrade was stopped: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
   }
 
   pruneMigrationBackups(backupsDirectory);
 
   return finalPath;
-}
-
-function verifySafetyBackup(
-  archivePath: string,
-  stagingPath: string,
-  context: SafetyBackupContext,
-): void {
-  const archive = openBackupArchive(archivePath);
-  assertRestorableStructure(archive);
-  assertUploadsRepresented(archive.entryNames, context.uploadsPath);
-  archive.extractTo(stagingPath);
-
-  const restoredDatabasePath = path.join(stagingPath, "rental_app.db");
-
-  if (!fs.existsSync(restoredDatabasePath)) {
-    throw new MigrationFailedError(
-      "The safety backup did not contain a restorable data file.",
-    );
-  }
-
-  const restored = new DatabaseConstructor(restoredDatabasePath, { readonly: true });
-
-  try {
-    const integrity = restored.pragma("integrity_check", { simple: true }) as string;
-
-    if (integrity !== "ok") {
-      throw new MigrationFailedError(
-        `The safety backup failed its integrity check (${integrity}).`,
-      );
-    }
-
-    if ((restored.pragma("foreign_key_check") as unknown[]).length > 0) {
-      throw new MigrationFailedError(
-        "The safety backup failed its foreign key check.",
-      );
-    }
-
-    const row = restored
-      .prepare("select value from app_settings where key = 'schema_version'")
-      .get() as { value?: string } | undefined;
-
-    if (Number(row?.value) !== context.fromVersion) {
-      throw new MigrationFailedError(
-        `The safety backup records schema version ${row?.value ?? "none"} but the data file is at version ${context.fromVersion}.`,
-      );
-    }
-  } finally {
-    restored.close();
-  }
-}
-
-/** Every upload eligible for backup must actually be in the archive. */
-function assertUploadsRepresented(entryNames: string[], uploadsPath: string): void {
-  if (!fs.existsSync(uploadsPath)) {
-    return;
-  }
-
-  const archived = new Set(entryNames);
-
-  for (const relativePath of listBackupEligibleUploads(uploadsPath)) {
-    if (!archived.has(`uploads/${relativePath}`)) {
-      throw new MigrationFailedError(
-        `The safety backup is missing an uploaded file (${relativePath}).`,
-      );
-    }
-  }
-}
-
-function listBackupEligibleUploads(uploadsPath: string): string[] {
-  const found: string[] = [];
-
-  const walk = (directory: string, prefix: string): void => {
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-      const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
-
-      if (entry.isDirectory()) {
-        walk(path.join(directory, entry.name), relativePath);
-        continue;
-      }
-
-      if (shouldIncludeBackupUploadPath(uploadsPath, path.join(uploadsPath, relativePath))) {
-        found.push(relativePath);
-      }
-    }
-  };
-
-  walk(uploadsPath, "");
-
-  return found;
 }
 
 function pruneMigrationBackups(backupsDirectory: string): void {

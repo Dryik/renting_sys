@@ -6,12 +6,14 @@ import {
   type BackupStatus,
   type BackupVerifyResult,
 } from "../../src/shared/backup";
+import { randomUUID } from "node:crypto";
 import {
+  assertBackupDestinationIsSafe,
   assertRestorableStructure,
   openBackupArchive,
-  writeBackupZip as writeBackupArchive,
-  type BackupType,
+  writeVerifiedBackupArchive,
 } from "./backup-archive";
+import { assertWalFullyCheckpointed } from "./wal-checkpoint";
 import { z } from "zod";
 import Database from "better-sqlite3";
 import { closeDatabase, getDatabase, getSqliteDatabase, initializeDatabase } from "./database";
@@ -64,11 +66,23 @@ export async function runBackup(): Promise<BackupResult> {
       return { success: false, error: "Backup process cancelled by user." };
     }
 
-    checkpointDatabase();
+    // Checked before the database is closed, so a refused destination leaves
+    // the app running normally rather than briefly shut down.
+    assertBackupDestinationIsSafe(filePath, databasePath, uploadsPath);
+
+    const liveSchemaVersion = readLiveSchemaVersion();
+    assertWalFullyCheckpointed(getSqliteDatabase());
     closeDatabase();
 
     try {
-      writeBackupZip(filePath, databasePath, uploadsPath, "manual");
+      writeVerifiedBackupArchive({
+        finalPath: filePath,
+        databasePath,
+        uploadsPath,
+        backupType: "manual",
+        appVersion: app.getVersion(),
+        expectedSchemaVersion: liveSchemaVersion,
+      });
     } finally {
       initializeDatabase();
     }
@@ -127,6 +141,14 @@ export async function runRestore(input: unknown): Promise<RestoreResult> {
     reason: values.reason,
   });
 
+  // Explicit state machine. Two flags decide what recovery is permitted, and
+  // rollback runs at most once. Nothing that can destroy live data happens
+  // before a complete, verified snapshot exists.
+  let rollbackReady = false;
+  let replacementStarted = false;
+  let rollbackPreserved = false;
+  let safetyBackupPath = "";
+
   try {
     const { filePaths } = await dialog.showOpenDialog({
       title: "Select Backup ZIP to Restore",
@@ -138,6 +160,7 @@ export async function runRestore(input: unknown): Promise<RestoreResult> {
       return { success: false, error: "Restore process cancelled by user." };
     }
 
+    // 1. Prove the incoming archive is usable before touching anything live.
     const backupFilePath = filePaths[0]!;
     const archive = openBackupArchive(backupFilePath);
 
@@ -149,35 +172,78 @@ export async function runRestore(input: unknown): Promise<RestoreResult> {
     }
 
     validateStagedDatabase(path.join(stagingPath, "rental_app.db"));
-    checkpointDatabase();
+
+    // 2. Flush the live database strictly, then close it.
+    const liveSchemaVersion = readLiveSchemaVersion();
+    assertWalFullyCheckpointed(getSqliteDatabase());
     closeDatabase();
 
-    let safetyBackupPath = "";
-
     try {
-      safetyBackupPath = path.join(
-        userDataPath,
-        `safety_backup_before_restore_${Date.now()}.zip`,
-      );
-      writeBackupZip(safetyBackupPath, databasePath, uploadsPath, "safety_before_restore");
+      // 3. Verified safety archive of the current data.
+      safetyBackupPath = writeVerifiedBackupArchive({
+        finalPath: path.join(
+          userDataPath,
+          `safety_backup_before_restore_${Date.now()}-${randomUUID()}.zip`,
+        ),
+        databasePath,
+        uploadsPath,
+        backupType: "safety_before_restore",
+        appVersion: app.getVersion(),
+        expectedSchemaVersion: liveSchemaVersion,
+      });
+
+      // 4. Complete rollback snapshot, with a manifest describing what it holds.
       copyCurrentDataToRollback(databasePath, uploadsPath, rollbackPath);
+      rollbackReady = true;
+
+      // 5. Only now may live data be mutated.
+      replacementStarted = true;
       replaceCurrentDataFromStaging(stagingPath, databasePath, uploadsPath);
-      try {
-        initializeDatabase();
-      } catch (error) {
-        closeDatabase();
-        restoreRollbackData(rollbackPath, databasePath, uploadsPath);
+      initializeDatabase();
+    } catch (error) {
+      closeDatabase();
+
+      if (!replacementStarted) {
+        // Nothing live was touched, so there is nothing to roll back. Simply
+        // reopen what is still the original database.
         initializeDatabase();
         throw error;
       }
-    } catch (error) {
-      closeDatabase();
-      restoreRollbackData(rollbackPath, databasePath, uploadsPath);
-      initializeDatabase();
+
+      if (!rollbackReady) {
+        // Unreachable by construction, but if it ever happened, refusing to
+        // "restore" from an absent snapshot is what keeps live data alive.
+        throw new Error(
+          `Restore failed after replacement began and no rollback snapshot was available. The pre-restore backup is at ${safetyBackupPath}. Original message: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+
+      try {
+        // The rollback is only complete once the original database is back on
+        // disk *and* reopens successfully. Reopening is inside this block so a
+        // restored-but-unopenable database still preserves both artifacts.
+        restoreRollbackData(rollbackPath, databasePath, uploadsPath);
+        initializeDatabase();
+      } catch (rollbackError) {
+        // Keep both recovery artifacts and name them; this is the one path
+        // where the user may have to intervene manually.
+        rollbackPreserved = true;
+        throw new Error(
+          `Restore failed and the automatic rollback could not complete. Your data is recoverable from the pre-restore backup at ${safetyBackupPath} and the rollback snapshot at ${rollbackPath}. Rollback error: ${
+            rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
+          }. Original error: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+
       throw error;
     } finally {
       cleanupDirectory(stagingPath);
-      cleanupDirectory(rollbackPath);
+
+      if (!rollbackPreserved) {
+        cleanupDirectory(rollbackPath);
+      }
     }
 
     saveBackupSetting("last_restore_at", new Date().toISOString());
@@ -201,7 +267,13 @@ export async function runRestore(input: unknown): Promise<RestoreResult> {
     return { success: true, safetyBackupPath };
   } catch (error) {
     cleanupDirectory(stagingPath);
-    cleanupDirectory(rollbackPath);
+
+    // A preserved snapshot is the user's only route back after a failed
+    // rollback, so it must survive this cleanup.
+    if (!rollbackPreserved) {
+      cleanupDirectory(rollbackPath);
+    }
+
     const message =
       error instanceof Error
         ? error.message
@@ -290,12 +362,26 @@ export async function verifyBackup(): Promise<BackupVerifyResult> {
     const backupFilePath = filePaths[0]!;
     const archive = openBackupArchive(backupFilePath);
 
+    // Apply the same admission checks restore would, so verification cannot
+    // report success for an archive that restore would then refuse.
+    assertRestorableStructure(archive);
+    archive.readMetadata();
     archive.extractTo(tempPath);
 
     const databasePath = path.join(tempPath, "rental_app.db");
     const sqlite = new Database(databasePath, { readonly: true });
     try {
       const integrity = sqlite.pragma("integrity_check", { simple: true }) as string;
+
+      if ((sqlite.pragma("foreign_key_check") as unknown[]).length > 0) {
+        return {
+          success: false,
+          filePath: backupFilePath,
+          integrity,
+          error: "SQLite foreign key check failed.",
+        };
+      }
+
       for (const tableName of getRequiredBackupTables(sqlite)) {
         sqlite.prepare(`select count(*) as count from ${tableName}`).get();
       }
@@ -336,22 +422,41 @@ function readBackupPreview(filePath: string): BackupPreview {
   };
 }
 
-function writeBackupZip(
-  filePath: string,
-  databasePath: string,
-  uploadsPath: string,
-  backupType: BackupType,
-): void {
-  writeBackupArchive(
-    filePath,
-    databasePath,
-    uploadsPath,
-    backupType,
-    {},
-    app.getVersion(),
-  );
+/**
+ * A running app has always been through the migration runner, so a missing or
+ * malformed schema version means something is wrong with the live file. Failing
+ * here is what guarantees every archive the app produces carries a version its
+ * verification step can actually check.
+ */
+function readLiveSchemaVersion(): number {
+  const row = getSqliteDatabase()
+    .prepare("select value from app_settings where key = 'schema_version'")
+    .get() as { value?: string } | undefined;
+  const version = Number(row?.value);
+
+  if (!Number.isInteger(version) || version < 1) {
+    throw new Error(
+      "The app data file does not record a usable schema version, so a verified backup cannot be taken.",
+    );
+  }
+
+  return version;
 }
 
+type RollbackManifest = {
+  createdAt: string;
+  databaseIncluded: boolean;
+  uploadsExisted: boolean;
+  uploadFileCount: number;
+};
+
+const rollbackManifestName = "rollback-manifest.json";
+
+/**
+ * Snapshots the live data and records a manifest describing exactly what was
+ * captured. The manifest is written last, so its presence is itself proof the
+ * copy ran to completion.
+ */
 function copyCurrentDataToRollback(
   databasePath: string,
   uploadsPath: string,
@@ -360,15 +465,82 @@ function copyCurrentDataToRollback(
   cleanupDirectory(rollbackPath);
   fs.mkdirSync(rollbackPath, { recursive: true });
 
-  if (fs.existsSync(databasePath)) {
+  const databaseIncluded = fs.existsSync(databasePath);
+
+  if (databaseIncluded) {
     fs.copyFileSync(databasePath, path.join(rollbackPath, "rental_app.db"));
   }
 
-  if (fs.existsSync(uploadsPath)) {
-    fs.cpSync(uploadsPath, path.join(rollbackPath, "uploads"), {
-      recursive: true,
-    });
+  const uploadsExisted = fs.existsSync(uploadsPath);
+  let uploadFileCount = 0;
+
+  if (uploadsExisted) {
+    fs.cpSync(uploadsPath, path.join(rollbackPath, "uploads"), { recursive: true });
+    uploadFileCount = countFilesRecursively(path.join(rollbackPath, "uploads"));
+
+    if (uploadFileCount !== countFilesRecursively(uploadsPath)) {
+      throw new Error("The rollback snapshot did not capture every uploaded file.");
+    }
   }
+
+  const manifest: RollbackManifest = {
+    createdAt: new Date().toISOString(),
+    databaseIncluded,
+    uploadsExisted,
+    uploadFileCount,
+  };
+
+  fs.writeFileSync(
+    path.join(rollbackPath, rollbackManifestName),
+    JSON.stringify(manifest, null, 2),
+    "utf8",
+  );
+}
+
+function countFilesRecursively(directoryPath: string): number {
+  if (!fs.existsSync(directoryPath)) {
+    return 0;
+  }
+
+  let count = 0;
+
+  for (const entry of fs.readdirSync(directoryPath, { withFileTypes: true })) {
+    count += entry.isDirectory()
+      ? countFilesRecursively(path.join(directoryPath, entry.name))
+      : 1;
+  }
+
+  return count;
+}
+
+function readRollbackManifest(rollbackPath: string): RollbackManifest {
+  const manifestPath = path.join(rollbackPath, rollbackManifestName);
+
+  if (!fs.existsSync(manifestPath)) {
+    throw new Error(
+      "The rollback snapshot is incomplete: its manifest is missing, so the original data cannot be safely restored.",
+    );
+  }
+
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  } catch {
+    throw new Error("The rollback snapshot manifest could not be read.");
+  }
+
+  const manifest = parsed as Partial<RollbackManifest>;
+
+  if (
+    typeof manifest.databaseIncluded !== "boolean" ||
+    typeof manifest.uploadsExisted !== "boolean" ||
+    typeof manifest.uploadFileCount !== "number"
+  ) {
+    throw new Error("The rollback snapshot manifest is malformed.");
+  }
+
+  return manifest as RollbackManifest;
 }
 
 function replaceCurrentDataFromStaging(
@@ -388,24 +560,57 @@ function replaceCurrentDataFromStaging(
   }
 }
 
+/**
+ * Fails closed. Everything is validated before a single live file is removed,
+ * and the manifest — not the mere presence of a directory — decides whether the
+ * original had uploads. An absent rollback uploads directory previously looked
+ * identical to "the original had none", which silently destroyed live uploads.
+ */
 function restoreRollbackData(
   rollbackPath: string,
   databasePath: string,
   uploadsPath: string,
 ): void {
+  const manifest = readRollbackManifest(rollbackPath);
   const rollbackDatabasePath = path.join(rollbackPath, "rental_app.db");
   const rollbackUploadsPath = path.join(rollbackPath, "uploads");
 
-  if (fs.existsSync(rollbackDatabasePath)) {
+  if (manifest.databaseIncluded) {
+    if (!fs.existsSync(rollbackDatabasePath)) {
+      throw new Error(
+        "The rollback snapshot is incomplete: its database file is missing.",
+      );
+    }
+
+    validateStagedDatabase(rollbackDatabasePath);
+  }
+
+  if (manifest.uploadsExisted) {
+    if (!fs.existsSync(rollbackUploadsPath)) {
+      throw new Error(
+        "The rollback snapshot is incomplete: its uploads folder is missing.",
+      );
+    }
+
+    if (countFilesRecursively(rollbackUploadsPath) !== manifest.uploadFileCount) {
+      throw new Error(
+        "The rollback snapshot is incomplete: its uploads folder does not match the manifest.",
+      );
+    }
+  }
+
+  // Validation passed, so it is now safe to overwrite live data.
+  if (manifest.databaseIncluded) {
     removeSqliteSidecars(databasePath);
     fs.copyFileSync(rollbackDatabasePath, databasePath);
   }
 
-  cleanupDirectory(uploadsPath);
-
-  if (fs.existsSync(rollbackUploadsPath)) {
+  if (manifest.uploadsExisted) {
+    cleanupDirectory(uploadsPath);
     fs.cpSync(rollbackUploadsPath, uploadsPath, { recursive: true });
   } else {
+    // The original genuinely had no uploads folder, per the manifest.
+    cleanupDirectory(uploadsPath);
     fs.mkdirSync(uploadsPath, { recursive: true });
   }
 }
@@ -425,14 +630,6 @@ function saveBackupSetting(key: string, value: string): void {
       set: { value },
     })
     .run();
-}
-
-function checkpointDatabase(): void {
-  try {
-    getSqliteDatabase().pragma("wal_checkpoint(TRUNCATE)");
-  } catch {
-    // Backup/restore should continue even if the DB has not been opened yet.
-  }
 }
 
 function removeSqliteSidecars(databasePath: string): void {
@@ -603,15 +800,25 @@ export function checkAndRunScheduledAutoBackup(): void {
     const autoBackupDir = path.join(userDataPath, "auto_backups");
     fs.mkdirSync(autoBackupDir, { recursive: true });
 
-    const dateStr = now.toISOString().slice(0, 19).replace(/[:T]/g, "-");
-    const autoBackupFile = path.join(autoBackupDir, `auto_backup_${dateStr}.zip`);
+    const autoBackupFile = path.join(
+      autoBackupDir,
+      `auto_backup_${now.getTime()}-${randomUUID()}.zip`,
+    );
     const databasePath = path.join(userDataPath, "rental_app.db");
     const uploadsPath = path.join(userDataPath, "uploads");
 
-    checkpointDatabase();
-    writeBackupZip(autoBackupFile, databasePath, uploadsPath, "auto");
+    const liveSchemaVersion = readLiveSchemaVersion();
+    assertWalFullyCheckpointed(getSqliteDatabase());
+    writeVerifiedBackupArchive({
+      finalPath: autoBackupFile,
+      databasePath,
+      uploadsPath,
+      backupType: "auto",
+      appVersion: app.getVersion(),
+      expectedSchemaVersion: liveSchemaVersion,
+    });
 
-    // Keep last 10 auto-backups
+    // Keep last 10 auto-backups, pruned only after the new one is verified.
     const files = fs
       .readdirSync(autoBackupDir)
       .filter((f) => f.startsWith("auto_backup_") && f.endsWith(".zip"))
