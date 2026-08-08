@@ -36,6 +36,9 @@ import { LicensePage } from "@/features/license/LicensePage";
 import { UsersPage } from "@/features/users/UsersPage";
 import { useI18n } from "@/hooks/useI18n";
 import { AuthProvider } from "@/hooks/AuthProvider";
+import { rentalAppApi, getUpdatesApi } from "@/data/rental-app-api";
+import { useRendererSession } from "@/data/session-context";
+import { useCommandMutation } from "@/data/hooks";
 import { type AuthState, type Permission } from "@/shared/auth";
 import type { LicenseStatus } from "@/shared/license";
 
@@ -206,11 +209,19 @@ export default function App() {
   const [colorTheme, setColorTheme] = useState<AppColorTheme>(() =>
     getStoredColorTheme(),
   );
-  const [authState, setAuthState] = useState<AuthState | null>(null);
+  // Auth state lives in the session provider: adopting a new one has to clear
+  // the caches and move the epoch on, and that must not be something a screen
+  // can forget to do.
+  const { applyAuthState, authState, completeRestore, refreshAuth } =
+    useRendererSession();
   const [licenseStatus, setLicenseStatus] = useState<LicenseStatus | null>(null);
   const [activePage, setActivePage] = useState<PageId>("rentals");
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [pendingPage, setPendingPage] = useState<PageId | null>(null);
+  const [restoreNotice, setRestoreNotice] = useState<
+    "none" | "restored" | "restoredStateUnavailable"
+  >("none");
+  const [isRetryingAuthState, setIsRetryingAuthState] = useState(false);
   const contentRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -224,13 +235,9 @@ export default function App() {
     window.localStorage.setItem(colorThemeStorageKey, colorTheme);
   }, [colorTheme]);
 
-  const refreshAuth = useCallback(async () => {
-    setAuthState(await window.rentalApp.auth.getState());
-  }, []);
-
   const refreshLicense = useCallback(async () => {
     try {
-      setLicenseStatus(await window.rentalApp.license.getStatus());
+      setLicenseStatus(await rentalAppApi.license.getStatus());
     } catch {
       setLicenseStatus({
         mode: "readonly",
@@ -255,18 +262,58 @@ export default function App() {
     return () => window.clearTimeout(timeout);
   }, [refreshAuth, refreshLicense]);
 
+  /**
+   * A successful restore replaced the database under us, and the main process
+   * has already dropped the session. The transition clears the renderer and
+   * signs out *before* it reads the new state, so a failed read leaves the
+   * login screen rather than the previous user's shell over someone else's
+   * data. Either way the restore itself is reported as having succeeded,
+   * because it did.
+   */
+  const handleRestoreCompleted = useCallback(async () => {
+    setIsRetryingAuthState(true);
+
+    try {
+      const outcome = await completeRestore();
+
+      setRestoreNotice(
+        outcome.kind === "restored" ? "restored" : "restoredStateUnavailable",
+      );
+    } finally {
+      setIsRetryingAuthState(false);
+    }
+  }, [completeRestore]);
+
+  /**
+   * Every screen adopts a new session through here, which is also where the
+   * one-time restore notice is dropped: signing in clears it, so it belongs to
+   * exactly one visit to the login screen.
+   */
+  const handleAuthState = useCallback(
+    async (next: AuthState) => {
+      setRestoreNotice("none");
+      await applyAuthState(next);
+    },
+    [applyAuthState],
+  );
+
   useEffect(() => {
-    void window.rentalApp?.updates?.getPendingUpdate?.().then((info) => {
+    void getUpdatesApi()?.getPendingUpdate?.().then((info) => {
       if (info?.version) {
         setDownloadedUpdateVersion(info.version);
       }
     });
 
-    const unsub = window.rentalApp?.updates?.onDownloaded((info) => {
+    const unsub = getUpdatesApi()?.onDownloaded((info) => {
       setDownloadedUpdateVersion(info.version);
     });
     return () => unsub?.();
   }, []);
+
+  // Restarting is an action, not a business write, so it invalidates nothing.
+  const restartAndInstall = useCommandMutation<void, void>(async () => {
+    await getUpdatesApi()?.restartAndInstall();
+  });
 
   const accessibleNavigation = useMemo(() => {
     const currentUser = authState?.currentUser;
@@ -366,7 +413,7 @@ export default function App() {
   if (authState.needsOwnerSetup) {
     return (
       <OwnerSetupScreen
-        onAuthState={setAuthState}
+        onAuthState={handleAuthState}
         themeControl={themeToggle}
       />
     );
@@ -376,20 +423,28 @@ export default function App() {
     return (
       <LockScreen
         currentUserName={authState.currentUser?.fullName}
-        onAuthState={setAuthState}
+        onAuthState={handleAuthState}
         themeControl={themeToggle}
       />
     );
   }
 
   if (!authState.isAuthenticated) {
-    return <LoginScreen onAuthState={setAuthState} themeControl={themeToggle} />;
+    return (
+      <LoginScreen
+        onAuthState={handleAuthState}
+        isRetryingAuthState={isRetryingAuthState}
+        onRetryAuthState={() => void handleRestoreCompleted()}
+        restoreNotice={restoreNotice}
+        themeControl={themeToggle}
+      />
+    );
   }
 
   if (authState.currentUser?.mustChangePassword) {
     return (
       <ChangePinScreen
-        onAuthState={setAuthState}
+        onAuthState={handleAuthState}
         themeControl={themeToggle}
       />
     );
@@ -400,7 +455,7 @@ export default function App() {
       authState={authState}
       licenseStatus={licenseStatus}
       refreshAuth={refreshAuth}
-      setAuthState={setAuthState}
+      setAuthState={handleAuthState}
     >
       <AppShell
         activePage={shellActivePage}
@@ -420,7 +475,7 @@ export default function App() {
                 {themeToggle}
                 <CurrentUserActions
                   authState={authState}
-                  onAuthState={setAuthState}
+                  onAuthState={handleAuthState}
                 />
               </>
             }
@@ -446,9 +501,7 @@ export default function App() {
                 <Button
                   size="sm"
                   variant="default"
-                  onClick={() => {
-                    void window.rentalApp?.updates?.restartAndInstall();
-                  }}
+                  onClick={() => restartAndInstall.mutate()}
                 >
                   {t("Restart & Update")}
                 </Button>
@@ -462,6 +515,7 @@ export default function App() {
               licenseStatus,
               onNavigate: handleNavigate,
               onLicenseStatusChange: setLicenseStatus,
+              onRestoreCompleted: handleRestoreCompleted,
               onSettingsDirtyChange: setSettingsDirty,
             })}
           </section>
@@ -560,6 +614,7 @@ function renderActivePage(
     licenseStatus: LicenseStatus;
     onNavigate: (pageId: PageId) => void;
     onLicenseStatusChange: (status: LicenseStatus) => void;
+    onRestoreCompleted: () => Promise<void>;
     onSettingsDirtyChange: (isDirty: boolean) => void;
   },
 ) {
@@ -579,7 +634,9 @@ function renderActivePage(
       />
     );
   }
-  if (pageId === "backup") return <BackupPage />;
+  if (pageId === "backup") {
+    return <BackupPage onRestoreCompleted={context.onRestoreCompleted} />;
+  }
   if (pageId === "users") return <UsersPage />;
   if (pageId === "activity") return <ActivityLogPage />;
   if (pageId === "license") {
@@ -599,7 +656,7 @@ function CurrentUserActions({
   onAuthState,
 }: {
   authState: AuthState;
-  onAuthState: (state: AuthState) => void;
+  onAuthState: (state: AuthState) => Promise<void>;
 }) {
   const { t } = useI18n();
   const user = authState.currentUser;
@@ -656,7 +713,10 @@ function CurrentUserActions({
           className="w-full justify-start"
           onClick={() => {
             setOpen(false);
-            window.rentalApp.auth.lock().then(onAuthState).catch(() => undefined);
+            void rentalAppApi.auth
+              .lock()
+              .then(onAuthState)
+              .catch(() => undefined);
           }}
         >
           <LockKeyhole />
@@ -669,7 +729,10 @@ function CurrentUserActions({
           className="w-full justify-start"
           onClick={() => {
             setOpen(false);
-            window.rentalApp.auth.logout().then(onAuthState).catch(() => undefined);
+            void rentalAppApi.auth
+              .logout()
+              .then(onAuthState)
+              .catch(() => undefined);
           }}
         >
           <Users />
@@ -682,7 +745,10 @@ function CurrentUserActions({
           className="w-full justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
           onClick={() => {
             setOpen(false);
-            window.rentalApp.auth.logout().then(onAuthState).catch(() => undefined);
+            void rentalAppApi.auth
+              .logout()
+              .then(onAuthState)
+              .catch(() => undefined);
           }}
         >
           <LogOut data-rtl-flip="true" />

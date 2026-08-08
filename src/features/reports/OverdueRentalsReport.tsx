@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
 import { MoneyText } from "@/components/ui/money-text";
+import { useBusinessQuery } from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
 import { useI18n } from "@/hooks/useI18n";
 import type { RentalListRecord } from "@/shared/rentals";
 import { RentalStatusBadge } from "@/features/rentals/RentalStatusBadge";
@@ -9,23 +10,15 @@ import { ReportExportButtons } from "./ReportExportButtons";
 
 export function OverdueRentalsReport() {
   const { formatCurrency, formatDate, t } = useI18n();
-  const [rentals, setRentals] = useState<RentalListRecord[]>([]);
-  const [loading, setLoading] = useState(true);
+  const rentalsQuery = useBusinessQuery<RentalListRecord[]>(
+    "reports",
+    "overdueRentals",
+    undefined,
+    () => rentalAppApi.reports.getOverdueRentals(),
+  );
+  const rentals = rentalsQuery.data ?? [];
 
-  useEffect(() => {
-    window.rentalApp.reports
-      .getOverdueRentals()
-      .then((data) => {
-        setRentals(data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        console.error(err);
-        setLoading(false);
-      });
-  }, []);
-
-  if (loading) {
+  if (rentalsQuery.isPending) {
     return <div className="p-4 text-center text-sm text-muted-foreground">{t("Loading...")}</div>;
   }
 

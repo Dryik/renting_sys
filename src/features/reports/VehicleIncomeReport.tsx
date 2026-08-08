@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
+import { useBusinessQuery } from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
 import { useI18n } from "@/hooks/useI18n";
 import type { VehicleIncomeRecord } from "@/shared/reports";
 import { ReportExportButtons } from "./ReportExportButtons";
@@ -18,43 +20,32 @@ export function VehicleIncomeReport() {
 
   const [startDate, setStartDate] = useState(firstDay);
   const [endDate, setEndDate] = useState(lastDay);
-  const [incomeRecords, setIncomeRecords] = useState<VehicleIncomeRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (!startDate || !endDate) return;
-
-    window.rentalApp.reports
-      .getVehicleIncome(startDate, endDate)
-      .then((data) => {
-        setIncomeRecords(data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        console.error(err);
-        setLoading(false);
-      });
-  }, [startDate, endDate]);
+  // Both dates are in the key, so changing either asks a different question
+  // and gets its own answer rather than reusing the previous range's.
+  const hasRange = Boolean(startDate && endDate);
+  const incomeQuery = useBusinessQuery<VehicleIncomeRecord[]>(
+    "reports",
+    "vehicleIncome",
+    { startDate, endDate },
+    () => rentalAppApi.reports.getVehicleIncome(startDate, endDate),
+    { enabled: hasRange },
+  );
+  const incomeRecords = incomeQuery.data ?? [];
+  // A disabled query stays "pending" forever, so an incomplete range shows the
+  // empty table rather than a spinner that never resolves — as it did before.
+  const loading = hasRange && incomeQuery.isPending;
 
   const totalIncome = incomeRecords.reduce((sum, r) => sum + r.totalIncome, 0);
   const totalRentals = incomeRecords.reduce((sum, r) => sum + r.rentalCount, 0);
 
+  // Clearing a date now simply disables the query, which empties the table and
+  // stops the spinner without any bookkeeping here.
   function handleStartDateChange(value: string) {
     setStartDate(value);
-    setLoading(Boolean(value && endDate));
-
-    if (!value || !endDate) {
-      setIncomeRecords([]);
-    }
   }
 
   function handleEndDateChange(value: string) {
     setEndDate(value);
-    setLoading(Boolean(startDate && value));
-
-    if (!startDate || !value) {
-      setIncomeRecords([]);
-    }
   }
 
   return (

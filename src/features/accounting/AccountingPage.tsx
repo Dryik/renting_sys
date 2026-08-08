@@ -10,7 +10,7 @@ import {
   RefreshCw,
   ShieldCheck,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { Badge } from "@/components/ui/badge";
 import { BidiValue } from "@/components/ui/bidi-value";
@@ -26,6 +26,13 @@ import { SegmentedFilter } from "@/components/ui/segmented-filter";
 import { SensitiveActionDialog } from "@/components/ui/sensitive-action-dialog";
 import { SidePanel } from "@/components/ui/side-panel";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  useBusinessMutation,
+  useBusinessQuery,
+  useCommandMutation,
+} from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
+import { useDebouncedValue } from "@/data/useDebouncedValue";
 import { useAuth } from "@/hooks/useAuth";
 import { useI18n } from "@/hooks/useI18n";
 import { useModalBehavior } from "@/hooks/useModalBehavior";
@@ -48,6 +55,7 @@ import {
   type AccountingAdjustmentInput,
   type AccountingDailyClosingRecord,
   type AccountingSummary,
+  type AccountingVoidInput,
   type AccountingTransactionKind,
   type AccountingTransactionRecord,
   type CashMovementFormValues,
@@ -103,6 +111,14 @@ type PendingVoid =
   | null;
 
 type EmployeeLoanRepaymentFormInput = Omit<EmployeeLoanRepaymentInput, "loanId">;
+
+const emptyEmployeeLoanPage: PageResult<EmployeeLoanRecord> = {
+  rows: [],
+  total: 0,
+  page: 1,
+  pageSize: 25,
+  totalPages: 1,
+};
 
 const emptyTransactionPage: PageResult<AccountingTransactionRecord> = {
   rows: [],
@@ -185,23 +201,13 @@ function FullAccountingPage() {
   const [kind, setKind] = useState<AccountingTransactionKind>("all");
   const [transactionSearch, setTransactionSearch] = useState("");
   const [expenseSearch, setExpenseSearch] = useState("");
-  const [transactionPage, setTransactionPage] = useState(emptyTransactionPage);
-  const [expensePage, setExpensePage] = useState(emptyExpensePage);
   const [transactionPageNumber, setTransactionPageNumber] = useState(1);
   const [expensePageNumber, setExpensePageNumber] = useState(1);
-  const [summary, setSummary] = useState<AccountingSummary>(emptySummary);
-  const [dailyClosing, setDailyClosing] =
-    useState<AccountingDailyClosingRecord | null>(null);
-  const [outstandingBalances, setOutstandingBalances] = useState<
-    OutstandingBalanceRecord[]
-  >([]);
-  const [deposits, setDeposits] = useState<DepositReportRecord[]>([]);
-  const [vehicles, setVehicles] = useState<VehicleRecord[]>([]);
   const [formState, setFormState] = useState<FormState>(null);
   const [pendingVoid, setPendingVoid] = useState<PendingVoid>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Failures raised by an action; a failed load is derived below.
+  const [actionError, setActionError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -216,26 +222,60 @@ function FullAccountingPage() {
     !dailyClosingEnabled && section === "today" ? "transactions" : section;
   const visibleFormState =
     !dailyClosingEnabled && formState?.type === "daily_closing" ? null : formState;
-  const balances = summaryToBalances(summary);
 
-  const loadAccounting = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
+  /**
+   * One composite read for the whole page.
+   *
+   * Kept as a single `Promise.all` behind one key so the screen keeps its
+   * all-or-nothing behaviour: every panel appears together, and one failing
+   * call shows one error rather than six half-filled sections. Every filter,
+   * page number and search term is part of the key.
+   */
+  // Memoised on the primitive fields. A fresh object literal here would change
+  // identity on every render, and the debounce would restart its timer forever.
+  const filterInput = useMemo(
+    () => ({
+      selectedDate,
+      listDateFrom,
+      listDateTo,
+      transactionSearch,
+      expenseSearch,
+      kind,
+      transactionPageNumber,
+      expensePageNumber,
+      dailyClosingEnabled,
+    }),
+    [
+      dailyClosingEnabled,
+      expensePageNumber,
+      expenseSearch,
+      kind,
+      listDateFrom,
+      listDateTo,
+      selectedDate,
+      transactionPageNumber,
+      transactionSearch,
+    ],
+  );
+  const filters = useDebouncedValue(filterInput, 150);
+  const accountingQuery = useBusinessQuery(
+    "accounting",
+    "overview",
+    filters,
+    async () => {
       const selectedDateRequest = {
-        dateFrom: selectedDate,
-        dateTo: selectedDate,
+        dateFrom: filters.selectedDate,
+        dateTo: filters.selectedDate,
       };
       const transactionRequest = {
-        dateFrom: listDateFrom || undefined,
-        dateTo: listDateTo || undefined,
-        search: transactionSearch,
+        dateFrom: filters.listDateFrom || undefined,
+        dateTo: filters.listDateTo || undefined,
+        search: filters.transactionSearch,
       };
       const expenseRequest = {
-        dateFrom: listDateFrom || undefined,
-        dateTo: listDateTo || undefined,
-        search: expenseSearch,
+        dateFrom: filters.listDateFrom || undefined,
+        dateTo: filters.listDateTo || undefined,
+        search: filters.expenseSearch,
       };
       const [
         nextSummary,
@@ -245,72 +285,109 @@ function FullAccountingPage() {
         nextOutstanding,
         nextDeposits,
       ] = await Promise.all([
-        window.rentalApp.accounting.getSummary(selectedDateRequest),
-        window.rentalApp.accounting.listTransactions({
+        rentalAppApi.accounting.getSummary(selectedDateRequest),
+        rentalAppApi.accounting.listTransactions({
           ...transactionRequest,
-          kind,
-          page: transactionPageNumber,
+          kind: filters.kind,
+          page: filters.transactionPageNumber,
         }),
-        window.rentalApp.accounting.listExpenses({
+        rentalAppApi.accounting.listExpenses({
           ...expenseRequest,
-          page: expensePageNumber,
+          page: filters.expensePageNumber,
         }),
-        dailyClosingEnabled
-          ? window.rentalApp.accounting.getDailyClosing(selectedDate)
+        filters.dailyClosingEnabled
+          ? rentalAppApi.accounting.getDailyClosing(filters.selectedDate)
           : Promise.resolve(null),
-        window.rentalApp.reports.listOutstandingBalances({
+        rentalAppApi.reports.listOutstandingBalances({
           includeTotal: false,
           pageSize: 8,
         }),
-        window.rentalApp.reports.listDeposits({
+        rentalAppApi.reports.listDeposits({
           heldOnly: true,
           includeTotal: false,
           pageSize: 8,
         }),
       ]);
 
-      setSummary(nextSummary);
-      setTransactionPage(nextTransactions);
-      setExpensePage(nextExpenses);
-      setDailyClosing(nextClosing);
-      setOutstandingBalances(nextOutstanding.rows);
-      setDeposits(nextDeposits.rows);
-    } catch (err) {
-      setError(getErrorMessage(err, t("Accounting could not be loaded.")));
-    } finally {
-      setIsLoading(false);
+      return {
+        summary: nextSummary,
+        transactionPage: nextTransactions,
+        expensePage: nextExpenses,
+        dailyClosing: nextClosing,
+        outstandingBalances: nextOutstanding.rows,
+        deposits: nextDeposits.rows,
+      };
+    },
+  );
+  const isLoading = accountingQuery.isPending;
+  // The Refresh button tracks fetching, not first-load pending, so it keeps
+  // behaving after the page has data.
+  const isRefreshing = accountingQuery.isFetching;
+  const summary = accountingQuery.data?.summary ?? emptySummary;
+  const transactionPage = accountingQuery.data?.transactionPage ?? emptyTransactionPage;
+  const expensePage = accountingQuery.data?.expensePage ?? emptyExpensePage;
+  const dailyClosing = accountingQuery.data?.dailyClosing ?? null;
+  const outstandingBalances = accountingQuery.data?.outstandingBalances ?? [];
+  const deposits = accountingQuery.data?.deposits ?? [];
+  const error = actionError ??
+    (accountingQuery.isError
+      ? getErrorMessage(accountingQuery.error, t("Accounting could not be loaded."))
+      : null);
+
+  // The vehicle picker used when tagging an expense to a vehicle.
+  const vehicleRequest = { pageSize: 100 };
+  const vehiclesQuery = useBusinessQuery(
+    "vehicles",
+    "list",
+    vehicleRequest,
+    () => rentalAppApi.vehicles.list(vehicleRequest),
+  );
+  const vehicles = vehiclesQuery.data?.rows ?? [];
+  const balances = summaryToBalances(summary);
+
+  async function refreshAccounting() {
+    const result = await accountingQuery.refetch();
+
+    if (!result.isError) {
+      setActionError(null);
     }
-  }, [
-    expensePageNumber,
-    expenseSearch,
-    kind,
-    dailyClosingEnabled,
-    listDateFrom,
-    listDateTo,
-    selectedDate,
-    t,
-    transactionPageNumber,
-    transactionSearch,
-  ]);
+  }
 
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      void loadAccounting();
-    }, 150);
-
-    return () => window.clearTimeout(timeout);
-  }, [loadAccounting]);
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      window.rentalApp.vehicles
-        .list({ pageSize: 100 })
-        .then((result) => setVehicles(result.rows))
-        .catch(() => setVehicles([]));
-    }, 0);
-
-    return () => window.clearTimeout(timeout);
-  }, []);
+  const createExpense = useBusinessMutation((input: ExpenseInput) =>
+    rentalAppApi.accounting.createExpense(input),
+  );
+  const createCashMovement = useBusinessMutation(
+    (input: Parameters<typeof rentalAppApi.accounting.createCashMovement>[0]) =>
+      rentalAppApi.accounting.createCashMovement(input),
+  );
+  const createAdjustment = useBusinessMutation(
+    (input: Parameters<typeof rentalAppApi.accounting.createAdjustment>[0]) =>
+      rentalAppApi.accounting.createAdjustment(input),
+  );
+  const saveDailyClosing = useBusinessMutation(
+    (input: Parameters<typeof rentalAppApi.accounting.saveDailyClosing>[0]) =>
+      rentalAppApi.accounting.saveDailyClosing(input),
+  );
+  const voidExpense = useBusinessMutation((input: AccountingVoidInput) =>
+    rentalAppApi.accounting.voidExpense(input),
+  );
+  const voidCashMovement = useBusinessMutation((input: AccountingVoidInput) =>
+    rentalAppApi.accounting.voidCashMovement(input),
+  );
+  const voidAdjustment = useBusinessMutation((input: AccountingVoidInput) =>
+    rentalAppApi.accounting.voidAdjustment(input),
+  );
+  // Exporting and printing change nothing.
+  const exportCommand = useCommandMutation(
+    (input: Parameters<typeof rentalAppApi.reports.export>[0]) =>
+      rentalAppApi.reports.export(input),
+  );
+  const printPaymentReceipt = useCommandMutation((paymentId: number) =>
+    rentalAppApi.payments.printReceipt(paymentId, false),
+  );
+  const printSaleReceipt = useCommandMutation((saleId: number) =>
+    rentalAppApi.vehicleSales.printReceipt(saleId, false),
+  );
 
   function resetListPages() {
     setTransactionPageNumber(1);
@@ -322,9 +399,8 @@ function FullAccountingPage() {
     setFormError(null);
 
     try {
-      await window.rentalApp.accounting.createExpense(input);
+      await createExpense.mutateAsync(input);
       setFormState(null);
-      await loadAccounting();
     } catch (err) {
       setFormError(getErrorMessage(err, t("Expense could not be saved.")));
     } finally {
@@ -340,12 +416,11 @@ function FullAccountingPage() {
     setFormError(null);
 
     try {
-      await window.rentalApp.accounting.createCashMovement({
+      await createCashMovement.mutateAsync({
         ...input,
         approvalToken,
       });
       setFormState(null);
-      await loadAccounting();
     } catch (err) {
       setFormError(getErrorMessage(err, t("Cash movement could not be saved.")));
     } finally {
@@ -361,12 +436,11 @@ function FullAccountingPage() {
     setFormError(null);
 
     try {
-      await window.rentalApp.accounting.createAdjustment({
+      await createAdjustment.mutateAsync({
         ...input,
         approvalToken,
       });
       setFormState(null);
-      await loadAccounting();
     } catch (err) {
       setFormError(
         getErrorMessage(err, t("Balance adjustment could not be saved.")),
@@ -385,12 +459,11 @@ function FullAccountingPage() {
     setFormError(null);
 
     try {
-      await window.rentalApp.accounting.saveDailyClosing({
+      await saveDailyClosing.mutateAsync({
         closingDate: selectedDate,
         ...input,
       });
       setFormState(null);
-      await loadAccounting();
     } catch (err) {
       setFormError(getErrorMessage(err, t("Daily closing could not be saved.")));
     } finally {
@@ -404,23 +477,23 @@ function FullAccountingPage() {
     }
 
     setIsSaving(true);
-    setError(null);
+    setActionError(null);
 
     try {
       if (pendingVoid.source === "expense") {
-        await window.rentalApp.accounting.voidExpense({
+        await voidExpense.mutateAsync({
           id: pendingVoid.id,
           reason: values.reason,
           approvalToken: values.approvalToken,
         });
       } else if (pendingVoid.source === "cash_movement") {
-        await window.rentalApp.accounting.voidCashMovement({
+        await voidCashMovement.mutateAsync({
           id: pendingVoid.id,
           reason: values.reason,
           approvalToken: values.approvalToken,
         });
       } else {
-        await window.rentalApp.accounting.voidAdjustment({
+        await voidAdjustment.mutateAsync({
           id: pendingVoid.id,
           reason: values.reason,
           approvalToken: values.approvalToken,
@@ -428,16 +501,15 @@ function FullAccountingPage() {
       }
 
       setPendingVoid(null);
-      await loadAccounting();
     } catch (err) {
-      setError(getErrorMessage(err, t("Record could not be voided.")));
+      setActionError(getErrorMessage(err, t("Record could not be voided.")));
     } finally {
       setIsSaving(false);
     }
   }
 
   async function handleExport(type: "accountingTransactions" | "expenses") {
-    const result = await window.rentalApp.reports.export({
+    const result = await exportCommand.mutateAsync({
       type,
       format: "xlsx",
       startDate: listDateFrom,
@@ -473,11 +545,11 @@ function FullAccountingPage() {
               title={t("Refresh")}
               size="icon"
               variant="outline"
-              disabled={isLoading}
-              onClick={() => void loadAccounting()}
+              disabled={isRefreshing}
+              onClick={() => void refreshAccounting()}
             >
               <RefreshCw
-                className={isLoading ? "animate-spin" : undefined}
+                className={isRefreshing ? "animate-spin" : undefined}
                 data-icon="inline-start"
               />
             </Button>
@@ -632,10 +704,10 @@ function FullAccountingPage() {
             t={t}
             onPageChange={setTransactionPageNumber}
             onPrintPayment={(paymentId) =>
-              void window.rentalApp.payments.printReceipt(paymentId, false)
+              void printPaymentReceipt.mutateAsync(paymentId)
             }
             onPrintVehicleSale={(saleId) =>
-              void window.rentalApp.vehicleSales.printReceipt(saleId, false)
+              void printSaleReceipt.mutateAsync(saleId)
             }
             onVoid={(row) =>
               setPendingVoid({
@@ -803,47 +875,43 @@ function StaffAccountingPage() {
   const { formatCurrency, t } = useI18n();
   const today = toDateInputValue(new Date());
   const [selectedDate, setSelectedDate] = useState(today);
-  const [weeklyIncome, setWeeklyIncome] = useState<WeeklyIncomeDayRecord[]>([]);
   const [closing, setClosing] = useState<StaffDailyClosingRecord | null>(null);
   const [panel, setPanel] = useState<"expense" | "close" | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const loadWeeklyIncome = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+  const weeklyIncomeQuery = useBusinessQuery<WeeklyIncomeDayRecord[]>(
+    "accounting",
+    "weeklyIncome",
+    selectedDate,
+    () => rentalAppApi.accounting.getWeeklyIncome(selectedDate),
+  );
+  const weeklyIncome = weeklyIncomeQuery.data ?? [];
+  const isLoading = weeklyIncomeQuery.isPending;
+  const isRefreshing = weeklyIncomeQuery.isFetching;
+  const error = weeklyIncomeQuery.isError
+    ? getErrorMessage(weeklyIncomeQuery.error, t("Weekly income could not be loaded."))
+    : null;
 
-    try {
-      setWeeklyIncome(await window.rentalApp.accounting.getWeeklyIncome(selectedDate));
-    } catch (err) {
-      setError(getErrorMessage(err, t("Weekly income could not be loaded.")));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [selectedDate, t]);
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      void loadWeeklyIncome();
-    }, 0);
-
-    return () => window.clearTimeout(timeout);
-  }, [loadWeeklyIncome]);
+  const createStaffExpense = useBusinessMutation((input: ExpenseInput) =>
+    rentalAppApi.accounting.createExpense(input),
+  );
+  const saveStaffClosing = useBusinessMutation(
+    (input: Parameters<typeof rentalAppApi.accounting.saveStaffDailyClosing>[0]) =>
+      rentalAppApi.accounting.saveStaffDailyClosing(input),
+  );
 
   async function handleStaffExpense(input: ExpenseInput) {
     setIsSaving(true);
     setFormError(null);
 
     try {
-      await window.rentalApp.accounting.createExpense({
+      await createStaffExpense.mutateAsync({
         ...input,
         location: "cash_drawer",
         method: getExpensePaymentMethodForLocation("cash_drawer"),
       });
       setPanel(null);
-      await loadWeeklyIncome();
     } catch (err) {
       setFormError(getErrorMessage(err, t("Expense could not be saved.")));
     } finally {
@@ -859,7 +927,7 @@ function StaffAccountingPage() {
     setFormError(null);
 
     try {
-      const saved = await window.rentalApp.accounting.saveStaffDailyClosing({
+      const saved = await saveStaffClosing.mutateAsync({
         closingDate: selectedDate,
         ...input,
       });
@@ -891,11 +959,11 @@ function StaffAccountingPage() {
             <Button
               type="button"
               variant="outline"
-              disabled={isLoading}
-              onClick={() => void loadWeeklyIncome()}
+              disabled={isRefreshing}
+              onClick={() => void weeklyIncomeQuery.refetch()}
             >
               <RefreshCw
-                className={isLoading ? "animate-spin" : undefined}
+                className={isRefreshing ? "animate-spin" : undefined}
                 data-icon="inline-start"
               />
               {t("Refresh")}
@@ -1011,14 +1079,6 @@ function StaffAccountingPage() {
 function EmployeeLoansSection() {
   const { can } = useAuth();
   const { formatCurrency, formatDateTime, language, t } = useI18n();
-  const [loanPage, setLoanPage] = useState<PageResult<EmployeeLoanRecord>>({
-    rows: [],
-    total: 0,
-    page: 1,
-    pageSize: 25,
-    totalPages: 1,
-  });
-  const [employees, setEmployees] = useState<EmployeeLoanEmployeeOption[]>([]);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [panel, setPanel] = useState<
@@ -1028,46 +1088,57 @@ function EmployeeLoansSection() {
   >(null);
   const [pendingVoidLoan, setPendingVoidLoan] =
     useState<EmployeeLoanRecord | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const loadLoans = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
+  // The list and the employee options load together, as they did before, so the
+  // section fills in one step. The same 150 ms search wait applies.
+  const filterInput = useMemo(() => ({ page, search }), [page, search]);
+  const filters = useDebouncedValue(filterInput, 150);
+  const loansQuery = useBusinessQuery(
+    "employeeLoans",
+    "overview",
+    filters,
+    async () => {
       const [nextLoans, nextEmployees] = await Promise.all([
-        window.rentalApp.employeeLoans.list({ page, search }),
-        window.rentalApp.employeeLoans.listEmployees(),
+        rentalAppApi.employeeLoans.list({
+          page: filters.page,
+          search: filters.search,
+        }),
+        rentalAppApi.employeeLoans.listEmployees(),
       ]);
 
-      setLoanPage(nextLoans);
-      setEmployees(nextEmployees);
-    } catch (err) {
-      setError(getErrorMessage(err, t("Employee loans could not be loaded.")));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [page, search, t]);
+      return { loanPage: nextLoans, employees: nextEmployees };
+    },
+  );
+  const loanPage = loansQuery.data?.loanPage ?? emptyEmployeeLoanPage;
+  const employees = loansQuery.data?.employees ?? [];
+  const isLoading = loansQuery.isPending;
+  const error = actionError ??
+    (loansQuery.isError
+      ? getErrorMessage(loansQuery.error, t("Employee loans could not be loaded."))
+      : null);
 
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      void loadLoans();
-    }, 150);
-
-    return () => window.clearTimeout(timeout);
-  }, [loadLoans]);
+  const createLoan = useBusinessMutation((input: EmployeeLoanInput) =>
+    rentalAppApi.employeeLoans.create(input),
+  );
+  const repayLoan = useBusinessMutation(
+    (input: Parameters<typeof rentalAppApi.employeeLoans.repay>[0]) =>
+      rentalAppApi.employeeLoans.repay(input),
+  );
+  const voidLoan = useBusinessMutation(
+    (input: Parameters<typeof rentalAppApi.employeeLoans.void>[0]) =>
+      rentalAppApi.employeeLoans.void(input),
+  );
 
   async function handleCreateLoan(input: EmployeeLoanInput) {
     setIsSaving(true);
     setFormError(null);
 
     try {
-      await window.rentalApp.employeeLoans.create(input);
+      await createLoan.mutateAsync(input);
       setPanel(null);
-      await loadLoans();
     } catch (err) {
       setFormError(getErrorMessage(err, t("Employee loan could not be saved.")));
     } finally {
@@ -1083,12 +1154,8 @@ function EmployeeLoansSection() {
     setFormError(null);
 
     try {
-      await window.rentalApp.employeeLoans.repay({
-        ...input,
-        loanId: loan.id,
-      });
+      await repayLoan.mutateAsync({ ...input, loanId: loan.id });
       setPanel(null);
-      await loadLoans();
     } catch (err) {
       setFormError(getErrorMessage(err, t("Loan repayment could not be saved.")));
     } finally {
@@ -1102,18 +1169,17 @@ function EmployeeLoansSection() {
     }
 
     setIsSaving(true);
-    setError(null);
+    setActionError(null);
 
     try {
-      await window.rentalApp.employeeLoans.void({
+      await voidLoan.mutateAsync({
         loanId: pendingVoidLoan.id,
         reason: values.reason,
         approvalToken: values.approvalToken,
       });
       setPendingVoidLoan(null);
-      await loadLoans();
     } catch (err) {
-      setError(getErrorMessage(err, t("Employee loan could not be voided.")));
+      setActionError(getErrorMessage(err, t("Employee loan could not be voided.")));
     } finally {
       setIsSaving(false);
     }
@@ -2364,7 +2430,7 @@ function CashMovementForm({
         return;
       }
 
-      const approval = await window.rentalApp.security.approveSensitiveAction({
+      const approval = await rentalAppApi.security.approveSensitiveAction({
         action: "cashMovements.ownerWithdrawal",
         pin: ownerPin,
       });
@@ -2526,7 +2592,7 @@ function AdjustmentForm({
         return;
       }
 
-      const approval = await window.rentalApp.security.approveSensitiveAction({
+      const approval = await rentalAppApi.security.approveSensitiveAction({
         action: "accountingAdjustments.create",
         pin: ownerPin,
       });

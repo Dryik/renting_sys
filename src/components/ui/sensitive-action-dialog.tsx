@@ -8,6 +8,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { useModalBehavior } from "@/hooks/useModalBehavior";
 import type { SensitiveAction } from "@/shared/security";
 import { cn } from "@/lib/utils";
+import { rentalAppApi } from "@/data/rental-app-api";
 
 type SensitiveActionDialogProps = {
   action: SensitiveAction;
@@ -78,7 +79,7 @@ export function SensitiveActionDialog({
 
     try {
       const approval = ownerPinRequired
-        ? await window.rentalApp.security.approveSensitiveAction({ action, pin })
+        ? await rentalAppApi.security.approveSensitiveAction({ action, pin })
         : null;
       onConfirm({
         approvalToken: approval?.token,

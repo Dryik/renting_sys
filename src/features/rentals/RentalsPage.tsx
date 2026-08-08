@@ -22,6 +22,15 @@ import { SearchInput } from "@/components/ui/search-input";
 import { SegmentedFilter } from "@/components/ui/segmented-filter";
 import { SidePanel } from "@/components/ui/side-panel";
 import { SensitiveActionDialog } from "@/components/ui/sensitive-action-dialog";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  useBusinessMutation,
+  useBusinessQuery,
+  useBusinessQueryKey,
+  useCommandMutation,
+} from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
+import { useDebouncedValue } from "@/data/useDebouncedValue";
 import { useAuth } from "@/hooks/useAuth";
 import { useI18n } from "@/hooks/useI18n";
 import { useModalBehavior } from "@/hooks/useModalBehavior";
@@ -78,6 +87,13 @@ const emptyRentalPage: PageResult<RentalListRecord, RentalListSummary> = {
   summary: emptySummary,
 };
 
+const emptyFormOptions: RentalFormOptions = {
+  accessories: [],
+  customers: [],
+  vehicles: [],
+  salesUsers: [],
+};
+
 const queueTabs: { value: RentalQueue; label: string }[] = [
   { value: "active", label: "Active" },
   { value: "overdue", label: "Overdue" },
@@ -93,25 +109,18 @@ export function RentalsPage({
 }: RentalsPageProps = {}) {
   const { can } = useAuth();
   const { formatCurrency, formatDateTime, settings, t } = useI18n();
-  const [rentalPage, setRentalPage] = useState(emptyRentalPage);
-  const [options, setOptions] = useState<RentalFormOptions>({
-    accessories: [],
-    customers: [],
-    vehicles: [],
-    salesUsers: [],
-  });
+  const [needsFormOptions, setNeedsFormOptions] = useState(false);
   const [queue, setQueue] = useState<RentalQueue>("active");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
-  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [panelState, setPanelState] = useState<RentalPanelState>(null);
-  const [paymentRecords, setPaymentRecords] = useState<PaymentRecord[]>([]);
-  const [listError, setListError] = useState<string | null>(null);
+  // Failures raised by an action; failed loads are derived from the queries.
+  const [actionListError, setActionListError] = useState<string | null>(null);
   const [panelError, setPanelError] = useState<string | null>(null);
   const [panelNotice, setPanelNotice] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [actionPaymentError, setActionPaymentError] = useState<string | null>(null);
   const [contractPrintAction, setContractPrintAction] = useState<PrintAction | null>(null);
   const [pendingReturn, setPendingReturn] = useState<PendingReturn | null>(null);
   const [pendingReturnPayment, setPendingReturnPayment] =
@@ -125,57 +134,119 @@ export function RentalsPage({
   const [paymentToVoid, setPaymentToVoid] = useState<PendingVoidPayment>(null);
   const handledWorkflowRequestKey = useRef<string | number | null>(null);
 
-  const loadRentals = useCallback(async (nextPage = page) => {
-    setIsLoading(true);
-    setListError(null);
+  const queryClient = useQueryClient();
+  // The same 150 ms wait as before; queue and page complete the key.
+  const debouncedSearch = useDebouncedValue(search, 150);
+  const listRequest = { page, queue, search: debouncedSearch };
+  const listKey = useBusinessQueryKey("rentals", "list", listRequest);
+  const rentalsQuery = useBusinessQuery(
+    "rentals",
+    "list",
+    listRequest,
+    () => rentalAppApi.rentals.list(listRequest),
+  );
+  const rentalPage = rentalsQuery.data ?? emptyRentalPage;
+  const isLoading = rentalsQuery.isPending;
+  const listError = actionListError ??
+    (rentalsQuery.isError
+      ? getErrorMessage(rentalsQuery.error, t("Rentals could not be loaded."))
+      : null);
 
-    try {
-      const result = await window.rentalApp.rentals.list({
-        page: nextPage,
-        queue,
-        search,
-      });
-      setRentalPage(result);
-      return result.rows;
-    } catch (error) {
-      setListError(getErrorMessage(error, t("Rentals could not be loaded.")));
-      return [];
-    } finally {
-      setIsLoading(false);
-    }
-  }, [page, queue, search, t]);
+  /**
+   * A write invalidates the business root and waits for it, so by the time a
+   * mutation resolves the list entry already holds the post-write rows. Reading
+   * them from the cache is what lets the side panel re-select the rental it was
+   * showing without asking the main process a second time.
+   */
+  function currentRentalRows(): RentalListRecord[] {
+    return (
+      queryClient.getQueryData<PageResult<RentalListRecord, RentalListSummary>>(
+        listKey,
+      )?.rows ?? []
+    );
+  }
 
-  const loadOptions = useCallback(async () => {
-    const formOptions = await window.rentalApp.rentals.getFormOptions();
-    setOptions(formOptions);
-  }, []);
+  // Loaded only when a form needs them, exactly as the old lazy call did.
+  const formOptionsKey = useBusinessQueryKey("rentals", "formOptions");
+  const optionsQuery = useBusinessQuery<RentalFormOptions>(
+    "rentals",
+    "formOptions",
+    undefined,
+    () => rentalAppApi.rentals.getFormOptions(),
+    { enabled: needsFormOptions },
+  );
+  const options = optionsQuery.data ?? emptyFormOptions;
 
-  const loadPayments = useCallback(async (rentalId: number) => {
-    setPaymentError(null);
+  // The payments shown beside a rental, fetched only while that panel is open.
+  const paymentsRentalId = panelState && "rental" in panelState
+    ? panelState.rental.id
+    : null;
+  const paymentsQuery = useBusinessQuery(
+    "payments",
+    "listForRental",
+    paymentsRentalId ?? 0,
+    () => rentalAppApi.payments.listForRental(paymentsRentalId!),
+    { enabled: paymentsRentalId !== null },
+  );
+  const paymentRecords = paymentsQuery.data ?? [];
+  const paymentError = actionPaymentError ??
+    (paymentsRentalId !== null && paymentsQuery.isError
+      ? getErrorMessage(paymentsQuery.error, t("Payments could not be loaded."))
+      : null);
 
-    try {
-      const records = await window.rentalApp.payments.listForRental(rentalId);
-      setPaymentRecords(records);
-      return records;
-    } catch (error) {
-      setPaymentError(getErrorMessage(error, t("Payments could not be loaded.")));
-      return [];
-    }
-  }, [t]);
+  const activateRental = useBusinessMutation((input: RentalActivationInput) =>
+    rentalAppApi.rentals.activate(input),
+  );
+  const createDraft = useBusinessMutation((input: RentalActivationInput) =>
+    rentalAppApi.rentals.createDraft(input),
+  );
+  const activateDraft = useBusinessMutation((rentalId: number) =>
+    rentalAppApi.rentals.activateDraft(rentalId),
+  );
+  const returnRental = useBusinessMutation((input: RentalReturnInput) =>
+    rentalAppApi.rentals.return(input),
+  );
+  const returnWithPayment = useBusinessMutation(
+    (input: Parameters<typeof rentalAppApi.rentals.returnWithPayment>[0]) =>
+      rentalAppApi.rentals.returnWithPayment(input),
+  );
+  const cancelRental = useBusinessMutation(
+    (input: { approvalToken?: string; rentalId: number; reason: string }) =>
+      rentalAppApi.rentals.cancel(input),
+  );
+  const createPayment = useBusinessMutation((input: PaymentInput) =>
+    rentalAppApi.payments.create(input),
+  );
+  const voidPayment = useBusinessMutation(
+    (input: { approvalToken?: string; paymentId: number; reason: string }) =>
+      rentalAppApi.payments.void(input),
+  );
+  // Printing and plate lookup change nothing.
+  const printReceipt = useCommandMutation((paymentId: number) =>
+    rentalAppApi.payments.printReceipt(paymentId, false),
+  );
+  const printContract = useCommandMutation(
+    ({ rentalId, printToPDF }: { rentalId: number; printToPDF: boolean }) =>
+      rentalAppApi.rentals.printContract(rentalId, printToPDF),
+  );
+  const findOpenByPlate = useCommandMutation((plateNumber: string) =>
+    rentalAppApi.rentals.findOpenByPlate(plateNumber),
+  );
 
   const openCreateForm = useCallback(async () => {
     setFormError(null);
-    await loadOptions();
+    setNeedsFormOptions(true);
+    // `fetchQuery`, not `ensureQueryData`: the latter hands back whatever is
+    // cached without checking whether it is still valid, so a form opened after
+    // a vehicle was rented or a customer deactivated would offer options that
+    // no longer exist. The list has to be current before the form appears.
+    await queryClient.fetchQuery({
+      queryKey: formOptionsKey,
+      queryFn: () => rentalAppApi.rentals.getFormOptions(),
+      staleTime: 0,
+    });
     setPanelState({ mode: "create" });
-  }, [loadOptions]);
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      void loadRentals(page);
-    }, 150);
-
-    return () => window.clearTimeout(timeout);
-  }, [loadRentals, page]);
+  }, [formOptionsKey, queryClient]);
 
   useEffect(() => {
     if (!workflowRequest) {
@@ -226,10 +297,9 @@ export function RentalsPage({
     setFormError(null);
 
     try {
-      await window.rentalApp.rentals.activate(input);
+      await activateRental.mutateAsync(input);
       setPanelState(null);
       setPage(1);
-      await loadRentals(1);
     } catch (error) {
       setFormError(getErrorMessage(error, t("Rental could not be activated.")));
     } finally {
@@ -242,11 +312,10 @@ export function RentalsPage({
     setFormError(null);
 
     try {
-      await window.rentalApp.rentals.createDraft(input);
+      await createDraft.mutateAsync(input);
       setPanelState(null);
       setQueue("all");
       setPage(1);
-      await loadRentals(1);
     } catch (error) {
       setFormError(getErrorMessage(error, t("Rental could not be saved as draft.")));
     } finally {
@@ -256,18 +325,17 @@ export function RentalsPage({
 
   async function handleActivateDraftRental(rental: RentalListRecord) {
     setIsSaving(true);
-    setListError(null);
+    setActionListError(null);
     setPanelError(null);
     setPanelNotice(null);
 
     try {
-      const activated = await window.rentalApp.rentals.activateDraft(rental.id);
+      const activated = await activateDraft.mutateAsync(rental.id);
       setPanelState({ mode: "detail", rental: activated });
-      await loadRentals(page);
     } catch (error) {
       const message = getErrorMessage(error, t("Rental could not be activated."));
       setPanelError(message);
-      setListError(message);
+      setActionListError(message);
     } finally {
       setIsSaving(false);
     }
@@ -278,9 +346,8 @@ export function RentalsPage({
     setFormError(null);
 
     try {
-      await window.rentalApp.rentals.return(input);
+      await returnRental.mutateAsync(input);
       setPanelState(null);
-      await loadRentals(page);
     } catch (error) {
       setFormError(getErrorMessage(error, t("Rental could not be returned.")));
     } finally {
@@ -296,7 +363,7 @@ export function RentalsPage({
     setReturnPaymentError(null);
 
     try {
-      const result = await window.rentalApp.rentals.returnWithPayment({
+      const result = await returnWithPayment.mutateAsync({
         returnInput: input,
         paymentInput: {
           rentalId: input.rentalId,
@@ -308,14 +375,11 @@ export function RentalsPage({
         },
       });
       setPanelState(null);
-      await loadRentals(page);
 
       if (settings.autoPrintReceipt && result.payment) {
-        window.rentalApp.payments
-          .printReceipt(result.payment.id, false)
-          .catch((error) => {
-            setFormError(getErrorMessage(error, t("Operation Failed")));
-          });
+        printReceipt.mutateAsync(result.payment.id).catch((error: unknown) => {
+          setFormError(getErrorMessage(error, t("Operation Failed")));
+        });
       }
 
       return true;
@@ -332,18 +396,17 @@ export function RentalsPage({
     values: { approvalToken?: string; reason?: string },
   ) {
     setIsSaving(true);
-    setListError(null);
+    setActionListError(null);
 
     try {
-      await window.rentalApp.rentals.cancel({
+      await cancelRental.mutateAsync({
         approvalToken: values.approvalToken,
         rentalId: rental.id,
         reason: values.reason ?? "",
       });
       setPanelState(null);
-      await loadRentals(page);
     } catch (error) {
-      setListError(getErrorMessage(error, t("Rental could not be cancelled.")));
+      setActionListError(getErrorMessage(error, t("Rental could not be cancelled.")));
     } finally {
       setIsSaving(false);
       setRentalToCancel(null);
@@ -352,15 +415,11 @@ export function RentalsPage({
 
   async function handleCreatePayment(input: PaymentInput) {
     setIsSaving(true);
-    setPaymentError(null);
+    setActionPaymentError(null);
 
     try {
-      const payment = await window.rentalApp.payments.create(input);
-      const [updatedRentals] = await Promise.all([
-        loadRentals(page),
-        loadPayments(input.rentalId),
-      ]);
-      const updatedRental = updatedRentals.find(
+      const payment = await createPayment.mutateAsync(input);
+      const updatedRental = currentRentalRows().find(
         (rental) => rental.id === input.rentalId,
       );
 
@@ -369,14 +428,12 @@ export function RentalsPage({
       }
 
       if (settings.autoPrintReceipt) {
-        window.rentalApp.payments
-          .printReceipt(payment.id, false)
-          .catch((error) => {
-            setPaymentError(getErrorMessage(error, t("Operation Failed")));
-          });
+        printReceipt.mutateAsync(payment.id).catch((error: unknown) => {
+          setActionPaymentError(getErrorMessage(error, t("Operation Failed")));
+        });
       }
     } catch (error) {
-      setPaymentError(getErrorMessage(error, t("Payment could not be saved.")));
+      setActionPaymentError(getErrorMessage(error, t("Payment could not be saved.")));
     } finally {
       setIsSaving(false);
     }
@@ -392,19 +449,15 @@ export function RentalsPage({
 
     const payment = paymentToVoid;
     setIsSaving(true);
-    setPaymentError(null);
+    setActionPaymentError(null);
 
     try {
-      await window.rentalApp.payments.void({
+      await voidPayment.mutateAsync({
         approvalToken: values.approvalToken,
         paymentId: payment.id,
         reason: values.reason,
       });
-      const [updatedRentals] = await Promise.all([
-        loadRentals(page),
-        loadPayments(payment.rentalId),
-      ]);
-      const updatedRental = updatedRentals.find(
+      const updatedRental = currentRentalRows().find(
         (rental) => rental.id === payment.rentalId,
       );
 
@@ -412,7 +465,7 @@ export function RentalsPage({
         setPanelState({ mode: "payment", rental: updatedRental });
       }
     } catch (error) {
-      setPaymentError(getErrorMessage(error, t("Payment could not be voided.")));
+      setActionPaymentError(getErrorMessage(error, t("Payment could not be voided.")));
     } finally {
       setIsSaving(false);
       setPaymentToVoid(null);
@@ -422,8 +475,7 @@ export function RentalsPage({
   async function openDetailPanel(rental: RentalListRecord) {
     setPanelError(null);
     setPanelNotice(null);
-    setPaymentRecords([]);
-    await loadPayments(rental.id);
+    setActionPaymentError(null);
     setPanelState({ mode: "detail", rental });
   }
 
@@ -433,9 +485,7 @@ export function RentalsPage({
   }
 
   async function openPaymentPanel(rental: RentalListRecord) {
-    setPaymentError(null);
-    setPaymentRecords([]);
-    await loadPayments(rental.id);
+    setActionPaymentError(null);
     setPanelState({ mode: "payment", rental });
   }
 
@@ -455,7 +505,7 @@ export function RentalsPage({
     setPanelNotice(null);
 
     try {
-      const result = await window.rentalApp.rentals.printContract(rentalId, printToPDF);
+      const result = await printContract.mutateAsync({ rentalId, printToPDF });
       setPanelNotice(
         result.status === "printed"
           ? "Contract sent to printer."
@@ -480,10 +530,10 @@ export function RentalsPage({
 
     setIsFindingByPlate(true);
     setReturnByPlateError(null);
-    setListError(null);
+    setActionListError(null);
 
     try {
-      const rental = await window.rentalApp.rentals.findOpenByPlate(plateNumber);
+      const rental = await findOpenByPlate.mutateAsync(plateNumber);
       setReturnByPlateOpen(false);
       setReturnByPlateValue("");
       openReturnForm(rental);

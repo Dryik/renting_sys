@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
 import { MoneyText } from "@/components/ui/money-text";
 import { Input } from "@/components/ui/input";
 import { PaginationControls } from "@/components/ui/pagination-controls";
+import { useBusinessQuery } from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
 import { useI18n } from "@/hooks/useI18n";
 import type { PageResult } from "@/shared/pagination";
 import type { RentalListRecord } from "@/shared/rentals";
@@ -25,34 +27,16 @@ export function ReturnedRentalsReport() {
     toDateInputValue(new Date(today.getFullYear(), today.getMonth(), 1)),
   );
   const [dateTo, setDateTo] = useState(toDateInputValue(today));
-  const [rentalPage, setRentalPage] = useState(emptyReturnedPage);
-  const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-
-  const loadRentals = useCallback(async (nextPage = page) => {
-    setLoading(true);
-
-    try {
-      const data = await window.rentalApp.reports.getReturnedRentals({
-        dateFrom,
-        dateTo,
-        page: nextPage,
-      });
-      setRentalPage(data);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  }, [dateFrom, dateTo, page]);
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      void loadRentals(page);
-    }, 100);
-
-    return () => window.clearTimeout(timeout);
-  }, [loadRentals, page]);
+  const request = { dateFrom, dateTo, page };
+  const rentalsQuery = useBusinessQuery<PageResult<RentalListRecord>>(
+    "reports",
+    "returnedRentals",
+    request,
+    () => rentalAppApi.reports.getReturnedRentals(request),
+  );
+  const rentalPage = rentalsQuery.data ?? emptyReturnedPage;
+  const loading = rentalsQuery.isPending;
 
   function handleDateFromChange(value: string) {
     setDateFrom(value);

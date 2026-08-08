@@ -101,6 +101,31 @@ export function daysFromNow(days: number): string {
   return new Date(Date.now() + days * DAY_MS).toISOString();
 }
 
+/**
+ * A rental window measured from one captured instant.
+ *
+ * Two separate `daysFromNow` calls each sample the clock, so a "three day"
+ * window is really three days plus however long elapsed between them.
+ * `calculateRentalDays` rounds up — correctly, since a rental running even a
+ * minute into a fourth day is charged for four — and the test intermittently
+ * saw 4 where it expected 3.
+ *
+ * Anchoring both ends to a single `Date.now()` makes the span exact, so a test
+ * that means three days gets three days on every run. Production rounding is
+ * unchanged; only the fixture is now honest about what it is asking for.
+ */
+export function rentalWindow(
+  startOffsetDays: number,
+  endOffsetDays: number,
+): { startDatetime: string; expectedReturnDatetime: string } {
+  const anchor = Date.now();
+
+  return {
+    startDatetime: new Date(anchor + startOffsetDays * DAY_MS).toISOString(),
+    expectedReturnDatetime: new Date(anchor + endOffsetDays * DAY_MS).toISOString(),
+  };
+}
+
 export function buildActivationInput(
   customerId: number,
   vehicleId: number,
@@ -109,8 +134,8 @@ export function buildActivationInput(
   return {
     customerId,
     vehicleId,
-    startDatetime: daysFromNow(-1),
-    expectedReturnDatetime: daysFromNow(2),
+    // One anchor for both ends: exactly three days, every run.
+    ...rentalWindow(-1, 2),
     dailyPrice: 100,
     depositRequired: 0,
     depositPaid: 0,

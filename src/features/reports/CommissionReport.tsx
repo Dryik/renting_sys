@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
+import { useBusinessQuery } from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
+import { useDebouncedValue } from "@/data/useDebouncedValue";
 import { useI18n } from "@/hooks/useI18n";
 import type { CommissionReportSummary } from "@/shared/reports";
 import type { UserListRecord } from "@/shared/auth";
@@ -14,42 +17,40 @@ export function CommissionReport() {
   const [dateTo, setDateTo] = useState("");
   const [salesUserId, setSalesUserId] = useState<number | undefined>(undefined);
   const [vehicleType, setVehicleType] = useState<"all" | "car" | "motorcycle">("all");
-  const [users, setUsers] = useState<UserListRecord[]>([]);
-  const [data, setData] = useState<CommissionReportSummary>({
+  const usersQuery = useBusinessQuery<UserListRecord[]>(
+    "users",
+    "list",
+    undefined,
+    () => rentalAppApi.users.list(),
+  );
+  const users = usersQuery.data ?? [];
+
+  // The same 150 ms wait as before, moved onto the filter values: the key does
+  // not change until typing settles, so the request pattern is identical.
+  const filterInput = useMemo(
+    () => ({ dateFrom, dateTo, salesUserId, vehicleType }),
+    [dateFrom, dateTo, salesUserId, vehicleType],
+  );
+  const filters = useDebouncedValue(filterInput, 150);
+  const request = {
+    dateFrom: filters.dateFrom || undefined,
+    dateTo: filters.dateTo || undefined,
+    salesUserId: filters.salesUserId || undefined,
+    vehicleType: filters.vehicleType,
+  };
+  const reportQuery = useBusinessQuery<CommissionReportSummary>(
+    "reports",
+    "commissions",
+    request,
+    () => rentalAppApi.reports.getCommissions(request),
+  );
+  const data = reportQuery.data ?? {
     records: [],
     totalRentals: 0,
     totalDays: 0,
     totalCommission: 0,
-  });
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    window.rentalApp.users.list().then(setUsers).catch(console.error);
-  }, []);
-
-  const loadReport = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await window.rentalApp.reports.getCommissions({
-        dateFrom: dateFrom || undefined,
-        dateTo: dateTo || undefined,
-        salesUserId: salesUserId || undefined,
-        vehicleType,
-      });
-      setData(res);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  }, [dateFrom, dateTo, salesUserId, vehicleType]);
-
-  useEffect(() => {
-    const timeout = setTimeout(() => {
-      void loadReport();
-    }, 150);
-    return () => clearTimeout(timeout);
-  }, [loadReport]);
+  };
+  const loading = reportQuery.isPending;
 
   return (
     <div className="flex flex-col gap-4">

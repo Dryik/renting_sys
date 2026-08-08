@@ -8,7 +8,7 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,8 @@ import { CameraCaptureDialog } from "@/components/ui/camera-capture-dialog";
 import { DocumentUploadDialog } from "@/components/ui/document-upload-dialog";
 import { DocumentViewerDialog } from "@/components/ui/document-viewer-dialog";
 import { ReasonDialog } from "@/components/ui/reason-dialog";
+import { useBusinessMutation, useBusinessQuery } from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
 import { useAuth } from "@/hooks/useAuth";
 import { useI18n } from "@/hooks/useI18n";
 import {
@@ -62,10 +64,10 @@ const documentPermissions: Record<
 export function DocumentPhotoSection({ entityId, entityType }: DocumentPhotoSectionProps) {
   const { can } = useAuth();
   const { formatDate, language, t } = useI18n();
-  const [attachments, setAttachments] = useState<AttachmentRecord[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Failures from a write. The load failure is derived below rather than
+  // copied into state, so the two cannot disagree.
+  const [writeError, setWriteError] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [viewerAttachment, setViewerAttachment] = useState<AttachmentRecord | null>(null);
@@ -80,6 +82,22 @@ export function DocumentPhotoSection({ entityId, entityType }: DocumentPhotoSect
     ? can(permissions.capturePhoto)
     : false;
 
+  // Gated on the view permission exactly as before: without it the request is
+  // never issued and the list stays empty.
+  const listRequest = { entityType, entityId, pageSize: 100 };
+  const attachmentsQuery = useBusinessQuery(
+    "attachments",
+    "list",
+    listRequest,
+    () => rentalAppApi.attachments.list(listRequest),
+    { enabled: canView },
+  );
+  const attachments = useMemo(
+    () => attachmentsQuery.data?.rows ?? [],
+    [attachmentsQuery.data],
+  );
+  const isLoading = canView && attachmentsQuery.isPending;
+
   const primaryPhoto = useMemo(
     () =>
       attachments.find((attachment) => attachment.isPrimary && isPhotoDocumentType(attachment.documentType)) ??
@@ -92,44 +110,37 @@ export function DocumentPhotoSection({ entityId, entityType }: DocumentPhotoSect
     [attachments],
   );
 
-  const loadAttachments = useCallback(async () => {
-    if (!canView) {
-      setAttachments([]);
-      return;
-    }
 
-    setIsLoading(true);
-    setError(null);
-    try {
-      const result = await window.rentalApp.attachments.list({
-        entityType,
-        entityId,
-        pageSize: 100,
-      });
-      setAttachments(result.rows);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t("Documents could not be loaded."));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [canView, entityId, entityType, t]);
+  const loadError = attachmentsQuery.isError
+    ? attachmentsQuery.error instanceof Error
+      ? attachmentsQuery.error.message
+      : t("Documents could not be loaded.")
+    : null;
+  const error = writeError ?? loadError;
 
-  useEffect(() => {
-    window.queueMicrotask(() => {
-      void loadAttachments();
-    });
-  }, [loadAttachments]);
+  // Uploading, replacing and archiving are business writes: each invalidates
+  // the business root, and the mutation stays pending until the list behind the
+  // dialog has actually refetched.
+  const uploadMutation = useBusinessMutation((request: AttachmentUploadRequest) =>
+    rentalAppApi.attachments.upload(request),
+  );
+  const replaceMutation = useBusinessMutation(
+    (request: AttachmentReplaceRequest) => rentalAppApi.attachments.replace(request),
+  );
+  const archiveMutation = useBusinessMutation(
+    (request: { attachmentId: number; reason: string }) =>
+      rentalAppApi.attachments.archive(request),
+  );
 
   async function uploadDocument(request: AttachmentUploadRequest) {
     setIsSaving(true);
-    setError(null);
+    setWriteError(null);
 
     try {
-      await window.rentalApp.attachments.upload(request);
+      await uploadMutation.mutateAsync(request);
       setUploadOpen(false);
-      await loadAttachments();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("Document could not be saved."));
+      setWriteError(err instanceof Error ? err.message : t("Document could not be saved."));
     } finally {
       setIsSaving(false);
     }
@@ -141,7 +152,7 @@ export function DocumentPhotoSection({ entityId, entityType }: DocumentPhotoSect
     }
 
     setIsSaving(true);
-    setError(null);
+    setWriteError(null);
 
     const payload: AttachmentReplaceRequest = {
       ...request,
@@ -150,11 +161,10 @@ export function DocumentPhotoSection({ entityId, entityType }: DocumentPhotoSect
     };
 
     try {
-      await window.rentalApp.attachments.replace(payload);
+      await replaceMutation.mutateAsync(payload);
       setReplaceTarget(null);
-      await loadAttachments();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("Document could not be replaced."));
+      setWriteError(err instanceof Error ? err.message : t("Document could not be replaced."));
     } finally {
       setIsSaving(false);
     }
@@ -166,17 +176,16 @@ export function DocumentPhotoSection({ entityId, entityType }: DocumentPhotoSect
     }
 
     setIsSaving(true);
-    setError(null);
+    setWriteError(null);
 
     try {
-      await window.rentalApp.attachments.archive({
+      await archiveMutation.mutateAsync({
         attachmentId: archiveTarget.id,
         reason,
       });
       setArchiveTarget(null);
-      await loadAttachments();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("Document could not be deleted."));
+      setWriteError(err instanceof Error ? err.message : t("Document could not be deleted."));
     } finally {
       setIsSaving(false);
     }
@@ -338,8 +347,9 @@ export function DocumentPhotoSection({ entityId, entityType }: DocumentPhotoSect
             setUploadOpen(true);
           }}
           onSaved={() => {
+            // The save already invalidated the business root and waited for the
+            // refetch; asking again here would be a second identical request.
             setCameraOpen(false);
-            void loadAttachments();
           }}
         />
       ) : null}
@@ -448,23 +458,13 @@ function DocumentRow({
 }
 
 function PhotoPreview({ attachment }: { attachment: AttachmentRecord }) {
-  const [dataUrl, setDataUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    window.rentalApp.attachments
-      .getPreview(attachment.id)
-      .then((preview) => {
-        if (!cancelled) setDataUrl(preview.dataUrl);
-      })
-      .catch(() => {
-        if (!cancelled) setDataUrl(null);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [attachment.id]);
+  const previewQuery = useBusinessQuery(
+    "attachments",
+    "getPreview",
+    attachment.id,
+    () => rentalAppApi.attachments.getPreview(attachment.id),
+  );
+  const dataUrl = previewQuery.data?.dataUrl ?? null;
 
   if (!dataUrl) {
     return <Image className="size-8" />;

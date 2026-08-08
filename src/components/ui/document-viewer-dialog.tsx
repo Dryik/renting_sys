@@ -1,5 +1,5 @@
 import { ExternalLink, FileText, Loader2, X } from "lucide-react";
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,8 @@ import {
   type AttachmentPreview,
   type AttachmentRecord,
 } from "@/shared/attachments";
+import { useBusinessQuery } from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
 
 type DocumentViewerDialogProps = {
   attachment: AttachmentRecord | null;
@@ -27,47 +29,33 @@ export function DocumentViewerDialog({
   const { formatDate, language, t } = useI18n();
   const titleId = useId();
   const dialogRef = useRef<HTMLElement>(null);
-  const [preview, setPreview] = useState<AttachmentPreview | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  /**
+   * Epoch-scoped and keyed by attachment, so a replaced document is refetched
+   * along with everything else a write invalidates, and nothing survives a
+   * session change. Only fetched while the dialog is actually showing one.
+   */
+  const attachmentId = attachment?.id ?? 0;
+  const previewQuery = useBusinessQuery<AttachmentPreview>(
+    "attachments",
+    "getPreview",
+    attachmentId,
+    () => rentalAppApi.attachments.getPreview(attachmentId),
+    { enabled: open && attachment !== null },
+  );
+  const isViewing = open && attachment !== null;
+  const preview = isViewing ? previewQuery.data ?? null : null;
+  const isLoading = isViewing && previewQuery.isPending;
+  const error =
+    isViewing && previewQuery.isError
+      ? previewQuery.error instanceof Error
+        ? previewQuery.error.message
+        : t("Document could not be loaded.")
+      : null;
   useModalBehavior({
     containerRef: dialogRef,
     onClose,
     open: open && Boolean(attachment),
   });
-
-  useEffect(() => {
-    if (!open || !attachment) {
-      window.queueMicrotask(() => {
-        setPreview(null);
-        setError(null);
-      });
-      return;
-    }
-
-    let cancelled = false;
-    window.queueMicrotask(() => {
-      setIsLoading(true);
-      setError(null);
-    });
-    window.rentalApp.attachments
-      .getPreview(attachment.id)
-      .then((result) => {
-        if (!cancelled) setPreview(result);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : t("Document could not be loaded."));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [attachment, open, t]);
 
   if (!open || !attachment) {
     return null;
@@ -162,7 +150,7 @@ export function DocumentViewerDialog({
               className="mt-5 w-full"
               type="button"
               variant="outline"
-              onClick={() => void window.rentalApp.attachments.open(active.id)}
+              onClick={() => void rentalAppApi.attachments.open(active.id)}
             >
               <ExternalLink />
               {t("Open File")}

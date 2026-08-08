@@ -1,5 +1,5 @@
 import { Archive, CheckCircle2, Edit, Eye, Plus } from "lucide-react";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,9 @@ import { SectionPanel } from "@/components/ui/section-panel";
 import { SegmentedFilter } from "@/components/ui/segmented-filter";
 import { SidePanel } from "@/components/ui/side-panel";
 import { ReasonDialog } from "@/components/ui/reason-dialog";
+import { useBusinessMutation, useBusinessQuery } from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
+import { useDebouncedValue } from "@/data/useDebouncedValue";
 import { useAuth } from "@/hooks/useAuth";
 import { useI18n } from "@/hooks/useI18n";
 import type {
@@ -20,7 +23,6 @@ import type {
   MaintenanceRecordWithVehicle,
 } from "@/shared/maintenance";
 import type { PageResult } from "@/shared/pagination";
-import type { VehicleRecord } from "@/shared/vehicles";
 import { MaintenanceForm } from "./MaintenanceForm";
 
 type FormState =
@@ -54,60 +56,56 @@ const rowClassName =
 export function MaintenancePage() {
   const { can } = useAuth();
   const { formatCurrency, formatDate, t } = useI18n();
-  const [maintenancePage, setMaintenancePage] = useState(emptyMaintenancePage);
-  const [vehicles, setVehicles] = useState<VehicleRecord[]>([]);
   const [search, setSearch] = useState("");
   const [state, setState] = useState<MaintenanceListState>("all");
   const [page, setPage] = useState(1);
-  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [listError, setListError] = useState<string | null>(null);
+  // Failures raised by an action; a failed load is derived below.
+  const [actionError, setActionError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [formState, setFormState] = useState<FormState>(null);
   const [detailsRecord, setDetailsRecord] = useState<MaintenanceRecordWithVehicle | null>(null);
   const [recordToComplete, setRecordToComplete] = useState<MaintenanceRecordWithVehicle | null>(null);
   const [recordToArchive, setRecordToArchive] = useState<MaintenanceRecordWithVehicle | null>(null);
 
-  const loadMaintenance = useCallback(async (nextPage = page) => {
-    setIsLoading(true);
-    setListError(null);
+  // The same 150 ms wait as before, on the value that forms the key.
+  const debouncedSearch = useDebouncedValue(search, 150);
+  const listRequest = { page, search: debouncedSearch, state };
+  const maintenanceQuery = useBusinessQuery(
+    "maintenance",
+    "list",
+    listRequest,
+    () => rentalAppApi.maintenance.list(listRequest),
+  );
+  const maintenancePage = maintenanceQuery.data ?? emptyMaintenancePage;
+  const isLoading = maintenanceQuery.isPending;
+  const listError = actionError ??
+    (maintenanceQuery.isError
+      ? getErrorMessage(maintenanceQuery.error, t("Maintenance records could not be loaded."))
+      : null);
 
-    try {
-      const result = await window.rentalApp.maintenance.list({
-        page: nextPage,
-        search,
-        state,
-      });
-      setMaintenancePage(result);
-      return result.rows;
-    } catch (error) {
-      setListError(getErrorMessage(error, t("Maintenance records could not be loaded.")));
-      return [];
-    } finally {
-      setIsLoading(false);
-    }
-  }, [page, search, state, t]);
+  // The vehicle picker inside the form. Marking a vehicle for maintenance
+  // changes its availability, so this refetches with everything else.
+  const vehicleRequest = { pageSize: 100 };
+  const vehiclesQuery = useBusinessQuery(
+    "vehicles",
+    "list",
+    vehicleRequest,
+    () => rentalAppApi.vehicles.list(vehicleRequest),
+  );
+  const vehicles = vehiclesQuery.data?.rows ?? [];
 
-  const loadVehicles = useCallback(async () => {
-    const result = await window.rentalApp.vehicles.list({ pageSize: 100 });
-    setVehicles(result.rows);
-  }, []);
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      void loadMaintenance(page);
-    }, 150);
-
-    return () => window.clearTimeout(timeout);
-  }, [loadMaintenance, page]);
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      void loadVehicles();
-    }, 0);
-
-    return () => window.clearTimeout(timeout);
-  }, [loadVehicles]);
+  const updateMaintenance = useBusinessMutation(
+    (input: { id: number; values: MaintenanceInput }) =>
+      rentalAppApi.maintenance.update(input.id, input.values),
+  );
+  const createMaintenance = useBusinessMutation((values: MaintenanceInput) =>
+    rentalAppApi.maintenance.create(values),
+  );
+  const archiveMaintenance = useBusinessMutation(
+    (input: { maintenanceId: number; reason: string }) =>
+      rentalAppApi.maintenance.archive(input),
+  );
 
   async function handleSave(input: MaintenanceInput) {
     setIsSaving(true);
@@ -115,13 +113,12 @@ export function MaintenancePage() {
 
     try {
       if (formState?.mode === "edit") {
-        await window.rentalApp.maintenance.update(formState.record.id, input);
+        await updateMaintenance.mutateAsync({ id: formState.record.id, values: input });
       } else {
-        await window.rentalApp.maintenance.create(input);
+        await createMaintenance.mutateAsync(input);
       }
 
       setFormState(null);
-      await Promise.all([loadMaintenance(page), loadVehicles()]);
     } catch (error) {
       setFormError(getErrorMessage(error, t("Maintenance record could not be saved.")));
     } finally {
@@ -149,17 +146,13 @@ export function MaintenancePage() {
     reason: string,
   ) {
     setIsSaving(true);
-    setListError(null);
+    setActionError(null);
 
     try {
-      await window.rentalApp.maintenance.archive({
-        maintenanceId: record.id,
-        reason,
-      });
-      await Promise.all([loadMaintenance(page), loadVehicles()]);
+      await archiveMaintenance.mutateAsync({ maintenanceId: record.id, reason });
       setDetailsRecord(null);
     } catch (error) {
-      setListError(getErrorMessage(error, t("Maintenance record could not be archived.")));
+      setActionError(getErrorMessage(error, t("Maintenance record could not be archived.")));
     } finally {
       setIsSaving(false);
       setRecordToArchive(null);
@@ -171,13 +164,12 @@ export function MaintenancePage() {
     input: MaintenanceInput,
   ) {
     setIsSaving(true);
-    setListError(null);
+    setActionError(null);
 
     try {
-      await window.rentalApp.maintenance.update(record.id, input);
-      await Promise.all([loadMaintenance(page), loadVehicles()]);
+      await updateMaintenance.mutateAsync({ id: record.id, values: input });
     } catch (error) {
-      setListError(getErrorMessage(error, t("Maintenance record could not be updated.")));
+      setActionError(getErrorMessage(error, t("Maintenance record could not be updated.")));
     } finally {
       setIsSaving(false);
     }

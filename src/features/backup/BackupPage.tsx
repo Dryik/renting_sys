@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   AlertCircle,
   AlertTriangle,
@@ -15,13 +15,24 @@ import { BidiValue } from "@/components/ui/bidi-value";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { SensitiveActionDialog } from "@/components/ui/sensitive-action-dialog";
+import { useCommandMutation, useSystemQuery } from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
 import { useAuth } from "@/hooks/useAuth";
 import { useI18n } from "@/hooks/useI18n";
 
 type BackupAction = "backup" | "restore";
 type RestoreStage = "idle" | "previewed" | "verified";
 
-export function BackupPage() {
+export function BackupPage({
+  onRestoreCompleted,
+}: {
+  /**
+   * A successful restore has already dropped the session in the main process
+   * and swapped the database file underneath us, so the shell must clear every
+   * cached row and return to the login screen.
+   */
+  onRestoreCompleted: () => Promise<void>;
+}) {
   const { can } = useAuth();
   const { settings, t } = useI18n();
   const [status, setStatus] = useState<{
@@ -33,31 +44,48 @@ export function BackupPage() {
   const [restoreReasonOpen, setRestoreReasonOpen] = useState(false);
   const [restoreStage, setRestoreStage] = useState<RestoreStage>("idle");
   const [restoreFilePath, setRestoreFilePath] = useState<string | null>(null);
-  const [backupStatus, setBackupStatus] = useState<{
-    lastBackupAt: string | null;
-    lastBackupPath: string | null;
-  } | null>(null);
   const isLoading = busyAction !== null;
   const canRestore = can("backup.restore");
   const canVerifyRestore = restoreStage === "previewed" || restoreStage === "verified";
   const restoreVerified = restoreStage === "verified";
 
-  useEffect(() => {
-    window.rentalApp.backup.getStatus().then(setBackupStatus).catch(() => {
-      setBackupStatus(null);
-    });
-  }, []);
+  // Backup metadata, not business data: a rental or a payment must not send
+  // this off to re-read the archive folder.
+  const backupStatusQuery = useSystemQuery("backup.status", undefined, () =>
+    rentalAppApi.backup.getStatus(),
+  );
+  const backupStatus = backupStatusQuery.data ?? null;
+
+  // Selecting, checking and running an archive are actions, not business
+  // writes: none of them should invalidate the rentals or payments a user is
+  // looking at, and none may be retried automatically.
+  const runBackupCommand = useCommandMutation<
+    Awaited<ReturnType<typeof rentalAppApi.backup.runBackup>>,
+    void
+  >(() => rentalAppApi.backup.runBackup());
+  const previewCommand = useCommandMutation<
+    Awaited<ReturnType<typeof rentalAppApi.backup.preview>>,
+    void
+  >(() => rentalAppApi.backup.preview());
+  const verifyCommand = useCommandMutation<
+    Awaited<ReturnType<typeof rentalAppApi.backup.verify>>,
+    void
+  >(() => rentalAppApi.backup.verify());
+  const runRestoreCommand = useCommandMutation(
+    (input: { approvalToken?: string; reason: string }) =>
+      rentalAppApi.backup.runRestore(input),
+  );
 
   async function handleBackup() {
     setBusyAction("backup");
     setStatus({ type: null, message: null });
 
     try {
-      const result = await window.rentalApp.backup.runBackup();
+      const result = await runBackupCommand.mutateAsync();
       if (result.success) {
         setRestoreStage("idle");
         setRestoreFilePath(null);
-        window.rentalApp.backup.getStatus().then(setBackupStatus).catch(() => undefined);
+        void backupStatusQuery.refetch();
         setStatus({
           type: "success",
           message: t("Backup created successfully at: {{path}}", {
@@ -93,26 +121,26 @@ export function BackupPage() {
     setStatus({ type: null, message: null });
 
     try {
-      const result = await window.rentalApp.backup.runRestore({
+      const result = await runRestoreCommand.mutateAsync({
         approvalToken,
         reason: reason ?? "",
       });
       if (result.success) {
-        window.rentalApp.backup.getStatus().then(setBackupStatus).catch(() => undefined);
-        setStatus({
-          type: "success",
-          message: result.safetyBackupPath
-            ? t("Database and file storage restored successfully. Safety backup saved at: {{path}}", {
-                path: result.safetyBackupPath,
-              })
-            : t("Database and file storage restored successfully. The application has loaded the restored state."),
-        });
-      } else {
-        setStatus({
-          type: result.error === "Restore process cancelled by user." ? "info" : "error",
-          message: result.error ? t(result.error) : t("Restore was cancelled."),
-        });
+        // The restore replaced the database and the main process already
+        // cleared the session. Everything cached belongs to the file that is
+        // no longer there, so the shell drops it all and returns to login.
+        // This page unmounts with it, which is also why the safety-backup path
+        // never reaches the unauthenticated screen.
+        await onRestoreCompleted();
+        return;
       }
+
+      // A cancelled or failed restore leaves the session and the cache alone:
+      // nothing was replaced, so the user stays exactly where they were.
+      setStatus({
+        type: result.error === "Restore process cancelled by user." ? "info" : "error",
+        message: result.error ? t(result.error) : t("Restore was cancelled."),
+      });
     } catch (err) {
       setStatus({
         type: "error",
@@ -128,7 +156,7 @@ export function BackupPage() {
     setStatus({ type: null, message: null });
 
     try {
-      const result = await window.rentalApp.backup.preview();
+      const result = await previewCommand.mutateAsync();
       setRestoreStage(result.success ? "previewed" : "idle");
       setRestoreFilePath(result.success ? result.filePath ?? null : null);
       setStatus({
@@ -150,7 +178,7 @@ export function BackupPage() {
     setStatus({ type: null, message: null });
 
     try {
-      const result = await window.rentalApp.backup.verify();
+      const result = await verifyCommand.mutateAsync();
       if (result.success) {
         setRestoreStage("verified");
         setRestoreFilePath(result.filePath ?? restoreFilePath);

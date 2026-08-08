@@ -23,7 +23,7 @@ const {
   buildReturnInput,
   createTestCustomer,
   createTestVehicle,
-  daysFromNow,
+  rentalWindow,
   startTestDatabase,
   stopTestDatabase,
 } = await import("./database-test-harness");
@@ -60,6 +60,22 @@ type TestDatabase = ReturnType<typeof startTestDatabase>;
 
 let database: TestDatabase;
 
+/**
+ * The accounting service groups a day's takings by local date, which is what a
+ * shop means by "today". Deriving the date from `toISOString()` instead would
+ * name yesterday between local midnight and the UTC offset, and the closing
+ * would look at a day with no payments in it.
+ */
+function todayLocalDate(): string {
+  const now = new Date();
+
+  return [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
 function money(table: string, column: string, id: number): number {
   const row = getSqliteDatabase()
     .prepare(`select ${column} as value from ${table} where id = ?`)
@@ -83,8 +99,7 @@ describe("rental totals in minor units", () => {
     const rental = activateRental(
       buildActivationInput(customerId, vehicleId, {
         dailyPrice: 1.005,
-        startDatetime: daysFromNow(-1),
-        expectedReturnDatetime: daysFromNow(2),
+        ...rentalWindow(-1, 2),
       }),
     );
 
@@ -112,8 +127,7 @@ describe("rental totals in minor units", () => {
     const rental = activateRental(
       buildActivationInput(customerId, vehicleId, {
         dailyPrice: 0.1,
-        startDatetime: daysFromNow(-1),
-        expectedReturnDatetime: daysFromNow(2),
+        ...rentalWindow(-1, 2),
       }),
     );
 
@@ -154,8 +168,7 @@ describe("rental totals in minor units", () => {
     const rental = activateRental(
       buildActivationInput(customerId, vehicleId, {
         dailyPrice: 10,
-        startDatetime: daysFromNow(-1),
-        expectedReturnDatetime: daysFromNow(0),
+        ...rentalWindow(-1, 0),
         accessories: [
           {
             accessoryId: accessory.id,
@@ -289,8 +302,7 @@ describe("returning a rental", () => {
     const rental = activateRental(
       buildActivationInput(customerId, vehicleId, {
         dailyPrice: 10,
-        startDatetime: daysFromNow(-5),
-        expectedReturnDatetime: daysFromNow(-2),
+        ...rentalWindow(-5, -2),
       }),
     );
 
@@ -345,8 +357,7 @@ describe("commission", () => {
       buildActivationInput(customerId, vehicleId, {
         dailyPrice: 10,
         salesUserId: salesUser.id,
-        startDatetime: daysFromNow(-1),
-        expectedReturnDatetime: daysFromNow(29),
+        ...rentalWindow(-1, 29),
       }),
     );
 
@@ -491,7 +502,7 @@ describe("accounting totals", () => {
       notes: null,
     });
 
-    const closingDate = new Date().toISOString().slice(0, 10);
+    const closingDate = todayLocalDate();
     saveAccountingDailyClosing({
       closingDate,
       countedCash: 87.55,

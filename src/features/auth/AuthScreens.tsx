@@ -1,7 +1,9 @@
-import { Eye, EyeOff, KeyRound, LogIn, UserPlus } from "lucide-react";
-import { useState, useEffect, type FormEvent, type ReactNode } from "react";
+import { Eye, EyeOff, KeyRound, Loader2, LogIn, UserPlus } from "lucide-react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useSystemQuery } from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
 import { useI18n } from "@/hooks/useI18n";
 import type { AuthState } from "@/shared/auth";
 import { normalizeDigits } from "@/shared/numerals";
@@ -29,7 +31,23 @@ const authErrorMessages = [
 
 type AuthScreenProps = {
   currentUserName?: string | null;
-  onAuthState: (state: AuthState) => void;
+  /**
+   * Hands the new state to the session provider, which clears the caches and
+   * advances the epoch before anything renders against it. Awaited so the
+   * screen cannot unmount while the previous session's data is still readable.
+   */
+  onAuthState: (state: AuthState) => Promise<void> | void;
+  /**
+   * One-time notice shown on the login screen after a successful restore.
+   * `restoredStateUnavailable` means the file was replaced but the new session
+   * could not be read back — the restore still succeeded, and signing in again
+   * is still the next step, so the same reassurance applies.
+   */
+  restoreNotice?: "none" | "restored" | "restoredStateUnavailable";
+  /** Retries reading the session after a restore whose state read failed. */
+  onRetryAuthState?: () => void;
+  /** True while that retry is running, so the button cannot be pressed twice. */
+  isRetryingAuthState?: boolean;
   themeControl?: ReactNode;
 };
 
@@ -48,13 +66,13 @@ export function OwnerSetupScreen({ onAuthState, themeControl }: AuthScreenProps)
     setError(null);
 
     try {
-      const state = await window.rentalApp.auth.setupOwner({
+      const state = await rentalAppApi.auth.setupOwner({
         fullName,
         username,
         password,
         confirmPassword,
       });
-      onAuthState(state);
+      await onAuthState(state);
     } catch (err) {
       setError(t(getFriendlyAuthErrorMessage(err, "Owner setup failed.")));
     } finally {
@@ -104,21 +122,37 @@ export function OwnerSetupScreen({ onAuthState, themeControl }: AuthScreenProps)
   );
 }
 
-export function LoginScreen({ onAuthState, themeControl }: AuthScreenProps) {
+export function LoginScreen({
+  isRetryingAuthState = false,
+  onAuthState,
+  onRetryAuthState,
+  restoreNotice = "none",
+  themeControl,
+}: AuthScreenProps) {
   const { t } = useI18n();
-  const [users, setUsers] = useState<{ id: number; username: string; fullName: string }[]>([]);
   const [selectedUser, setSelectedUser] = useState<{ id: number; username: string; fullName: string } | null>(null);
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    window.rentalApp.auth.listLoginUsers()
-      .then(setUsers)
-      .catch(() => setUsers([]))
-      .finally(() => setLoading(false));
-  }, []);
+  /**
+   * Epoch-scoped, so it is tied to the same session transition the auth read
+   * is. After a restore whose state read failed, "Try again" advances the epoch
+   * — which changes this key and refetches the list from the *restored*
+   * database. The old effect ran once on mount and would have kept showing the
+   * previous file's users, or none at all, until the app was restarted.
+   *
+   * Not a business query: the account list is session state, and a rental or a
+   * payment must not send it off again.
+   */
+  const usersQuery = useSystemQuery(
+    "auth.loginUsers",
+    undefined,
+    () => rentalAppApi.auth.listLoginUsers(),
+  );
+  // A failed read shows the same empty list as before, never a broken screen.
+  const users = usersQuery.data ?? [];
+  const loading = usersQuery.isPending;
 
   function selectUser(user: { id: number; username: string; fullName: string }) {
     setSelectedUser(user);
@@ -145,8 +179,8 @@ export function LoginScreen({ onAuthState, themeControl }: AuthScreenProps) {
     setIsSubmitting(true);
 
     try {
-      const state = await window.rentalApp.auth.login({ username: selectedUser!.username, password });
-      onAuthState(state);
+      const state = await rentalAppApi.auth.login({ username: selectedUser!.username, password });
+      await onAuthState(state);
     } catch (err) {
       setError(t(getFriendlyAuthErrorMessage(err, "Login failed.")));
     } finally {
@@ -156,6 +190,41 @@ export function LoginScreen({ onAuthState, themeControl }: AuthScreenProps) {
 
   return (
     <AuthFrame title={t("Login")} themeControl={themeControl}>
+      {restoreNotice === "restored" ? (
+        <div
+          className="mb-4 rounded-md border border-primary/25 bg-primary/10 px-3 py-2 text-sm text-primary"
+          role="status"
+        >
+          {t("Restore completed. Please sign in again.")}
+        </div>
+      ) : null}
+      {restoreNotice === "restoredStateUnavailable" ? (
+        <div
+          className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning/25 bg-warning/10 px-3 py-2 text-sm text-warning"
+          role="status"
+        >
+          <span className="min-w-0">
+            {t(
+              "Restore completed, but the app could not read the session state. Sign in again, or restart the app if the problem continues.",
+            )}
+          </span>
+          {onRetryAuthState ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="shrink-0"
+              disabled={isRetryingAuthState || usersQuery.isFetching}
+              onClick={onRetryAuthState}
+            >
+              {isRetryingAuthState || usersQuery.isFetching ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : null}
+              {t("Try again")}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       {selectedUser ? (
         <form noValidate className="flex flex-col gap-4" onSubmit={(event) => void submit(event)}>
           {/* Selected user header */}
@@ -263,8 +332,8 @@ export function LockScreen({
     setIsSubmitting(true);
 
     try {
-      const state = await window.rentalApp.auth.unlock({ password });
-      onAuthState(state);
+      const state = await rentalAppApi.auth.unlock({ password });
+      await onAuthState(state);
     } catch (err) {
       setError(t(getFriendlyAuthErrorMessage(err, "Unlock failed.")));
     } finally {
@@ -273,8 +342,8 @@ export function LockScreen({
   }
 
   async function logout() {
-    const state = await window.rentalApp.auth.logout();
-    onAuthState(state);
+    const state = await rentalAppApi.auth.logout();
+    await onAuthState(state);
   }
 
   return (
@@ -320,12 +389,12 @@ export function ChangePinScreen({ onAuthState, themeControl }: AuthScreenProps) 
     setError(null);
 
     try {
-      const state = await window.rentalApp.auth.changePassword({
+      const state = await rentalAppApi.auth.changePassword({
         currentPassword,
         newPassword,
         confirmPassword,
       });
-      onAuthState(state);
+      await onAuthState(state);
     } catch (err) {
       setError(t(getFriendlyAuthErrorMessage(err, "PIN could not be changed.")));
     } finally {
@@ -334,8 +403,8 @@ export function ChangePinScreen({ onAuthState, themeControl }: AuthScreenProps) 
   }
 
   async function logout() {
-    const state = await window.rentalApp.auth.logout();
-    onAuthState(state);
+    const state = await rentalAppApi.auth.logout();
+    await onAuthState(state);
   }
 
   return (

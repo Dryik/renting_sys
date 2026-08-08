@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/card";
 import { useI18n } from "@/hooks/useI18n";
 import type { LicenseStatus } from "@/shared/license";
+import { rentalAppApi } from "@/data/rental-app-api";
 
 type LicensePageProps = {
   status: LicenseStatus;
@@ -40,7 +41,7 @@ export function LicensePage({ onStatusChange, status }: LicensePageProps) {
     setNotice({ type: null, message: null });
 
     try {
-      const result = await window.rentalApp.license.exportRequest();
+      const result = await rentalAppApi.license.exportRequest();
       setNotice({
         type: result.success ? "success" : "error",
         message: result.success
@@ -62,7 +63,7 @@ export function LicensePage({ onStatusChange, status }: LicensePageProps) {
     setNotice({ type: null, message: null });
 
     try {
-      const result = await window.rentalApp.license.importLicense();
+      const result = await rentalAppApi.license.importLicense();
       onStatusChange(result.status);
       setNotice({
         type: result.success ? "success" : "error",

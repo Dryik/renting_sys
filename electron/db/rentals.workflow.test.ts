@@ -23,7 +23,7 @@ const {
   buildReturnInput,
   createTestCustomer,
   createTestVehicle,
-  daysFromNow,
+  rentalWindow,
   startTestDatabase,
   stopTestDatabase,
 } = await import("./database-test-harness");
@@ -392,8 +392,7 @@ describe("stored status versus effective status", () => {
 
     const rental = activateRental(
       buildActivationInput(customerId, vehicleId, {
-        startDatetime: daysFromNow(-5),
-        expectedReturnDatetime: daysFromNow(-1),
+        ...rentalWindow(-5, -1),
       }),
     );
 
@@ -408,8 +407,7 @@ describe("stored status versus effective status", () => {
 
     const rental = activateRental(
       buildActivationInput(customerId, vehicleId, {
-        startDatetime: daysFromNow(-1),
-        expectedReturnDatetime: daysFromNow(2),
+        ...rentalWindow(-1, 2),
       }),
     );
 

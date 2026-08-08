@@ -1,5 +1,5 @@
 import { Eye, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
 import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
@@ -8,6 +8,9 @@ import { PaginationControls } from "@/components/ui/pagination-controls";
 import { SearchInput } from "@/components/ui/search-input";
 import { SectionPanel } from "@/components/ui/section-panel";
 import { SidePanel } from "@/components/ui/side-panel";
+import { useBusinessQuery } from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
+import { useDebouncedValue } from "@/data/useDebouncedValue";
 import { useI18n } from "@/hooks/useI18n";
 import type { AuditEventRecord } from "@/shared/audit";
 import type { PageResult } from "@/shared/pagination";
@@ -23,41 +26,37 @@ const emptyAuditPage: PageResult<AuditEventRecord> = {
 
 export function ActivityLogPage() {
   const { formatDateTime, language, t } = useI18n();
-  const [auditPage, setAuditPage] = useState(emptyAuditPage);
   const [selectedEvent, setSelectedEvent] = useState<AuditEventRecord | null>(null);
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(1);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadAudit = useCallback(async (nextPage = page) => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const result = await window.rentalApp.audit.list({
-        page: nextPage,
-        search,
-        dateFrom: dateFrom || undefined,
-        dateTo: dateTo || undefined,
-      });
-      setAuditPage(result);
-    } catch (err) {
-      setError(err instanceof Error ? t(err.message) : t("Activity log could not be loaded."));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [dateFrom, dateTo, page, search, t]);
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      void loadAudit(page);
-    }, 150);
-
-    return () => window.clearTimeout(timeout);
-  }, [loadAudit, page]);
+  // Search and both dates are debounced together, keeping the existing 150 ms
+  // wait, and all three are part of the key.
+  const filterInput = useMemo(
+    () => ({ search, dateFrom, dateTo }),
+    [dateFrom, dateTo, search],
+  );
+  const filters = useDebouncedValue(filterInput, 150);
+  const request = {
+    page,
+    search: filters.search,
+    dateFrom: filters.dateFrom || undefined,
+    dateTo: filters.dateTo || undefined,
+  };
+  const auditQuery = useBusinessQuery(
+    "audit",
+    "list",
+    request,
+    () => rentalAppApi.audit.list(request),
+  );
+  const auditPage = auditQuery.data ?? emptyAuditPage;
+  const isLoading = auditQuery.isPending;
+  const error = auditQuery.isError
+    ? auditQuery.error instanceof Error
+      ? t(auditQuery.error.message)
+      : t("Activity log could not be loaded.")
+    : null;
 
   return (
     <div className="flex flex-col gap-5">
@@ -97,8 +96,14 @@ export function ActivityLogPage() {
               }}
             />
           </label>
-          <Button variant="outline" onClick={() => void loadAudit(page)}>
-            <RefreshCw className="size-4" />
+          <Button
+            variant="outline"
+            disabled={auditQuery.isFetching}
+            onClick={() => void auditQuery.refetch()}
+          >
+            <RefreshCw
+              className={auditQuery.isFetching ? "size-4 animate-spin" : "size-4"}
+            />
             {t("Refresh")}
           </Button>
         </div>

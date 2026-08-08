@@ -1,6 +1,8 @@
 import { FileSpreadsheet, FileText } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useCommandMutation } from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
 import { useAuth } from "@/hooks/useAuth";
 import { useI18n } from "@/hooks/useI18n";
 import type { ReportExportType } from "@/shared/reports";
@@ -23,19 +25,18 @@ export function ReportExportButtons({
   const { can } = useAuth();
   const { t } = useI18n();
   const [message, setMessage] = useState<string | null>(null);
+  // Writing a file out changes no business record, so this deliberately leaves
+  // every cached list alone: exporting must not make the table behind it blink.
+  const exportCommand = useCommandMutation((format: "csv" | "xlsx") =>
+    rentalAppApi.reports.export({ type, format, date, startDate, endDate }),
+  );
 
   if (!can("reports.export")) {
     return null;
   }
 
   async function exportReport(format: "csv" | "xlsx") {
-    const result = await window.rentalApp.reports.export({
-      type,
-      format,
-      date,
-      startDate,
-      endDate,
-    });
+    const result = await exportCommand.mutateAsync(format);
 
     setMessage(
       result.success

@@ -1,5 +1,5 @@
 import { FileSpreadsheet, FileText } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
 import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { LocalizedDateInput } from "@/components/ui/localized-date-input";
 import { PaginationControls } from "@/components/ui/pagination-controls";
 import { useAuth } from "@/hooks/useAuth";
+import { useBusinessQuery, useCommandMutation } from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
 import { useI18n } from "@/hooks/useI18n";
 import type { PageResult } from "@/shared/pagination";
 import type { DailyClosingRecord, ReportExportType } from "@/shared/reports";
@@ -27,46 +29,39 @@ export function OperationalReport({ type }: OperationalReportProps) {
   const [startDate, setStartDate] = useState(toDateInputValue(new Date(new Date().getFullYear(), new Date().getMonth(), 1)));
   const [endDate, setEndDate] = useState(today);
   const [search, setSearch] = useState("");
-  const [rows, setRows] = useState<Record<string, unknown>[]>([]);
   const [page, setPage] = useState(1);
-  const [pageInfo, setPageInfo] = useState<PageInfo | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState<string | null>(null);
+  const [exportMessage, setExportMessage] = useState<string | null>(null);
+  // Every argument the report reads is in the key, so switching report type,
+  // date range, page or search text asks its own question.
+  const request = { type, date, startDate, endDate, page, search };
+  const reportQuery = useBusinessQuery(
+    "reports",
+    "operational",
+    request,
+    () => loadRows(type, date, startDate, endDate, page, search),
+  );
+  const rows = reportQuery.data?.rows ?? [];
+  const pageInfo = reportQuery.data?.pageInfo ?? null;
+  const loading = reportQuery.isPending;
+  const loadError = reportQuery.isError
+    ? reportQuery.error instanceof Error
+      ? reportQuery.error.message
+      : "Report could not be loaded."
+    : null;
+  const message = exportMessage ?? loadError;
 
-  useEffect(() => {
-    let cancelled = false;
-
-    window.queueMicrotask(() => {
-      if (cancelled) {
-        return;
-      }
-
-      setLoading(true);
-      loadRows(type, date, startDate, endDate, page, search)
-        .then((result) => {
-          if (!cancelled) {
-            setRows(result.rows);
-            setPageInfo(result.pageInfo ?? null);
-          }
-        })
-        .catch((error) => {
-          if (!cancelled) {
-            setMessage(error instanceof Error ? error.message : "Report could not be loaded.");
-            setRows([]);
-            setPageInfo(null);
-          }
-        })
-        .finally(() => {
-          if (!cancelled) {
-            setLoading(false);
-          }
-        });
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [date, endDate, page, search, startDate, type]);
+  // Exporting writes a file and changes nothing, so it invalidates nothing.
+  const exportCommand = useCommandMutation(
+    (format: "csv" | "xlsx") =>
+      rentalAppApi.reports.export({
+        type,
+        format,
+        date,
+        startDate,
+        endDate,
+        search: search.trim() || undefined,
+      }),
+  );
 
   const headers = getHeaders(type);
   const numberFormatter = new Intl.NumberFormat(locale);
@@ -75,16 +70,9 @@ export function OperationalReport({ type }: OperationalReportProps) {
     : undefined;
 
   async function handleExport(format: "csv" | "xlsx") {
-    const result = await window.rentalApp.reports.export({
-      type,
-      format,
-      date,
-      startDate,
-      endDate,
-      search: search.trim() || undefined,
-    });
+    const result = await exportCommand.mutateAsync(format);
 
-    setMessage(
+    setExportMessage(
       result.success
         ? t("Report exported successfully.")
         : t(result.error ?? "Report export failed."),
@@ -336,7 +324,7 @@ async function loadRows(
   pageInfo?: PageInfo;
 }> {
   if (type === "deposits") {
-    const depositPage = await window.rentalApp.reports.listDeposits({ page });
+    const depositPage = await rentalAppApi.reports.listDeposits({ page });
 
     return {
       rows: depositPage.rows,
@@ -345,7 +333,7 @@ async function loadRows(
   }
 
   if (type === "outstandingBalances") {
-    const outstandingPage = await window.rentalApp.reports.listOutstandingBalances({ page });
+    const outstandingPage = await rentalAppApi.reports.listOutstandingBalances({ page });
 
     return {
       rows: outstandingPage.rows,
@@ -353,25 +341,25 @@ async function loadRows(
     };
   }
   if (type === "dailyClosing") {
-    return { rows: [await window.rentalApp.reports.getDailyClosing(date)] };
+    return { rows: [await rentalAppApi.reports.getDailyClosing(date)] };
   }
   if (type === "vehicleUtilization") {
-    return { rows: await window.rentalApp.reports.getVehicleUtilization(startDate, endDate) };
+    return { rows: await rentalAppApi.reports.getVehicleUtilization(startDate, endDate) };
   }
   if (type === "vehicleNetSummary") {
-    return { rows: await window.rentalApp.reports.getVehicleNetSummary(startDate, endDate) };
+    return { rows: await rentalAppApi.reports.getVehicleNetSummary(startDate, endDate) };
   }
   if (type === "expiringDocuments") {
-    return { rows: await window.rentalApp.reports.getExpiringDocuments() };
+    return { rows: await rentalAppApi.reports.getExpiringDocuments() };
   }
   if (type === "cancelledRentals") {
-    return { rows: await window.rentalApp.reports.getCancelledRentals() };
+    return { rows: await rentalAppApi.reports.getCancelledRentals() };
   }
   if (type === "paymentVoids") {
-    return { rows: await window.rentalApp.reports.getPaymentVoids() };
+    return { rows: await rentalAppApi.reports.getPaymentVoids() };
   }
   if (type === "vehicleSales") {
-    const salePage = await window.rentalApp.reports.getVehicleSales({
+    const salePage = await rentalAppApi.reports.getVehicleSales({
       dateFrom: startDate,
       dateTo: endDate,
       page,

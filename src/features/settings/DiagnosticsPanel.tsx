@@ -1,33 +1,49 @@
 import { Activity, CheckCircle2, Database, HardDrive, Loader2, RefreshCw, ShieldCheck, Wrench } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import {
+  useBusinessMutation,
+  useCommandMutation,
+  useSystemQuery,
+} from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
 import { useI18n } from "@/hooks/useI18n";
 import type { DataHealthIssue } from "@/shared/data-health";
 import type { DiagnosticsStatus } from "@/shared/diagnostics";
 
 export function DiagnosticsPanel() {
   const { t } = useI18n();
-  const [diagnostics, setDiagnostics] = useState<DiagnosticsStatus | null>(null);
+  const diagnosticsQuery = useSystemQuery<DiagnosticsStatus>(
+    "diagnostics.status",
+    undefined,
+    () => rentalAppApi.diagnostics.getStatus(),
+  );
+  const diagnostics = diagnosticsQuery.data ?? null;
   const [issues, setIssues] = useState<DataHealthIssue[]>([]);
   const [hasScanned, setHasScanned] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [isApplyingFix, setIsApplyingFix] = useState(false);
   const [pendingFix, setPendingFix] = useState<DataHealthIssue | null>(null);
 
-  useEffect(() => {
-    window.rentalApp.diagnostics.getStatus().then(setDiagnostics).catch(() => {
-      setDiagnostics(null);
-    });
-  }, []);
+  // Scanning only reads. It runs on demand rather than on mount, so it is an
+  // action rather than a query — but a command, not a business write: nothing
+  // changes, so throwing away every cached list would be pure cost.
+  const scanMutation = useCommandMutation<DataHealthIssue[], void>(() =>
+    rentalAppApi.dataHealth.scan(),
+  );
+  // Applying a fix edits business records, so it invalidates the business root.
+  const applyFixMutation = useBusinessMutation((issueId: string) =>
+    rentalAppApi.dataHealth.applyFix({ issueId }),
+  );
 
   async function scanDataHealth() {
     setIsScanning(true);
 
     try {
-      const nextIssues = await window.rentalApp.dataHealth.scan();
+      const nextIssues = await scanMutation.mutateAsync();
       setIssues(nextIssues);
       setHasScanned(true);
     } finally {
@@ -39,11 +55,11 @@ export function DiagnosticsPanel() {
     setIsApplyingFix(true);
 
     try {
-      const nextIssues = await window.rentalApp.dataHealth.applyFix({ issueId });
+      const nextIssues = await applyFixMutation.mutateAsync(issueId);
       setIssues(nextIssues);
       setHasScanned(true);
       setPendingFix(null);
-      window.rentalApp.diagnostics.getStatus().then(setDiagnostics).catch(() => undefined);
+      void diagnosticsQuery.refetch();
     } finally {
       setIsApplyingFix(false);
     }

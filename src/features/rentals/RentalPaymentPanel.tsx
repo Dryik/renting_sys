@@ -24,6 +24,8 @@ import {
   paymentTypeValues,
 } from "@/shared/payments";
 import type { RentalListRecord } from "@/shared/rentals";
+import { useCommandMutation } from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
 
 type RentalPaymentPanelProps = {
   currency: string;
@@ -85,12 +87,18 @@ export function RentalPaymentPanel({
     reset(getDefaultPaymentFormValues());
   }
 
+  // Printing a receipt produces a document and changes no record.
+  const printReceiptCommand = useCommandMutation(
+    ({ paymentId, printToPDF }: { paymentId: number; printToPDF: boolean }) =>
+      rentalAppApi.payments.printReceipt(paymentId, printToPDF),
+  );
+
   async function handlePrintReceipt(paymentId: number, printToPDF: boolean) {
     setReceiptPrintAction({ paymentId, printToPDF });
     setReceiptPrintError(null);
 
     try {
-      await window.rentalApp.payments.printReceipt(paymentId, printToPDF);
+      await printReceiptCommand.mutateAsync({ paymentId, printToPDF });
     } catch (err) {
       setReceiptPrintError(
         err instanceof Error && err.message ? t(err.message) : t("Operation Failed"),

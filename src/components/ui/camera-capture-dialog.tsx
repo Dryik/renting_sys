@@ -4,6 +4,8 @@ import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/hooks/useI18n";
 import { useModalBehavior } from "@/hooks/useModalBehavior";
+import { useBusinessMutation } from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
 
 type CameraCaptureDialogProps = {
   customerId: number;
@@ -42,8 +44,36 @@ export function CameraCaptureDialog({
   const [state, setState] = useState<CameraState>("idle");
   const [capturedDataUrl, setCapturedDataUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Saving a captured photo is a business write like any other, so it
+   * invalidates the business root and waits for it. Every mounted reader of
+   * that customer's attachments — the documents list, the row avatar — is
+   * refreshed by the time this resolves, which is why the caller does not need
+   * to refetch anything itself.
+   */
+  const saveCapturedPhoto = useBusinessMutation(
+    (request: Parameters<typeof rentalAppApi.attachments.saveCapturedPhoto>[0]) =>
+      rentalAppApi.attachments.saveCapturedPhoto(request),
+  );
+  /**
+   * Busy means either the parent is working or this dialog's own save is in
+   * flight. The mutation stays pending until its invalidation has refetched, so
+   * this also covers the window where the photo is stored but the lists behind
+   * the dialog have not caught up — closing or capturing again during that
+   * window is what produced a duplicate or a half-updated screen.
+   */
+  const isWorking = isBusy || saveCapturedPhoto.isPending;
+  /**
+   * Guards the save synchronously.
+   *
+   * `isPending` is React state: it only becomes true after a re-render, so two
+   * clicks landing in the same tick both see `false` and both call the
+   * mutation, storing the photo twice. A ref flips immediately, which closes
+   * that window. `isWorking` still drives what the user sees.
+   */
+  const saveInFlight = useRef(false);
   useModalBehavior({
-    closeDisabled: isBusy,
+    closeDisabled: isWorking,
     containerRef: dialogRef,
     onClose: onCancel,
     open,
@@ -165,15 +195,16 @@ export function CameraCaptureDialog({
   }
 
   async function savePhoto() {
-    if (!capturedDataUrl) {
+    if (!capturedDataUrl || saveInFlight.current) {
       return;
     }
 
+    saveInFlight.current = true;
     setError(null);
     const selectedDevice = devices.find((device) => device.deviceId === selectedDeviceId);
 
     try {
-      await window.rentalApp.attachments.saveCapturedPhoto({
+      await saveCapturedPhoto.mutateAsync({
         entityType: "customer",
         entityId: customerId,
         imageDataUrl: capturedDataUrl,
@@ -185,6 +216,9 @@ export function CameraCaptureDialog({
       onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("Photo could not be saved."));
+    } finally {
+      // Cleared even on failure, so a genuine retry after an error is allowed.
+      saveInFlight.current = false;
     }
   }
 
@@ -240,7 +274,7 @@ export function CameraCaptureDialog({
           </div>
           <Button
             aria-label={t("Close")}
-            disabled={isBusy}
+            disabled={isWorking}
             size="icon"
             type="button"
             variant="ghost"
@@ -301,31 +335,31 @@ export function CameraCaptureDialog({
         <footer className="flex flex-wrap justify-end gap-2 border-t bg-muted px-5 py-4">
           {(state === "no_camera" || state === "denied" || state === "unavailable" || state === "unsupported") ? (
             <>
-              <Button disabled={isBusy} type="button" variant="outline" onClick={() => void initializeCamera()}>
+              <Button disabled={isWorking} type="button" variant="outline" onClick={() => void initializeCamera()}>
                 <RefreshCcw />
                 {t("Retry")}
               </Button>
-              <Button type="button" variant="outline" onClick={onFallbackUpload}>
+              <Button disabled={isWorking} type="button" variant="outline" onClick={onFallbackUpload}>
                 <Upload />
                 {t("Upload from device")}
               </Button>
             </>
           ) : null}
           {state === "captured" ? (
-            <Button disabled={isBusy} type="button" variant="outline" onClick={() => void startStream(selectedDeviceId)}>
+            <Button disabled={isWorking} type="button" variant="outline" onClick={() => void startStream(selectedDeviceId)}>
               <RefreshCcw />
               {t("Retake")}
             </Button>
           ) : null}
           {state === "ready" ? (
-            <Button disabled={isBusy} type="button" onClick={captureFrame}>
+            <Button disabled={isWorking} type="button" onClick={captureFrame}>
               <Camera />
               {t("Capture")}
             </Button>
           ) : null}
           {state === "captured" ? (
-            <Button disabled={isBusy} type="button" onClick={() => void savePhoto()}>
-              {isBusy ? <Loader2 className="size-4 animate-spin" /> : <Save />}
+            <Button disabled={isWorking} type="button" onClick={() => void savePhoto()}>
+              {isWorking ? <Loader2 className="size-4 animate-spin" /> : <Save />}
               {t("Save Photo")}
             </Button>
           ) : null}

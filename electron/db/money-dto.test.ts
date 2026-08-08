@@ -30,6 +30,7 @@ const {
   createTestCustomer,
   createTestVehicle,
   daysFromNow,
+  rentalWindow,
   startTestDatabase,
   stopTestDatabase,
 } = await import("./database-test-harness");
@@ -130,6 +131,17 @@ function expectNoInternalMoneyKeys(label: string, value: unknown): void {
 
 function iso(): string {
   return new Date().toISOString();
+}
+
+/** Daily closings are keyed by local date, not by the UTC calendar day. */
+function todayLocalDate(): string {
+  const now = new Date();
+
+  return [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("-");
 }
 
 /** Money has to exist somewhere before a spend can be recorded against it. */
@@ -372,7 +384,7 @@ describe("accounting records crossing IPC", () => {
   });
 
   it("keeps the daily closing in major units only", () => {
-    const closingDate = new Date().toISOString().slice(0, 10);
+    const closingDate = todayLocalDate();
     const saved = saveAccountingDailyClosing({
       closingDate,
       countedCash: 87.65,
@@ -482,8 +494,7 @@ describe("audit snapshots shown on the activity screen", () => {
     const rental = activateRental(
       buildActivationInput(customerId, vehicleId, {
         dailyPrice: 100,
-        startDatetime: daysFromNow(-1),
-        expectedReturnDatetime: daysFromNow(2),
+        ...rentalWindow(-1, 2),
       }),
     );
     const payment = createPayment({

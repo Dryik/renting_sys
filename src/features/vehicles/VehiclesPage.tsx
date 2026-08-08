@@ -1,5 +1,5 @@
 import { Eye, Plus } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -12,6 +12,9 @@ import { SegmentedFilter } from "@/components/ui/segmented-filter";
 import { SidePanel } from "@/components/ui/side-panel";
 import { DocumentPhotoSection } from "@/components/ui/document-photo-section";
 import { ReasonDialog } from "@/components/ui/reason-dialog";
+import { useBusinessMutation, useBusinessQuery } from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
+import { useDebouncedValue } from "@/data/useDebouncedValue";
 import { useAuth } from "@/hooks/useAuth";
 import { useI18n } from "@/hooks/useI18n";
 import type { PageResult } from "@/shared/pagination";
@@ -68,15 +71,12 @@ const rowClassName =
 export function VehiclesPage() {
   const { can } = useAuth();
   const { formatCurrency, language, settings, t } = useI18n();
-  const [vehiclePage, setVehiclePage] = useState(emptyVehiclePage);
   const [search, setSearch] = useState("");
   const [type, setType] = useState<VehicleTypeFilter>("all");
   const [status, setStatus] = useState<VehicleStatusFilter>("all");
   const [page, setPage] = useState(1);
-  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isSaleSaving, setIsSaleSaving] = useState(false);
-  const [listError, setListError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [saleError, setSaleError] = useState<string | null>(null);
   const [formState, setFormState] = useState<FormState>(null);
@@ -91,34 +91,32 @@ export function VehiclesPage() {
     vehicle: VehicleRecord;
   } | null>(null);
 
-  const loadVehicles = useCallback(async (nextPage = page) => {
-    setIsLoading(true);
-    setListError(null);
+  // The same 150 ms wait as before. Search, status and type all sit in the key,
+  // so switching a filter asks a new question rather than reusing an answer.
+  const debouncedSearch = useDebouncedValue(search, 150);
+  const listRequest = { page, search: debouncedSearch, status, type };
+  const vehiclesQuery = useBusinessQuery(
+    "vehicles",
+    "list",
+    listRequest,
+    () => rentalAppApi.vehicles.list(listRequest),
+  );
+  const vehiclePage = vehiclesQuery.data ?? emptyVehiclePage;
+  const isLoading = vehiclesQuery.isPending;
+  const listError = vehiclesQuery.isError
+    ? getErrorMessage(vehiclesQuery.error, t("Vehicles could not be loaded."))
+    : null;
 
-    try {
-      const result = await window.rentalApp.vehicles.list({
-        page: nextPage,
-        search,
-        status,
-        type,
-      });
-      setVehiclePage(result);
-      return result;
-    } catch (error) {
-      setListError(getErrorMessage(error, t("Vehicles could not be loaded.")));
-      return null;
-    } finally {
-      setIsLoading(false);
-    }
-  }, [page, search, status, t, type]);
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      void loadVehicles(page);
-    }, 150);
-
-    return () => window.clearTimeout(timeout);
-  }, [loadVehicles, page]);
+  const updateVehicle = useBusinessMutation(
+    (input: { id: number; values: VehicleInput }) =>
+      rentalAppApi.vehicles.update(input.id, input.values),
+  );
+  const createVehicle = useBusinessMutation((values: VehicleInput) =>
+    rentalAppApi.vehicles.create(values),
+  );
+  const createVehicleSale = useBusinessMutation((values: VehicleSaleInput) =>
+    rentalAppApi.vehicleSales.create(values),
+  );
 
   async function handleSave(input: VehicleInput) {
     if (
@@ -139,17 +137,15 @@ export function VehiclesPage() {
 
     try {
       if (formState?.mode === "edit") {
-        await window.rentalApp.vehicles.update(
-          formState.vehicle.id,
-          reason ? ({ ...input, reason } as VehicleInput) : input,
-        );
+        await updateVehicle.mutateAsync({
+          id: formState.vehicle.id,
+          values: reason ? ({ ...input, reason } as VehicleInput) : input,
+        });
         setFormState(null);
       } else {
-        const createdVehicle = await window.rentalApp.vehicles.create(input);
+        const createdVehicle = await createVehicle.mutateAsync(input);
         setFormState({ mode: "edit", vehicle: createdVehicle });
       }
-
-      await loadVehicles(page);
     } catch (error) {
       setFormError(getErrorMessage(error, t("Vehicle could not be saved.")));
     } finally {
@@ -182,7 +178,7 @@ export function VehiclesPage() {
   }
 
   async function refreshDetailsVehicle(vehicle: VehicleRecord) {
-    const result = await window.rentalApp.vehicles.list({
+    const result = await rentalAppApi.vehicles.list({
       page: 1,
       pageSize: 10,
       search: vehicle.plateNumber,
@@ -210,9 +206,8 @@ export function VehiclesPage() {
     setSaleError(null);
 
     try {
-      await window.rentalApp.vehicleSales.create(pendingSale.input);
+      await createVehicleSale.mutateAsync(pendingSale.input);
       setSaleVehicle(null);
-      await loadVehicles(page);
     } catch (error) {
       setSaleError(getErrorMessage(error, t("Vehicle sale could not be saved.")));
     } finally {
@@ -307,7 +302,8 @@ export function VehiclesPage() {
             } : undefined}
             onSellVehicle={openSaleForm}
             onSaleChanged={async () => {
-              await loadVehicles(page);
+              // Voiding the sale already invalidated the list; the panel still
+              // needs its own copy of the row refreshed.
               await refreshDetailsVehicle(detailsVehicle);
             }}
           />

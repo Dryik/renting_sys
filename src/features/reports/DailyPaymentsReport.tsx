@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
 import { PaginationControls } from "@/components/ui/pagination-controls";
+import { useBusinessQuery } from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
 import { useI18n } from "@/hooks/useI18n";
 import type { PageResult } from "@/shared/pagination";
 import { formatPaymentMethod, formatPaymentType } from "@/shared/payments";
@@ -21,33 +23,16 @@ const emptyPaymentPage: PageResult<DailyPaymentRecord> = {
 export function DailyPaymentsReport() {
   const { formatCurrency, formatDate, language, t } = useI18n();
   const [date, setDate] = useState(toDateInputValue(new Date()));
-  const [paymentPage, setPaymentPage] = useState(emptyPaymentPage);
   const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(true);
-
-  const loadPayments = useCallback(async (nextPage = page) => {
-    setLoading(true);
-
-    try {
-      const data = await window.rentalApp.reports.getDailyPayments({
-        date,
-        page: nextPage,
-      });
-      setPaymentPage(data);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  }, [date, page]);
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      void loadPayments(page);
-    }, 100);
-
-    return () => window.clearTimeout(timeout);
-  }, [loadPayments, page]);
+  const request = { date, page };
+  const paymentsQuery = useBusinessQuery<PageResult<DailyPaymentRecord>>(
+    "reports",
+    "dailyPayments",
+    request,
+    () => rentalAppApi.reports.getDailyPayments(request),
+  );
+  const paymentPage = paymentsQuery.data ?? emptyPaymentPage;
+  const loading = paymentsQuery.isPending;
 
   const pageTotal = useMemo(() => {
     return paymentPage.rows.reduce(

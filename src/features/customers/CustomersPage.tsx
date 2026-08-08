@@ -1,5 +1,5 @@
 import { Eye, Plus } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
 import { CustomerPhotoAvatar } from "@/components/ui/customer-photo-avatar";
@@ -12,6 +12,9 @@ import { SidePanel } from "@/components/ui/side-panel";
 import { DocumentPhotoSection } from "@/components/ui/document-photo-section";
 import { ReasonDialog } from "@/components/ui/reason-dialog";
 import { useAuth } from "@/hooks/useAuth";
+import { useBusinessMutation, useBusinessQuery } from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
+import { useDebouncedValue } from "@/data/useDebouncedValue";
 import { useI18n } from "@/hooks/useI18n";
 import type { CustomerInput, CustomerRecord } from "@/shared/customers";
 import type { PageResult } from "@/shared/pagination";
@@ -43,41 +46,42 @@ const rowClassName =
 export function CustomersPage() {
   const { can } = useAuth();
   const { formatDate, t } = useI18n();
-  const [customerPage, setCustomerPage] = useState(emptyCustomerPage);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
-  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [listError, setListError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [formState, setFormState] = useState<FormState>(null);
   const [detailsCustomer, setDetailsCustomer] = useState<CustomerRecord | null>(null);
   const [customerToDeactivate, setCustomerToDeactivate] = useState<CustomerRecord | null>(null);
 
-  const loadCustomers = useCallback(async (nextPage = page) => {
-    setIsLoading(true);
-    setListError(null);
+  // The same 150 ms wait as before, now on the value that forms the key.
+  const debouncedSearch = useDebouncedValue(search, 150);
+  const listRequest = { page, search: debouncedSearch };
+  const customersQuery = useBusinessQuery(
+    "customers",
+    "list",
+    listRequest,
+    () => rentalAppApi.customers.list(listRequest),
+  );
+  const customerPage = customersQuery.data ?? emptyCustomerPage;
+  const isLoading = customersQuery.isPending;
+  const listError = customersQuery.isError
+    ? getErrorMessage(customersQuery.error, t("Customers could not be loaded."))
+    : null;
 
-    try {
-      const result = await window.rentalApp.customers.list({
-        page: nextPage,
-        search,
-      });
-      setCustomerPage(result);
-    } catch (error) {
-      setListError(getErrorMessage(error, t("Customers could not be loaded.")));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [page, search, t]);
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      void loadCustomers(page);
-    }, 150);
-
-    return () => window.clearTimeout(timeout);
-  }, [loadCustomers, page]);
+  // Each of these invalidates every business read for the session and does not
+  // settle until the list behind the form has refetched.
+  const updateCustomer = useBusinessMutation(
+    (input: { id: number; values: CustomerInput }) =>
+      rentalAppApi.customers.update(input.id, input.values),
+  );
+  const createCustomer = useBusinessMutation((values: CustomerInput) =>
+    rentalAppApi.customers.create(values),
+  );
+  const deactivateCustomer = useBusinessMutation(
+    (input: { customerId: number; reason: string }) =>
+      rentalAppApi.customers.deactivate(input),
+  );
 
   async function handleSave(input: CustomerInput) {
     setIsSaving(true);
@@ -85,14 +89,12 @@ export function CustomersPage() {
 
     try {
       if (formState?.mode === "edit") {
-        await window.rentalApp.customers.update(formState.customer.id, input);
+        await updateCustomer.mutateAsync({ id: formState.customer.id, values: input });
         setFormState(null);
       } else {
-        const createdCustomer = await window.rentalApp.customers.create(input);
+        const createdCustomer = await createCustomer.mutateAsync(input);
         setFormState({ mode: "edit", customer: createdCustomer });
       }
-
-      await loadCustomers(page);
     } catch (error) {
       setFormError(getErrorMessage(error, t("Customer could not be saved.")));
     } finally {
@@ -105,9 +107,8 @@ export function CustomersPage() {
     setFormError(null);
 
     try {
-      await window.rentalApp.customers.deactivate({ customerId: id, reason });
+      await deactivateCustomer.mutateAsync({ customerId: id, reason });
       setFormState(null);
-      await loadCustomers(page);
     } catch (error) {
       setFormError(getErrorMessage(error, t("Customer could not be deactivated.")));
     } finally {

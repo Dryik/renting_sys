@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -39,10 +39,12 @@ import { SensitiveActionDialog } from "@/components/ui/sensitive-action-dialog";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { useI18n } from "@/hooks/useI18n";
-import { notifyShopSettingsUpdated } from "@/hooks/useShopSettings";
+import { useSetShopSettings, useShopSettingsQuery } from "@/hooks/useShopSettings";
+import { rentalAppApi, getUpdatesApi } from "@/data/rental-app-api";
 import { languageValues } from "@/shared/language";
 import { normalizeDigits } from "@/shared/numerals";
 import type { ShopSettings } from "@/shared/settings";
+import { shopSettingsToFormValues } from "@/shared/settings-form";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { AccessoriesManagement } from "../accessories/AccessoriesManagement";
 
@@ -105,13 +107,26 @@ export function SettingsPage({
   const { can } = useAuth();
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
-  const [isLoading, setIsLoading] = useState(true);
+  const settingsQuery = useShopSettingsQuery();
+  const setShopSettings = useSetShopSettings();
+  // Guards the one-time hydration below; a ref rather than state so filling the
+  // form never schedules another render pass.
+  const hasHydratedForm = useRef(false);
+  const isLoading = settingsQuery.isPending;
   const [isSaving, setIsSaving] = useState(false);
-  const [currentSettings, setCurrentSettings] = useState<ShopSettings | null>(null);
-  const [status, setStatus] = useState<{
+  const [actionStatus, setActionStatus] = useState<{
     type: "success" | "error" | null;
     message: string | null;
   }>({ type: null, message: null });
+  // The saved settings are whatever the shared query holds: a successful save
+  // writes the returned object straight into it, so there is no second copy
+  // here that could drift.
+  const currentSettings = settingsQuery.data ?? null;
+  const status = actionStatus.type
+    ? actionStatus
+    : settingsQuery.isError
+      ? { type: "error" as const, message: t("Failed to load shop settings.") }
+      : actionStatus;
   const [pendingSettings, setPendingSettings] = useState<Partial<ShopSettings> | null>(null);
   const [pendingLogoAction, setPendingLogoAction] = useState<"clear" | "select" | null>(null);
   const [pendingSignatureAction, setPendingSignatureAction] =
@@ -156,31 +171,7 @@ export function SettingsPage({
   });
 
   function resetSettingsForm(data: ShopSettings) {
-    reset({
-      shopName: data.shopName,
-      shopPhone: data.shopPhone,
-      shopAddress: data.shopAddress,
-      defaultCurrency: data.defaultCurrency,
-      defaultLateFee: String(data.defaultLateFee),
-      enableClientDeposit: data.enableClientDeposit,
-      autoPrintReceipt: data.autoPrintReceipt,
-      dailyClosingEnabled: data.dailyClosingEnabled,
-      enableSalesCommission: data.enableSalesCommission,
-      defaultDailyCommissionRate: String(data.defaultDailyCommissionRate),
-      printLanguage: data.printLanguage,
-      insuranceWarningDays: String(data.insuranceWarningDays),
-      registrationWarningDays: String(data.registrationWarningDays),
-      technicalInspectionWarningDays: String(data.technicalInspectionWarningDays),
-      licenseWarningDays: String(data.licenseWarningDays),
-      backupReminderDays: String(data.backupReminderDays),
-      scheduledBackupEnabled: data.scheduledBackupEnabled,
-      ownerPinEnabled: data.ownerPinEnabled,
-      contractFooter: data.contractFooter,
-      printHeaderSubtitle: data.printHeaderSubtitle,
-      printTermsAndConditions: data.printTermsAndConditions,
-      enableContractWatermark: data.enableContractWatermark,
-      language: data.language,
-    });
+    reset(shopSettingsToFormValues(data));
   }
 
   useEffect(() => {
@@ -191,46 +182,22 @@ export function SettingsPage({
     return () => onDirtyChange?.(false);
   }, [onDirtyChange]);
 
+  /**
+   * The form is filled from the shared settings query, but only the first time
+   * a value arrives. A later refetch — triggered by a sign-in, a permission
+   * change, or anything else — must never reach in and overwrite fields the
+   * user is part-way through editing.
+   */
   useEffect(() => {
-    async function loadSettings() {
-      try {
-        const data = await window.rentalApp.settings.get();
-        setCurrentSettings(data);
-        reset({
-          shopName: data.shopName,
-          shopPhone: data.shopPhone,
-          shopAddress: data.shopAddress,
-          defaultCurrency: data.defaultCurrency,
-          defaultLateFee: String(data.defaultLateFee),
-          enableClientDeposit: data.enableClientDeposit,
-          autoPrintReceipt: data.autoPrintReceipt,
-          dailyClosingEnabled: data.dailyClosingEnabled,
-          printLanguage: data.printLanguage,
-          insuranceWarningDays: String(data.insuranceWarningDays),
-          registrationWarningDays: String(data.registrationWarningDays),
-          technicalInspectionWarningDays: String(data.technicalInspectionWarningDays),
-          licenseWarningDays: String(data.licenseWarningDays),
-          backupReminderDays: String(data.backupReminderDays),
-          scheduledBackupEnabled: data.scheduledBackupEnabled,
-          ownerPinEnabled: data.ownerPinEnabled,
-          contractFooter: data.contractFooter,
-          printHeaderSubtitle: data.printHeaderSubtitle,
-          printTermsAndConditions: data.printTermsAndConditions,
-          enableContractWatermark: data.enableContractWatermark,
-          language: data.language,
-        });
-      } catch {
-        setStatus({
-          type: "error",
-          message: t("Failed to load shop settings."),
-        });
-      } finally {
-        setIsLoading(false);
-      }
-    }
+    const data = settingsQuery.data;
 
-    loadSettings();
-  }, [reset, t]);
+    if (data && !hasHydratedForm.current) {
+      hasHydratedForm.current = true;
+      // The same mapper the post-save reset uses, so no field can be filled
+      // on one path and left at its schema default on the other.
+      reset(shopSettingsToFormValues(data));
+    }
+  }, [reset, settingsQuery.data]);
 
   async function onSubmit(values: SettingsFormInput) {
     const payload = buildSettingsPayload(values);
@@ -241,7 +208,7 @@ export function SettingsPage({
     if (currentSettings) {
       resetSettingsForm(currentSettings);
     }
-    setStatus({ type: null, message: null });
+    setActionStatus({ type: null, message: null });
   }
 
   async function saveSettings(
@@ -249,25 +216,24 @@ export function SettingsPage({
     values: { approvalToken?: string; reason?: string },
   ) {
     setIsSaving(true);
-    setStatus({ type: null, message: null });
+    setActionStatus({ type: null, message: null });
 
     try {
-      const updated = await window.rentalApp.settings.save({
+      const updated = await rentalAppApi.settings.save({
         ...payload,
         approvalToken: values.approvalToken,
         reason: values.reason,
       });
       setPendingSettings(null);
-      setCurrentSettings(updated);
-      notifyShopSettingsUpdated(updated);
+      setShopSettings(updated);
       resetSettingsForm(updated);
 
-      setStatus({
+      setActionStatus({
         type: "success",
         message: t("Settings saved successfully."),
       });
     } catch (err) {
-      setStatus({
+      setActionStatus({
         type: "error",
         message: err instanceof Error ? t(err.message) : t("Failed to save settings."),
       });
@@ -290,21 +256,20 @@ export function SettingsPage({
     }
 
     setIsSaving(true);
-    setStatus({ type: null, message: null });
+    setActionStatus({ type: null, message: null });
 
     try {
       const updated =
         pendingLogoAction === "select"
-          ? await window.rentalApp.settings.selectLogo({
+          ? await rentalAppApi.settings.selectLogo({
               approvalToken: values.approvalToken,
             })
-          : await window.rentalApp.settings.clearLogo({
+          : await rentalAppApi.settings.clearLogo({
               approvalToken: values.approvalToken,
             });
-      setCurrentSettings(updated);
       resetSettingsForm(updated);
-      notifyShopSettingsUpdated(updated);
-      setStatus({
+      setShopSettings(updated);
+      setActionStatus({
         type: "success",
         message:
           pendingLogoAction === "select"
@@ -312,7 +277,7 @@ export function SettingsPage({
             : t("Shop logo removed."),
       });
     } catch (err) {
-      setStatus({
+      setActionStatus({
         type: "error",
         message:
           err instanceof Error
@@ -341,21 +306,20 @@ export function SettingsPage({
     }
 
     setIsSaving(true);
-    setStatus({ type: null, message: null });
+    setActionStatus({ type: null, message: null });
 
     try {
       const updated =
         pendingSignatureAction === "select"
-          ? await window.rentalApp.settings.selectOwnerSignature({
+          ? await rentalAppApi.settings.selectOwnerSignature({
               approvalToken: values.approvalToken,
             })
-          : await window.rentalApp.settings.clearOwnerSignature({
+          : await rentalAppApi.settings.clearOwnerSignature({
               approvalToken: values.approvalToken,
             });
-      setCurrentSettings(updated);
       resetSettingsForm(updated);
-      notifyShopSettingsUpdated(updated);
-      setStatus({
+      setShopSettings(updated);
+      setActionStatus({
         type: "success",
         message:
           pendingSignatureAction === "select"
@@ -363,7 +327,7 @@ export function SettingsPage({
             : t("Owner signature removed."),
       });
     } catch (err) {
-      setStatus({
+      setActionStatus({
         type: "error",
         message:
           err instanceof Error
@@ -410,29 +374,28 @@ export function SettingsPage({
     }
 
     setIsSaving(true);
-    setStatus({ type: null, message: null });
+    setActionStatus({ type: null, message: null });
     setOwnerPinError(null);
 
     try {
       if (pendingOwnerPinAction === "set") {
-        await window.rentalApp.security.setOwnerPin({
+        await rentalAppApi.security.setOwnerPin({
           approvalToken: values.approvalToken,
           pin: ownerPin,
         });
       } else {
-        await window.rentalApp.security.clearOwnerPin({
+        await rentalAppApi.security.clearOwnerPin({
           approvalToken: values.approvalToken,
         });
       }
 
-      const updated = await window.rentalApp.settings.get();
-      setCurrentSettings(updated);
+      const updated = await rentalAppApi.settings.get();
       resetSettingsForm(updated);
-      notifyShopSettingsUpdated(updated);
+      setShopSettings(updated);
       setPendingOwnerPinAction(null);
       setOwnerPin("");
       setConfirmOwnerPin("");
-      setStatus({
+      setActionStatus({
         type: "success",
         message:
           pendingOwnerPinAction === "set"
@@ -440,7 +403,7 @@ export function SettingsPage({
             : t("Owner PIN disabled."),
       });
     } catch (err) {
-      setStatus({
+      setActionStatus({
         type: "error",
         message:
           err instanceof Error
@@ -1480,23 +1443,23 @@ function SoftwareUpdateCard({ currentVersion }: { currentVersion?: string }) {
 
   useEffect(() => {
     if (!appVersion) {
-      window.rentalApp?.diagnostics?.getStatus?.().then((diag) => {
+      rentalAppApi?.diagnostics?.getStatus?.().then((diag) => {
         if (diag?.appVersion) setAppVersion(diag.appVersion);
       }).catch(() => {});
     }
 
-    void window.rentalApp?.updates?.getPendingUpdate?.().then((info) => {
+    void getUpdatesApi()?.getPendingUpdate?.().then((info) => {
       if (info?.version) {
         setDownloadedVersion(info.version);
       }
     });
 
-    const unsubDownloaded = window.rentalApp?.updates?.onDownloaded?.((info) => {
+    const unsubDownloaded = getUpdatesApi()?.onDownloaded?.((info) => {
       setDownloadedVersion(info.version);
       setStatusText(t("Update ready! Click Restart & Update to install."));
     });
 
-    const unsubStatus = window.rentalApp?.updates?.onStatusChange?.((state) => {
+    const unsubStatus = getUpdatesApi()?.onStatusChange?.((state) => {
       if (state.status === "checking") {
         setChecking(true);
         setStatusText(t("Checking for updates..."));
@@ -1532,7 +1495,7 @@ function SoftwareUpdateCard({ currentVersion }: { currentVersion?: string }) {
     setChecking(true);
     setStatusText(null);
     try {
-      const res = await window.rentalApp?.updates?.checkForUpdates?.();
+      const res = await getUpdatesApi()?.checkForUpdates?.();
       if (res?.status === "idle" && !downloadedVersion) {
         setStatusText(t("Your app is completely up to date."));
       }
@@ -1544,7 +1507,7 @@ function SoftwareUpdateCard({ currentVersion }: { currentVersion?: string }) {
   }
 
   async function handleRestartAndInstall() {
-    await window.rentalApp?.updates?.restartAndInstall?.();
+    await getUpdatesApi()?.restartAndInstall?.();
   }
 
   return (

@@ -8,7 +8,7 @@ import {
   Printer,
   RefreshCw,
 } from "lucide-react";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,9 @@ import { SearchInput } from "@/components/ui/search-input";
 import { SensitiveActionDialog } from "@/components/ui/sensitive-action-dialog";
 import { SidePanel } from "@/components/ui/side-panel";
 import { useAuth } from "@/hooks/useAuth";
+import { useBusinessMutation, useBusinessQuery, useCommandMutation } from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
+import { useDebouncedValue } from "@/data/useDebouncedValue";
 import { useI18n } from "@/hooks/useI18n";
 import type { PageResult } from "@/shared/pagination";
 import {
@@ -67,48 +70,75 @@ type PendingPaymentAction = {
 export function PaymentsPage() {
   const { can } = useAuth();
   const { formatCurrency, formatDateTime, language, settings, t } = useI18n();
-  const [paymentPage, setPaymentPage] = useState(emptyPaymentPage);
   const [selectedPayment, setSelectedPayment] = useState<PaymentListRecord | null>(null);
   const [search, setSearch] = useState("");
   const [type, setType] = useState<PaymentTypeFilter>("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(1);
-  const [isLoading, setIsLoading] = useState(true);
   const [isMutating, setIsMutating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Failures raised by an action; a failed load is derived below.
+  const [actionError, setActionError] = useState<string | null>(null);
   const [pendingPaymentAction, setPendingPaymentAction] =
     useState<PendingPaymentAction>(null);
   const [correctionAmount, setCorrectionAmount] = useState("");
   const [actionDialogError, setActionDialogError] = useState<string | null>(null);
 
-  const loadPayments = useCallback(async (nextPage = page) => {
-    setIsLoading(true);
-    setError(null);
+  // The same 150 ms wait as before. Both dates, the search and the type filter
+  // are all part of the key.
+  const filterInput = useMemo(
+    () => ({ search, dateFrom, dateTo, type }),
+    [dateFrom, dateTo, search, type],
+  );
+  const filters = useDebouncedValue(filterInput, 150);
+  const listRequest = {
+    dateFrom: filters.dateFrom || undefined,
+    dateTo: filters.dateTo || undefined,
+    page,
+    search: filters.search,
+    type: filters.type,
+  };
+  const paymentsQuery = useBusinessQuery(
+    "payments",
+    "list",
+    listRequest,
+    () => rentalAppApi.payments.list(listRequest),
+  );
+  const paymentPage = paymentsQuery.data ?? emptyPaymentPage;
+  const isLoading = paymentsQuery.isPending;
+  // `isPending` is only true before the first answer arrives, so the explicit
+  // Refresh button watches `isFetching` instead — otherwise it would never spin
+  // or disable again once the table had loaded once.
+  const isRefreshing = paymentsQuery.isFetching;
 
-    try {
-      const result = await window.rentalApp.payments.list({
-        dateFrom: dateFrom || undefined,
-        dateTo: dateTo || undefined,
-        page: nextPage,
-        search,
-        type,
-      });
-      setPaymentPage(result);
-    } catch (err) {
-      setError(err instanceof Error ? t(err.message) : t("Payments could not be loaded."));
-    } finally {
-      setIsLoading(false);
+  async function refreshPayments() {
+    const result = await paymentsQuery.refetch();
+
+    // A successful reload makes a stale failure message wrong; drop it.
+    if (!result.isError) {
+      setActionError(null);
     }
-  }, [dateFrom, dateTo, page, search, t, type]);
+  }
+  const error = actionError ??
+    (paymentsQuery.isError
+      ? paymentsQuery.error instanceof Error
+        ? t(paymentsQuery.error.message)
+        : t("Payments could not be loaded.")
+      : null);
 
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      void loadPayments(page);
-    }, 150);
-
-    return () => window.clearTimeout(timeout);
-  }, [loadPayments, page]);
+  const voidPayment = useBusinessMutation(
+    (input: { approvalToken?: string; paymentId: number; reason: string }) =>
+      rentalAppApi.payments.void(input),
+  );
+  const correctPayment = useBusinessMutation(
+    (input: Parameters<typeof rentalAppApi.payments.correct>[0]) =>
+      rentalAppApi.payments.correct(input),
+  );
+  // Printing a receipt changes nothing, so it invalidates nothing.
+  const printReceipt = useCommandMutation(
+    ({ paymentId, printToPDF }: { paymentId: number; printToPDF: boolean }) =>
+      rentalAppApi.payments.printReceipt(paymentId, printToPDF),
+  );
 
   function resetToFirstPage() {
     setPage(1);
@@ -130,12 +160,12 @@ export function PaymentsPage() {
 
     const { payment, type: actionType } = pendingPaymentAction;
     setIsMutating(true);
-    setError(null);
+    setActionError(null);
     setActionDialogError(null);
 
     try {
       if (actionType === "void") {
-        await window.rentalApp.payments.void({
+        await voidPayment.mutateAsync({
           approvalToken: values.approvalToken,
           paymentId: payment.id,
           reason: values.reason,
@@ -148,7 +178,7 @@ export function PaymentsPage() {
           return;
         }
 
-        await window.rentalApp.payments.correct({
+        await correctPayment.mutateAsync({
           approvalToken: values.approvalToken,
           paymentId: payment.id,
           reason: values.reason,
@@ -168,9 +198,8 @@ export function PaymentsPage() {
       setSelectedPayment(null);
       setPendingPaymentAction(null);
       setCorrectionAmount("");
-      await loadPayments(page);
     } catch (err) {
-      setError(
+      setActionError(
         err instanceof Error
           ? t(err.message)
           : actionType === "void"
@@ -207,11 +236,11 @@ export function PaymentsPage() {
             className="w-full md:w-auto"
             size="lg"
             variant="outline"
-            disabled={isLoading}
-            onClick={() => void loadPayments(page)}
+            disabled={isRefreshing}
+            onClick={() => void refreshPayments()}
           >
             <RefreshCw
-              className={isLoading ? "animate-spin" : undefined}
+              className={isRefreshing ? "animate-spin" : undefined}
               data-icon="inline-start"
             />
             {t("Refresh")}
@@ -314,7 +343,10 @@ export function PaymentsPage() {
             t={t}
             isMutating={isMutating}
             onPrintReceipt={(printToPDF) =>
-              void window.rentalApp.payments.printReceipt(selectedPayment.id, printToPDF)
+              void printReceipt.mutateAsync({
+                paymentId: selectedPayment.id,
+                printToPDF,
+              })
             }
             onCorrectPayment={can("payments.void") ? () => void handleCorrectPayment(selectedPayment) : undefined}
             onVoidPayment={can("payments.void") ? () => void handleVoidPayment(selectedPayment) : undefined}

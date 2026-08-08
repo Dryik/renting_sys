@@ -1,11 +1,12 @@
 import { UserRound } from "lucide-react";
-import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import {
   isPhotoDocumentType,
   type AttachmentRecord,
 } from "@/shared/attachments";
+import { useBusinessQuery } from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
 
 type CustomerPhotoAvatarProps = {
   alt: string;
@@ -22,45 +23,34 @@ export function CustomerPhotoAvatar({
 }: CustomerPhotoAvatarProps) {
   const { can } = useAuth();
   const canViewDocuments = can("customers.documents.view");
-  const [dataUrl, setDataUrl] = useState<string | null>(null);
+  /**
+   * Keyed to the session and to this customer, so saving a photo — which
+   * invalidates the business root — refreshes the avatar along with every other
+   * attachment reader. The old effect was outside the cache entirely, which is
+   * why an avatar could stay stale after a capture.
+   *
+   * Gated on the view permission exactly as before: without it, no request.
+   */
+  const listRequest = { entityType: "customer" as const, entityId: customerId, pageSize: 100 };
+  const photoQuery = useBusinessQuery(
+    "attachments",
+    "customerPhoto",
+    listRequest,
+    async () => {
+      const result = await rentalAppApi.attachments.list(listRequest);
+      const photo = findPrimaryCustomerPhoto(result.rows);
 
-  useEffect(() => {
-    if (!canViewDocuments) {
-      window.queueMicrotask(() => {
-        setDataUrl(null);
-      });
-      return;
-    }
-
-    let cancelled = false;
-
-    async function loadPhoto() {
-      try {
-        const result = await window.rentalApp.attachments.list({
-          entityType: "customer",
-          entityId: customerId,
-          pageSize: 100,
-        });
-        const photo = findPrimaryCustomerPhoto(result.rows);
-
-        if (!photo) {
-          if (!cancelled) setDataUrl(null);
-          return;
-        }
-
-        const preview = await window.rentalApp.attachments.getPreview(photo.id);
-        if (!cancelled) setDataUrl(preview.dataUrl);
-      } catch {
-        if (!cancelled) setDataUrl(null);
+      if (!photo) {
+        return null;
       }
-    }
 
-    void loadPhoto();
+      const preview = await rentalAppApi.attachments.getPreview(photo.id);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [canViewDocuments, customerId]);
+      return preview.dataUrl;
+    },
+    { enabled: canViewDocuments },
+  );
+  const dataUrl = canViewDocuments ? photoQuery.data ?? null : null;
 
   return (
     <div

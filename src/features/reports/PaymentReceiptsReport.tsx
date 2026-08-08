@@ -1,57 +1,56 @@
 import { Printer, Download } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
 import { MoneyText } from "@/components/ui/money-text";
 import { SearchInput } from "@/components/ui/search-input";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { useBusinessQuery, useCommandMutation } from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
+import { useDebouncedValue } from "@/data/useDebouncedValue";
 import { useI18n } from "@/hooks/useI18n";
 import { formatPaymentMethod, formatPaymentType, type PaymentListRecord } from "@/shared/payments";
 
 export function PaymentReceiptsReport() {
   const { formatCurrency, formatDate, language, t } = useI18n();
-  const [payments, setPayments] = useState<PaymentListRecord[]>([]);
   const [search, setSearch] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
   const [printingId, setPrintingId] = useState<number | null>(null);
-  const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  // Notices raised by printing. A failed load is derived below.
+  const [printNotice, setPrintNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const debouncedSearch = useDebouncedValue(search, 200);
+  const request = { page: 1, pageSize: 50, search: debouncedSearch };
+  const paymentsQuery = useBusinessQuery(
+    "payments",
+    "list",
+    request,
+    () => rentalAppApi.payments.list(request),
+  );
+  const payments: PaymentListRecord[] = paymentsQuery.data?.rows ?? [];
+  const isLoading = paymentsQuery.isPending;
+  // Printing produces a document; it changes nothing, so it invalidates
+  // nothing.
+  const printReceipt = useCommandMutation(
+    ({ paymentId, printToPDF }: { paymentId: number; printToPDF: boolean }) =>
+      rentalAppApi.payments.printReceipt(paymentId, printToPDF),
+  );
 
-  const loadPayments = useCallback(async () => {
-    setIsLoading(true);
-    setNotice(null);
-    try {
-      const pageResult = await window.rentalApp.payments.list({
-        page: 1,
-        pageSize: 50,
-        search,
-      });
-      setPayments(pageResult.rows);
-    } catch {
-      setNotice({ type: "error", text: t("Payment receipts could not be loaded.") });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [search, t]);
-
-  useEffect(() => {
-    const timeout = setTimeout(() => {
-      void loadPayments();
-    }, 200);
-    return () => clearTimeout(timeout);
-  }, [loadPayments]);
+  const notice = printNotice ??
+    (paymentsQuery.isError
+      ? { type: "error" as const, text: t("Payment receipts could not be loaded.") }
+      : null);
 
   async function handlePrint(paymentId: number, printToPDF: boolean) {
     setPrintingId(paymentId);
-    setNotice(null);
+    setPrintNotice(null);
     try {
-      await window.rentalApp.payments.printReceipt(paymentId, printToPDF);
-      setNotice({
+      await printReceipt.mutateAsync({ paymentId, printToPDF });
+      setPrintNotice({
         type: "success",
         text: printToPDF ? t("Receipt PDF saved successfully.") : t("Receipt sent to printer."),
       });
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      setNotice({ type: "error", text: msg || t("Failed to print receipt.") });
+      setPrintNotice({ type: "error", text: msg || t("Failed to print receipt.") });
     } finally {
       setPrintingId(null);
     }

@@ -1,6 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/search-input";
+import { useBusinessQuery } from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
+import { useDebouncedValue } from "@/data/useDebouncedValue";
 import { useI18n } from "@/hooks/useI18n";
 import type { GlobalSearchResult } from "@/shared/search";
 
@@ -11,32 +14,22 @@ type GlobalSearchBoxProps = {
 export function GlobalSearchBox({ onResult }: GlobalSearchBoxProps) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<GlobalSearchResult[]>([]);
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    const search = query.trim();
-    const timeout = window.setTimeout(() => {
-      if (!search) {
-        setResults([]);
-        setOpen(false);
-        return;
-      }
-
-      window.rentalApp.search
-        .global(search)
-        .then((items) => {
-          setResults(items);
-          setOpen(true);
-        })
-        .catch(() => {
-          setResults([]);
-          setOpen(false);
-        });
-    }, 180);
-
-    return () => window.clearTimeout(timeout);
-  }, [query]);
+  // Closing is the only thing the user does directly — picking a result. The
+  // panel's visibility is otherwise derived, so no effect has to push state
+  // around to keep it in step with the request.
+  const [dismissedFor, setDismissedFor] = useState<string | null>(null);
+  // The same 180 ms wait as before; an empty box issues no request at all.
+  const search = useDebouncedValue(query.trim(), 180);
+  const resultsQuery = useBusinessQuery<GlobalSearchResult[]>(
+    "search",
+    "global",
+    search,
+    () => rentalAppApi.search.global(search),
+    { enabled: search.length > 0 },
+  );
+  const results = (search ? resultsQuery.data : undefined) ?? [];
+  const open =
+    search.length > 0 && resultsQuery.isSuccess && dismissedFor !== search;
 
   return (
     <div className="relative w-full">
@@ -46,7 +39,7 @@ export function GlobalSearchBox({ onResult }: GlobalSearchBoxProps) {
         placeholder={t("Search everything")}
         value={query}
         onChange={(event) => setQuery(event.target.value)}
-        onFocus={() => setOpen(results.length > 0)}
+        onFocus={() => setDismissedFor(null)}
       />
       {open ? (
         <div className="absolute z-40 mt-2 max-h-96 w-full overflow-auto rounded-xl border border-border/80 bg-popover p-2 shadow-lg">
@@ -62,7 +55,7 @@ export function GlobalSearchBox({ onResult }: GlobalSearchBoxProps) {
                 type="button"
                 variant="ghost"
                 onClick={() => {
-                  setOpen(false);
+                  setDismissedFor(search);
                   setQuery("");
                   onResult(result);
                 }}

@@ -1,9 +1,11 @@
 import { Ban, CarFront, Edit, FileDown, Gauge, Printer, Tag, WalletCards } from "lucide-react";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
 import { DocumentPhotoSection } from "@/components/ui/document-photo-section";
 import { SensitiveActionDialog } from "@/components/ui/sensitive-action-dialog";
+import { useBusinessMutation, useBusinessQuery, useCommandMutation } from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
 import { useAuth } from "@/hooks/useAuth";
 import { useI18n } from "@/hooks/useI18n";
 import { formatPaymentMethod } from "@/shared/payments";
@@ -29,44 +31,37 @@ export function VehicleDetailsPanel({
 }: VehicleDetailsPanelProps) {
   const { can } = useAuth();
   const { formatCurrency, formatDate, language, settings, t } = useI18n();
-  const [sale, setSale] = useState<VehicleSaleListRecord | null>(null);
-  const [isSaleLoading, setIsSaleLoading] = useState(false);
-  const [saleError, setSaleError] = useState<string | null>(null);
+  const [saleActionError, setSaleActionError] = useState<string | null>(null);
   const [voidDialogOpen, setVoidDialogOpen] = useState(false);
   const [isMutatingSale, setIsMutatingSale] = useState(false);
   const [printAction, setPrintAction] = useState<"print" | "pdf" | null>(null);
 
-  const loadSale = useCallback(async () => {
-    if (vehicle.displayStatus !== "sold" && !vehicle.activeSaleId) {
-      setSale(null);
-      return;
-    }
+  // Only vehicles that were actually sold have a sale to fetch, so the read is
+  // gated the same way the old early return gated it.
+  const hasSale = vehicle.displayStatus === "sold" || Boolean(vehicle.activeSaleId);
+  const saleQuery = useBusinessQuery<VehicleSaleListRecord | null>(
+    "vehicleSales",
+    "getForVehicle",
+    vehicle.id,
+    () => rentalAppApi.vehicleSales.getForVehicle(vehicle.id),
+    { enabled: hasSale },
+  );
+  const sale = hasSale ? saleQuery.data ?? null : null;
+  const isSaleLoading = hasSale && saleQuery.isPending;
+  const saleError =
+    saleActionError ??
+    (hasSale && saleQuery.isError
+      ? getErrorMessage(saleQuery.error, t("Vehicle sale could not be loaded."))
+      : null);
 
-    setIsSaleLoading(true);
-    setSaleError(null);
-
-    try {
-      setSale(await window.rentalApp.vehicleSales.getForVehicle(vehicle.id));
-    } catch (error) {
-      setSaleError(getErrorMessage(error, t("Vehicle sale could not be loaded.")));
-    } finally {
-      setIsSaleLoading(false);
-    }
-  }, [t, vehicle.activeSaleId, vehicle.displayStatus, vehicle.id]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    window.queueMicrotask(() => {
-      if (!cancelled) {
-        void loadSale();
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [loadSale]);
+  // Printing a receipt changes nothing; voiding a sale does.
+  const printSaleReceipt = useCommandMutation((printToPDF: boolean) =>
+    rentalAppApi.vehicleSales.printReceipt(sale!.id, printToPDF),
+  );
+  const voidSale = useBusinessMutation(
+    (input: { approvalToken?: string; reason: string; saleId: number }) =>
+      rentalAppApi.vehicleSales.void(input),
+  );
 
   const canSellVehicle =
     Boolean(onSellVehicle) &&
@@ -80,12 +75,12 @@ export function VehicleDetailsPanel({
     }
 
     setPrintAction(printToPDF ? "pdf" : "print");
-    setSaleError(null);
+    setSaleActionError(null);
 
     try {
-      await window.rentalApp.vehicleSales.printReceipt(sale.id, printToPDF);
+      await printSaleReceipt.mutateAsync(printToPDF);
     } catch (error) {
-      setSaleError(getErrorMessage(error, t("Operation Failed")));
+      setSaleActionError(getErrorMessage(error, t("Operation Failed")));
     } finally {
       setPrintAction(null);
     }
@@ -97,19 +92,18 @@ export function VehicleDetailsPanel({
     }
 
     setIsMutatingSale(true);
-    setSaleError(null);
+    setSaleActionError(null);
 
     try {
-      await window.rentalApp.vehicleSales.void({
+      await voidSale.mutateAsync({
         approvalToken: values.approvalToken,
         reason: values.reason,
         saleId: sale.id,
       });
       setVoidDialogOpen(false);
-      setSale(null);
       await onSaleChanged?.();
     } catch (error) {
-      setSaleError(getErrorMessage(error, t("Vehicle sale could not be voided.")));
+      setSaleActionError(getErrorMessage(error, t("Vehicle sale could not be voided.")));
     } finally {
       setIsMutatingSale(false);
     }

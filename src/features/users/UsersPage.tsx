@@ -1,5 +1,5 @@
 import { Eye, EyeOff, KeyRound, Pencil, Plus, RefreshCw, UserCheck, UserX } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,8 @@ import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
 import { ReasonDialog } from "@/components/ui/reason-dialog";
 import { SidePanel } from "@/components/ui/side-panel";
+import { useBusinessMutation, useBusinessQuery } from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
 import { useAuth } from "@/hooks/useAuth";
 import { useI18n } from "@/hooks/useI18n";
 import {
@@ -14,6 +16,7 @@ import {
   roleValues,
   type CreateUserInput,
   type RoleKey,
+  type ResetPasswordInput,
   type UpdateUserInput,
   type UserListRecord,
 } from "@/shared/auth";
@@ -34,45 +37,65 @@ type PendingSensitiveAction =
 export function UsersPage() {
   const { can, currentUser, refreshAuth } = useAuth();
   const { formatDateTime, language, t } = useI18n();
-  const [users, setUsers] = useState<UserListRecord[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Failures raised by an action; a failed load is derived below.
+  const [actionError, setActionError] = useState<string | null>(null);
   const [formState, setFormState] = useState<UserFormState>(null);
   const [detailsUser, setDetailsUser] = useState<UserListRecord | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingSensitiveAction>(null);
 
-  const loadUsers = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+  const usersQuery = useBusinessQuery(
+    "users",
+    "list",
+    undefined,
+    () => rentalAppApi.users.list(),
+  );
+  const users = usersQuery.data ?? [];
+  const isLoading = usersQuery.isPending;
+  const listError = usersQuery.isError
+    ? usersQuery.error instanceof Error
+      ? t(usersQuery.error.message)
+      : t("Users could not be loaded.")
+    : null;
+  const error = actionError ?? listError;
 
-    try {
-      setUsers(await window.rentalApp.users.list());
-    } catch (err) {
-      setError(err instanceof Error ? t(err.message) : t("Users could not be loaded."));
-    } finally {
-      setIsLoading(false);
+  async function refreshUsers() {
+    const result = await usersQuery.refetch();
+
+    if (!result.isError) {
+      setActionError(null);
     }
-  }, [t]);
+  }
 
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      void loadUsers();
-    }, 0);
-
-    return () => window.clearTimeout(timeout);
-  }, [loadUsers]);
+  // Changing a user can change what the signed-in account may do, so each of
+  // these refreshes the session as well as invalidating the business root.
+  const createUserMutation = useBusinessMutation((input: CreateUserInput) =>
+    rentalAppApi.users.create(input),
+  );
+  const updateUserMutation = useBusinessMutation((input: UpdateUserInput) =>
+    rentalAppApi.users.update(input),
+  );
+  const deactivateUserMutation = useBusinessMutation(
+    (input: { userId: number; reason: string }) =>
+      rentalAppApi.users.deactivate(input),
+  );
+  const reactivateUserMutation = useBusinessMutation((input: { userId: number }) =>
+    rentalAppApi.users.reactivate(input),
+  );
+  const resetPasswordMutation = useBusinessMutation(
+    (input: ResetPasswordInput) => rentalAppApi.users.resetPassword(input),
+  );
 
   async function createUser(input: CreateUserInput) {
     setIsSaving(true);
-    setError(null);
+    setActionError(null);
 
     try {
-      await window.rentalApp.users.create(input);
+      await createUserMutation.mutateAsync(input);
       setFormState(null);
-      await Promise.all([loadUsers(), refreshAuth()]);
+      await refreshAuth();
     } catch (err) {
-      setError(err instanceof Error ? t(err.message) : t("User could not be saved."));
+      setActionError(err instanceof Error ? t(err.message) : t("User could not be saved."));
     } finally {
       setIsSaving(false);
     }
@@ -87,15 +110,15 @@ export function UsersPage() {
     }
 
     setIsSaving(true);
-    setError(null);
+    setActionError(null);
 
     try {
-      await window.rentalApp.users.update(input);
+      await updateUserMutation.mutateAsync(input);
       setFormState(null);
       setPendingAction(null);
-      await Promise.all([loadUsers(), refreshAuth()]);
+      await refreshAuth();
     } catch (err) {
-      setError(err instanceof Error ? t(err.message) : t("User could not be saved."));
+      setActionError(err instanceof Error ? t(err.message) : t("User could not be saved."));
     } finally {
       setIsSaving(false);
     }
@@ -103,15 +126,15 @@ export function UsersPage() {
 
   async function deactivateUser(user: UserListRecord, reason: string) {
     setIsSaving(true);
-    setError(null);
+    setActionError(null);
 
     try {
-      await window.rentalApp.users.deactivate({ userId: user.id, reason });
+      await deactivateUserMutation.mutateAsync({ userId: user.id, reason });
       setPendingAction(null);
       setDetailsUser(null);
-      await Promise.all([loadUsers(), refreshAuth()]);
+      await refreshAuth();
     } catch (err) {
-      setError(err instanceof Error ? t(err.message) : t("User could not be deactivated."));
+      setActionError(err instanceof Error ? t(err.message) : t("User could not be deactivated."));
     } finally {
       setIsSaving(false);
     }
@@ -119,14 +142,14 @@ export function UsersPage() {
 
   async function reactivateUser(user: UserListRecord) {
     setIsSaving(true);
-    setError(null);
+    setActionError(null);
 
     try {
-      await window.rentalApp.users.reactivate({ userId: user.id });
+      await reactivateUserMutation.mutateAsync({ userId: user.id });
       setDetailsUser(null);
-      await Promise.all([loadUsers(), refreshAuth()]);
+      await refreshAuth();
     } catch (err) {
-      setError(err instanceof Error ? t(err.message) : t("User could not be saved."));
+      setActionError(err instanceof Error ? t(err.message) : t("User could not be saved."));
     } finally {
       setIsSaving(false);
     }
@@ -139,10 +162,10 @@ export function UsersPage() {
     reason: string,
   ) {
     setIsSaving(true);
-    setError(null);
+    setActionError(null);
 
     try {
-      await window.rentalApp.users.resetPassword({
+      await resetPasswordMutation.mutateAsync({
         userId: user.id,
         newPassword: password,
         confirmPassword,
@@ -150,9 +173,9 @@ export function UsersPage() {
         reason,
       });
       setPendingAction(null);
-      await Promise.all([loadUsers(), refreshAuth()]);
+      await refreshAuth();
     } catch (err) {
-      setError(err instanceof Error ? t(err.message) : t("PIN could not be reset."));
+      setActionError(err instanceof Error ? t(err.message) : t("PIN could not be reset."));
     } finally {
       setIsSaving(false);
     }
@@ -165,8 +188,14 @@ export function UsersPage() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap justify-end gap-2">
-        <Button variant="outline" onClick={() => void loadUsers()}>
-          <RefreshCw className="size-4" />
+        <Button
+          variant="outline"
+          disabled={usersQuery.isFetching}
+          onClick={() => void refreshUsers()}
+        >
+          <RefreshCw
+            className={usersQuery.isFetching ? "size-4 animate-spin" : "size-4"}
+          />
           {t("Refresh")}
         </Button>
         {can("users.create") ? (

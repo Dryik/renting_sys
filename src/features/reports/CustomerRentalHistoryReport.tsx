@@ -1,11 +1,14 @@
 import { Search } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
 import { MoneyText } from "@/components/ui/money-text";
 import { PaginationControls } from "@/components/ui/pagination-controls";
+import { useBusinessQuery } from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
+import { useDebouncedValue } from "@/data/useDebouncedValue";
 import { useI18n } from "@/hooks/useI18n";
 import { cn } from "@/lib/utils";
 import type { CustomerRecord } from "@/shared/customers";
@@ -32,65 +35,31 @@ const emptyRentalPage: PageResult<RentalListRecord> = {
 export function CustomerRentalHistoryReport() {
   const { formatCurrency, formatDate, t } = useI18n();
   const [customerSearch, setCustomerSearch] = useState("");
-  const [customerPage, setCustomerPage] = useState(emptyCustomerPage);
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerRecord | null>(null);
-  const [rentalPage, setRentalPage] = useState(emptyRentalPage);
-  const [loadingCustomers, setLoadingCustomers] = useState(true);
-  const [loadingRentals, setLoadingRentals] = useState(false);
   const [page, setPage] = useState(1);
+  const debouncedCustomerSearch = useDebouncedValue(customerSearch, 150);
+  const customerRequest = { page: 1, search: debouncedCustomerSearch };
+  const customersQuery = useBusinessQuery(
+    "customers",
+    "list",
+    customerRequest,
+    () => rentalAppApi.customers.list(customerRequest),
+  );
+  const customerPage = customersQuery.data ?? emptyCustomerPage;
+  const loadingCustomers = customersQuery.isPending;
 
-  const loadCustomers = useCallback(async () => {
-    setLoadingCustomers(true);
-
-    try {
-      const result = await window.rentalApp.customers.list({
-        page: 1,
-        search: customerSearch,
-      });
-      setCustomerPage(result);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoadingCustomers(false);
-    }
-  }, [customerSearch]);
-
-  const loadRentals = useCallback(async (nextPage = page) => {
-    if (!selectedCustomer) {
-      setRentalPage(emptyRentalPage);
-      return;
-    }
-
-    setLoadingRentals(true);
-
-    try {
-      const data = await window.rentalApp.reports.getCustomerRentalHistory({
-        customerId: selectedCustomer.id,
-        page: nextPage,
-      });
-      setRentalPage(data);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoadingRentals(false);
-    }
-  }, [page, selectedCustomer]);
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      void loadCustomers();
-    }, 150);
-
-    return () => window.clearTimeout(timeout);
-  }, [loadCustomers]);
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      void loadRentals(page);
-    }, 0);
-
-    return () => window.clearTimeout(timeout);
-  }, [loadRentals, page]);
+  // The history only exists once a customer is chosen, so the read is gated
+  // rather than fired with a missing id.
+  const rentalRequest = { customerId: selectedCustomer?.id ?? 0, page };
+  const rentalsQuery = useBusinessQuery(
+    "reports",
+    "customerRentalHistory",
+    rentalRequest,
+    () => rentalAppApi.reports.getCustomerRentalHistory(rentalRequest),
+    { enabled: selectedCustomer !== null },
+  );
+  const rentalPage = rentalsQuery.data ?? emptyRentalPage;
+  const loadingRentals = selectedCustomer !== null && rentalsQuery.isPending;
 
   function selectCustomer(customer: CustomerRecord) {
     setSelectedCustomer(customer);

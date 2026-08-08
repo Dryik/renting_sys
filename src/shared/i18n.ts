@@ -289,6 +289,11 @@ const ar: Record<string, string> = {
   "Update ready! Click Restart & Update to install.": "التحديث جاهز! اضغط على إعادة التشغيل والتحديث للتثبيت.",
   "Select your account:": "اختر حسابك:",
   "No active users found.": "لا يوجد مستخدمون نشطون.",
+  "Restore completed. Please sign in again.":
+    "تمت الاستعادة بنجاح. الرجاء تسجيل الدخول مرة أخرى.",
+  "Restore completed, but the app could not read the session state. Sign in again, or restart the app if the problem continues.":
+    "تمت الاستعادة بنجاح، لكن تعذر على التطبيق قراءة حالة الجلسة. سجل الدخول مرة أخرى، أو أعد تشغيل التطبيق إذا استمرت المشكلة.",
+  "Try again": "حاول مرة أخرى",
   "Change": "تغيير",
   "Your app is completely up to date.": "التطبيق محدّث بالكامل لأحدث إصدار.",
   "Could not check for updates. Check internet connection.": "تعذر التحقق من التحديثات. يرجى التأكد من الاتصال بالإنترنت.",

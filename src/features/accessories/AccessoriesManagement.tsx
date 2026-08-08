@@ -1,18 +1,18 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
 import { SidePanel } from "@/components/ui/side-panel";
 import { useAuth } from "@/hooks/useAuth";
+import { useBusinessMutation, useBusinessQuery } from "@/data/hooks";
+import { rentalAppApi } from "@/data/rental-app-api";
 import { useI18n } from "@/hooks/useI18n";
-import type { AccessoryRecord } from "@/shared/accessories";
+import type { AccessoryInput, AccessoryRecord } from "@/shared/accessories";
 import { Edit, Plus, Shield } from "lucide-react";
 
 export function AccessoriesManagement() {
   const { can } = useAuth();
   const { formatCurrency, t } = useI18n();
-  const [items, setItems] = useState<AccessoryRecord[]>([]);
-  const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   const [editItem, setEditItem] = useState<AccessoryRecord | null>(null);
   const [name, setName] = useState("");
@@ -21,25 +21,20 @@ export function AccessoriesManagement() {
   const [notes, setNotes] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
-  const loadAccessories = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await window.rentalApp.accessories.list();
-      setItems(res.rows);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    // The rule cannot see through the useCallback: the only synchronous setState
-    // is setLoading(true), and `loading` already starts true, so React bails out
-    // instead of cascading. Every other update here happens after the await.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadAccessories();
-  }, [loadAccessories]);
+  const accessoriesQuery = useBusinessQuery(
+    "accessories",
+    "list",
+    undefined,
+    () => rentalAppApi.accessories.list(),
+  );
+  const items = accessoriesQuery.data?.rows ?? [];
+  const loading = accessoriesQuery.isPending;
+  const saveAccessory = useBusinessMutation(
+    (input: { id: number | null; payload: AccessoryInput }) =>
+      input.id === null
+        ? rentalAppApi.accessories.create(input.payload)
+        : rentalAppApi.accessories.update(input.id, input.payload),
+  );
 
   function openCreate() {
     setEditItem(null);
@@ -71,14 +66,8 @@ export function AccessoriesManagement() {
         notes: notes || null,
       };
 
-      if (editItem) {
-        await window.rentalApp.accessories.update(editItem.id, payload);
-      } else {
-        await window.rentalApp.accessories.create(payload);
-      }
-
+      await saveAccessory.mutateAsync({ id: editItem?.id ?? null, payload });
       setFormOpen(false);
-      await loadAccessories();
     } catch (err) {
       console.error(err);
     } finally {
