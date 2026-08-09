@@ -1,0 +1,107 @@
+# Proves that a real 0.3.9 installation survives a real electron-updater
+# upgrade to the version on this branch, with its data intact.
+#
+# This workflow installs a package, lets the updater replace it, and migrates
+# the database the installed application opens. That is destructive, so it runs
+# only on a fresh GitHub-hosted Windows runner, which is discarded afterwards.
+# The rehearsal itself refuses to start unless it can independently confirm the
+# machine is disposable; the environment variable below is one half of that,
+# and the runner's own identity is the other.
+#
+# It never publishes a release and never creates a tag.
+name: Upgrade rehearsal
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "package.json"
+      - "package-lock.json"
+      - "electron/db/**"
+      - "scripts/upgrade-rehearsal/**"
+      - ".github/workflows/upgrade-rehearsal.yml"
+
+# One rehearsal at a time: two runs would fight over the same feed ports and
+# the same installed application.
+concurrency:
+  group: upgrade-rehearsal-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  rehearse:
+    # Hosted Windows only. The guard refuses anywhere else, but failing here is
+    # a clearer signal than failing three steps later.
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    env:
+      # Half of the disposable proof. The other half is the runner itself,
+      # which the guard checks through GITHUB_ACTIONS, CI and RUNNER_TEMP.
+      RENTAL_UPGRADE_REHEARSAL_DISPOSABLE: yes-this-machine-is-disposable
+      RENTAL_UPGRADE_REPORT: ${{ github.workspace }}\upgrade-rehearsal-report.json
+
+    steps:
+      - name: Refuse to run anywhere but Windows
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" != "Windows" ]; then
+            echo "The rehearsal drives a Windows NSIS installer; this runner is $RUNNER_OS."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          # The rehearsal builds the previous release from its own tag, so the
+          # tag has to be in the clone.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Production audit
+        run: npm audit --omit=dev
+
+      - name: Whitespace check
+        run: git diff --check
+
+      - name: Build
+        run: npm run build
+
+      - name: Renderer smoke
+        run: npm run smoke:renderer
+
+      - name: Package this version
+        run: npm run dist
+
+      - name: Upgrade rehearsal
+        run: npm run test:upgrade
+
+      # Uploaded even on failure: the manifests and the update-event sequence
+      # are the evidence, and a failed run is when they matter most.
+      - name: Upload the rehearsal report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upgrade-rehearsal-report
+          path: |
+            upgrade-rehearsal-report.json
+            release/latest.yml
+          if-no-files-found: warn
+          retention-days: 14

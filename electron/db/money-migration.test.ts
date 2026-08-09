@@ -8,6 +8,7 @@ import { toMinorUnits } from "../../src/shared/money";
 import { LATEST_SCHEMA_VERSION } from "./migrations";
 import { migrateDatabase, type MigrateOptions } from "./migration-runner";
 import { moneyColumnPairs, triggerName } from "./money-columns";
+import { DB_INTEGRATION_TEST_TIMEOUT_MS } from "./test-timeouts";
 
 const fixturesPath = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -164,7 +165,7 @@ function triggerNames(database: Database.Database): string[] {
   ).map((row) => row.name);
 }
 
-describe("migration 12 backfill", () => {
+describe("migration 12 backfill", { timeout: DB_INTEGRATION_TEST_TIMEOUT_MS }, () => {
   it("converts every one of the 29 columns on a released v11 upgrade", () => {
     const database = openDatabaseFile();
 
@@ -342,7 +343,7 @@ describe("migration 12 backfill", () => {
   });
 });
 
-describe("migration 12 refusing bad data", () => {
+describe("migration 12 refusing bad data", { timeout: DB_INTEGRATION_TEST_TIMEOUT_MS }, () => {
   it("aborts on a value outside the safe range and leaves the file at version 11", () => {
     const database = openDatabaseFile();
 
@@ -418,7 +419,7 @@ describe("migration 12 refusing bad data", () => {
   });
 });
 
-describe("the mirror consistency triggers", () => {
+describe("the mirror consistency triggers", { timeout: DB_INTEGRATION_TEST_TIMEOUT_MS }, () => {
   function upgraded(): Database.Database {
     const database = openDatabaseFile();
     database.exec(releasedV11Sql);
@@ -790,7 +791,7 @@ describe("the mirror consistency triggers", () => {
   });
 });
 
-describe("schema drift", () => {
+describe("schema drift", { timeout: DB_INTEGRATION_TEST_TIMEOUT_MS }, () => {
   it("gives a v11 upgrade the same triggers as a fresh database", () => {
     const upgraded = openDatabaseFile();
     const fresh = openDatabaseFile("fresh.db");

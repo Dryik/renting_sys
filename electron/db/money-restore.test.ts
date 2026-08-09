@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DB_INTEGRATION_TEST_TIMEOUT_MS } from "./test-timeouts";
 
 const showOpenDialog = vi.fn();
 const saveDialog = vi.fn();
@@ -129,7 +130,7 @@ afterEach(() => {
   stopTestDatabase(database);
 });
 
-describe("restoring a version 11 backup", () => {
+describe("restoring a version 11 backup", { timeout: DB_INTEGRATION_TEST_TIMEOUT_MS }, () => {
   it("migrates the restored file to version 12 and converts its amounts", async () => {
     const archivePath = buildVersion11Archive();
     showOpenDialog.mockResolvedValue({ canceled: false, filePaths: [archivePath] });

@@ -14,6 +14,7 @@ import {
 import { assertWalFullyCheckpointed } from "./wal-checkpoint";
 import { LATEST_SCHEMA_VERSION, migrations, type Migration } from "./migrations";
 import { openBackupArchive } from "./backup-archive";
+import { DB_INTEGRATION_TEST_TIMEOUT_MS } from "./test-timeouts";
 
 const fixturesPath = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -366,7 +367,7 @@ describe("the migration registry", () => {
   });
 });
 
-describe("creating a fresh database", () => {
+describe("creating a fresh database", { timeout: DB_INTEGRATION_TEST_TIMEOUT_MS }, () => {
   it("creates the latest schema directly and records the current version", () => {
     const database = openDatabaseFile();
 
@@ -396,7 +397,7 @@ describe("creating a fresh database", () => {
   });
 });
 
-describe("upgrading from the released schemas", () => {
+describe("upgrading from the released schemas", { timeout: DB_INTEGRATION_TEST_TIMEOUT_MS }, () => {
   it("upgrades a released v0.1.0 (schema 8) database and preserves business data", () => {
     const database = openDatabaseFile();
 
@@ -528,7 +529,7 @@ describe("upgrading from the released schemas", () => {
   });
 });
 
-describe("upgrading synthetic fixtures", () => {
+describe("upgrading synthetic fixtures", { timeout: DB_INTEGRATION_TEST_TIMEOUT_MS }, () => {
   it("upgrades a hand-written version 1 database and preserves its rows", () => {
     const database = openDatabaseFile();
 
@@ -678,7 +679,7 @@ describe("upgrading synthetic fixtures", () => {
   });
 });
 
-describe("rejecting databases it must not touch", () => {
+describe("rejecting databases it must not touch", { timeout: DB_INTEGRATION_TEST_TIMEOUT_MS }, () => {
   it("refuses a database recorded at a future schema version", () => {
     const database = openDatabaseFile();
 
@@ -752,7 +753,7 @@ describe("rejecting databases it must not touch", () => {
   });
 });
 
-describe("the WAL checkpoint gate", () => {
+describe("the WAL checkpoint gate", { timeout: DB_INTEGRATION_TEST_TIMEOUT_MS }, () => {
   it("accepts a fully incorporated WAL", () => {
     const stub = {
       pragma: () => [{ busy: 0, log: 0, checkpointed: 0 }],
@@ -796,7 +797,7 @@ describe("the WAL checkpoint gate", () => {
   });
 });
 
-describe("safety backup verification", () => {
+describe("safety backup verification", { timeout: DB_INTEGRATION_TEST_TIMEOUT_MS }, () => {
   function backupContext(overrides: Record<string, unknown> = {}) {
     return {
       userDataPath: workspacePath,
@@ -901,7 +902,7 @@ describe("safety backup verification", () => {
   });
 });
 
-describe("failure handling", () => {
+describe("failure handling", { timeout: DB_INTEGRATION_TEST_TIMEOUT_MS }, () => {
   it("does not migrate when the safety backup step fails", () => {
     const database = openDatabaseFile();
 
@@ -1030,7 +1031,7 @@ describe("failure handling", () => {
  * REAL-only amounts that nothing would catch. These tests break the upgrade at
  * each point where that gap could open and show the guards are already there.
  */
-describe("money mirror triggers arriving with the version stamp", () => {
+describe("money mirror triggers arriving with the version stamp", { timeout: DB_INTEGRATION_TEST_TIMEOUT_MS }, () => {
   function assertGuarded(database: Database.Database): void {
     expect(schemaVersion(database)).toBe(String(LATEST_SCHEMA_VERSION));
     expect(mirrorTriggerCount(database)).toBe(58);
