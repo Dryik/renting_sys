@@ -180,6 +180,113 @@ async function main() {
   );
   log(`  info  English screen text: ${JSON.stringify(englishText)}`);
 
+  /**
+   * PR6 split these screens across many files. Opening each one proves the
+   * extracted components still mount and render, which a type-check alone
+   * cannot show: a missing import or a bad prop only fails at runtime.
+   */
+  const pageTour = await page.executeJavaScript(`
+    (async () => {
+      // A destination counts as visited only when something that page alone
+      // renders is on screen. A landed click proves nothing by itself: the
+      // route can change while the extracted component fails to mount, and
+      // the sidebar it was clicked from stays on screen either way.
+      const anchors = [
+        ["Rentals", () =>
+          document.body.innerText.includes("New Rental") &&
+          Boolean(document.querySelector("table"))],
+        ["Reports", () => document.body.innerText.includes("Report Hub")],
+        ["Settings", () => document.body.innerText.includes("Shop Settings")],
+        ["Accounting", () => document.body.innerText.includes("Record Expense")],
+      ];
+      const visited = [];
+      const errors = [];
+
+      for (const [label, hasAnchor] of anchors) {
+        const target = Array.from(document.querySelectorAll("button, a"))
+          .find((el) => el.textContent && el.textContent.trim() === label);
+        if (!target) {
+          errors.push("no sidebar control for " + label);
+          continue;
+        }
+        target.click();
+        await new Promise((r) => setTimeout(r, 1200));
+        if (hasAnchor()) visited.push(label);
+        else errors.push(label + " opened without its anchor");
+      }
+      return JSON.stringify({ visited, errors });
+    })()
+  `);
+  log(`  info  page tour: ${pageTour}`);
+  check(
+    "opens Rentals, Reports, Settings and Accounting",
+    JSON.parse(pageTour).visited,
+    ["Rentals", "Reports", "Settings", "Accounting"],
+  );
+  check("every page tour destination reached its own anchor", JSON.parse(pageTour).errors, []);
+
+  // One OperationalReport tab: its table, config and cell formatting are now
+  // three separate modules.
+  const reportTab = await page.executeJavaScript(`
+    (async () => {
+      const reports = Array.from(document.querySelectorAll("button, a"))
+        .find((el) => el.textContent && el.textContent.trim() === "Reports");
+      if (reports) { reports.click(); await new Promise((r) => setTimeout(r, 900)); }
+      const tab = Array.from(document.querySelectorAll("button"))
+        .find((el) => el.textContent && /Deposits|Outstanding|Daily Closing|Expiring/.test(el.textContent));
+      if (!tab) return JSON.stringify({ opened: false });
+      const label = tab.textContent.trim();
+      tab.click();
+      await new Promise((r) => setTimeout(r, 1200));
+      const hasTable = Boolean(document.querySelector("table")) ||
+        /No records|Loading|Expected Cash/.test(document.body.innerText);
+      return JSON.stringify({ opened: true, label, hasTable });
+    })()
+  `);
+  log(`  info  operational report tab: ${reportTab}`);
+  check("an operational report tab renders", JSON.parse(reportTab).hasTable, true);
+
+  // All five Settings tabs, each now its own component fed by the one form.
+  const settingsTabs = await page.executeJavaScript(`
+    (async () => {
+      const settings = Array.from(document.querySelectorAll("button, a"))
+        .find((el) => el.textContent && el.textContent.trim() === "Settings");
+      if (settings) { settings.click(); await new Promise((r) => setTimeout(r, 1000)); }
+      // Only the active tab is mounted, and each one owns exactly one of these
+      // registered fields. Finding the field is what shows the extracted
+      // component mounted and wired itself to the shared form; page text alone
+      // would pass on the surrounding shell no matter which tab rendered.
+      const wanted = [
+        ["Shop Profile", '[name="shopName"]'],
+        ["Language & Currency", '[name="language"]'],
+        ["Contract & Terms", '[name="printTermsAndConditions"]'],
+        ["Operations & Accessories", '[name="defaultLateFee"]'],
+        ["Security & System", '[name="scheduledBackupEnabled"]'],
+      ];
+      const opened = [];
+      const errors = [];
+      for (const [label, selector] of wanted) {
+        const tab = Array.from(document.querySelectorAll("button"))
+          .find((el) => el.textContent && el.textContent.trim().startsWith(label));
+        if (!tab) {
+          errors.push("no tab button for " + label);
+          continue;
+        }
+        tab.click();
+        await new Promise((r) => setTimeout(r, 700));
+        if (document.querySelector(selector)) opened.push(label);
+        else errors.push(label + " mounted without " + selector);
+      }
+      return JSON.stringify({ opened, errors });
+    })()
+  `);
+  log(`  info  settings tabs: ${settingsTabs}`);
+  check(
+    "each Settings tab renders its registered field",
+    JSON.parse(settingsTabs).opened.length,
+    5,
+  );
+
   // The five object-valued debounce call sites all live on pages reached from
   // the sidebar, so the loop probe has to actually open one. Accounting is the
   // worst case: nine fields, previously rebuilt as a fresh literal per render.

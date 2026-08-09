@@ -1,8 +1,6 @@
 import { FileSpreadsheet, FileText } from "lucide-react";
-import { useState, type ReactNode } from "react";
-import { BidiValue } from "@/components/ui/bidi-value";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { DataTable, EmptyTableRow, Td, Th } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
 import { LocalizedDateInput } from "@/components/ui/localized-date-input";
 import { PaginationControls } from "@/components/ui/pagination-controls";
@@ -12,8 +10,17 @@ import { rentalAppApi } from "@/data/rental-app-api";
 import { useI18n } from "@/hooks/useI18n";
 import type { PageResult } from "@/shared/pagination";
 import type { DailyClosingRecord, ReportExportType } from "@/shared/reports";
-import { cn } from "@/lib/utils";
-
+import { DailyClosingSummary } from "./DailyClosingSummary";
+import { OperationalReportTable } from "./OperationalReportTable";
+import {
+  getEmptyMessage,
+  getHeaders,
+  isPagedOperationalReport,
+  toDateInputValue,
+  usesRange,
+  usesSearch,
+  usesSingleDate,
+} from "./operational-report-config";
 
 type OperationalReportProps = {
   type: ReportExportType;
@@ -21,6 +28,12 @@ type OperationalReportProps = {
 
 type PageInfo = Pick<PageResult<unknown>, "page" | "pageSize" | "total" | "totalPages">;
 
+/**
+ * Owns the report's filters, its query and its export command; the two
+ * components below it only render what they are handed. Every report type
+ * shares this one orchestration, which is why the per-type decisions live in
+ * `operational-report-config`.
+ */
 export function OperationalReport({ type }: OperationalReportProps) {
   const { can } = useAuth();
   const { formatCurrency, locale, t } = useI18n();
@@ -167,41 +180,15 @@ export function OperationalReport({ type }: OperationalReportProps) {
         />
       ) : (
         <>
-          <DataTable
-            className={cn("table-auto", headers.length > 5 ? "min-w-[960px]" : "min-w-full")}
-            containerClassName="[&_td]:px-2 [&_th]:px-2 overflow-x-auto"
-          >
-            <thead>
-              <tr>{headers.map((header) => <Th key={header}>{t(formatHeader(header))}</Th>)}</tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <EmptyTableRow colSpan={Math.max(1, headers.length)} message={t("Loading...")} state="loading" />
-              ) : rows.length === 0 ? (
-                <EmptyTableRow colSpan={Math.max(1, headers.length)} message={t(getEmptyMessage(type))} />
-              ) : (
-                rows.map((row, index) => (
-                  <tr key={index}>
-                    {headers.map((header) => (
-                      <Td
-                        key={header}
-                        className={cn(
-                          isEndAlignedHeader(header) ? "text-end" : undefined,
-                          isNowrapHeader(header) ? "whitespace-nowrap" : undefined,
-                        )}
-                      >
-                        {formatCell(header, row[header], {
-                          formatCurrency,
-                          numberFormatter,
-                          t,
-                        })}
-                      </Td>
-                    ))}
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </DataTable>
+          <OperationalReportTable
+            emptyMessage={t(getEmptyMessage(type))}
+            formatCurrency={formatCurrency}
+            headers={headers}
+            loading={loading}
+            numberFormatter={numberFormatter}
+            rows={rows}
+            t={t}
+          />
           {isPagedOperationalReport(type) && pageInfo ? (
             <PaginationControls page={pageInfo} t={t} onPageChange={setPage} />
           ) : null}
@@ -211,107 +198,10 @@ export function OperationalReport({ type }: OperationalReportProps) {
   );
 }
 
-function DailyClosingSummary({
-  formatCurrency,
-  loading,
-  numberFormatter,
-  row,
-  t,
-}: {
-  formatCurrency: (value: number) => string;
-  loading: boolean;
-  numberFormatter: Intl.NumberFormat;
-  row: DailyClosingRecord | undefined;
-  t: (key: string) => string;
-}) {
-  if (loading) {
-    return (
-      <div className="rounded-2xl border border-border/80 bg-muted/35 px-4 py-10 text-center text-sm text-muted-foreground">
-        {t("Loading...")}
-      </div>
-    );
-  }
-
-  if (!row) {
-    return (
-      <div className="rounded-2xl border border-border/80 bg-muted/35 px-4 py-10 text-center text-sm text-muted-foreground">
-        {t("No records found.")}
-      </div>
-    );
-  }
-
-  const secondaryItems = [
-    { label: "Cash payments", value: formatCurrency(row.cashPayments) },
-    { label: "Card payments", value: formatCurrency(row.cardPayments) },
-    { label: "Bank transfers", value: formatCurrency(row.bankTransfers) },
-    { label: "Vehicle Sales", value: formatCurrency(row.vehicleSales) },
-    { label: "Refunds", tone: "warning" as const, value: formatCurrency(row.refunds) },
-    { label: "Expenses", tone: "warning" as const, value: formatCurrency(row.expenses) },
-    { label: "Total collected", tone: "primary" as const, value: formatCurrency(row.totalCollected) },
-    { label: "Other Payments", value: formatCurrency(row.otherPayments) },
-    { label: "Owner Withdrawals", value: formatCurrency(row.ownerWithdrawals) },
-    {
-      label: "Open balances created today",
-      value: numberFormatter.format(row.openBalancesCreatedToday),
-    },
-    {
-      label: "Returned rentals unpaid today",
-      value: numberFormatter.format(row.returnedRentalsUnpaidToday),
-    },
-  ];
-
-  const primaryItems = [
-    { label: "Expected Cash", value: formatCurrency(row.expectedCash) },
-    {
-      label: "Counted Cash",
-      value: row.countedCash === null ? t("Not available") : formatCurrency(row.countedCash),
-    },
-    {
-      label: "Difference",
-      tone: row.difference === null || row.difference === 0 ? undefined : "warning" as const,
-      value: row.difference === null ? t("Not available") : formatCurrency(row.difference),
-    },
-  ];
-
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="grid gap-3 sm:grid-cols-3">
-        {primaryItems.map((item) => (
-          <div
-            key={item.label}
-            className="rounded-2xl border border-border/80 bg-card p-4 shadow-xs"
-          >
-            <div className="text-xs font-semibold text-muted-foreground">
-              {t(item.label)}
-            </div>
-            <BidiValue
-              className={`mt-2 text-2xl font-bold ${
-                item.tone === "warning"
-                  ? "text-warning"
-                  : item.tone === "primary"
-                    ? "text-primary"
-                    : "text-foreground"
-              }`}
-              value={item.value}
-            />
-          </div>
-        ))}
-      </div>
-
-      <div className="grid gap-3 rounded-2xl border border-border/80 bg-muted/25 p-3 md:grid-cols-3">
-        {secondaryItems.map((item) => (
-          <div key={item.label} className="min-w-0 rounded-xl bg-card px-3 py-2">
-            <div className="text-xs font-semibold text-muted-foreground">
-              {t(item.label)}
-            </div>
-            <BidiValue className="mt-1 font-semibold" value={item.value} />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
+/**
+ * The query function. Each report type reads a different endpoint, and three of
+ * them page, so the paging metadata comes back alongside the rows.
+ */
 async function loadRows(
   type: ReportExportType,
   date: string,
@@ -373,295 +263,4 @@ async function loadRows(
   }
 
   return { rows: [] };
-}
-
-function usesSingleDate(type: ReportExportType): boolean {
-  return type === "dailyClosing";
-}
-
-function usesRange(type: ReportExportType): boolean {
-  return type === "vehicleUtilization" || type === "vehicleNetSummary" || type === "vehicleSales";
-}
-
-function isPagedOperationalReport(type: ReportExportType): boolean {
-  return type === "deposits" || type === "outstandingBalances" || type === "vehicleSales";
-}
-
-function usesSearch(type: ReportExportType): boolean {
-  return type === "vehicleSales";
-}
-
-function formatHeader(value: string): string {
-  const labels: Record<string, string> = {
-    bankTransfers: "Bank Transfers",
-    buyerIdNumber: "Buyer ID Number",
-    buyerName: "Buyer Name",
-    buyerPhone: "Buyer Phone",
-    cancelledAt: "Cancelled At",
-    cancelReason: "Cancel Reason",
-    cardPayments: "Card Payments",
-    cashPayments: "Cash Payments",
-    contractNo: "Contract No",
-    customerName: "Customer",
-    customerPhone: "Phone",
-    daysRemaining: "Days Remaining",
-    depositHeld: "Deposit Held",
-    depositPaid: "Deposit Paid",
-    depositRefunded: "Deposit Refunded",
-    depositRequired: "Deposit Required",
-    documentType: "Document Type",
-    entityType: "Entity",
-    expectedReturnDatetime: "Expected Return",
-    expiryDate: "Expiry",
-    maintenanceCost: "Maintenance Cost",
-    method: "Method",
-    openBalancesCreatedToday: "Open Balances Created Today",
-    otherPayments: "Other Payments",
-    ownerWithdrawals: "Owner Withdrawals",
-    paidAmount: "Paid",
-    paymentId: "Payment Id",
-    periodDays: "Period Days",
-    plateNumber: "Plate",
-    receiptNo: "Receipt No.",
-    refund: "Refund",
-    refunds: "Refunds",
-    expenses: "Expenses",
-    expectedCash: "Expected Cash",
-    countedCash: "Counted Cash",
-    difference: "Difference",
-    remainingAmount: "Balance due",
-    rentalCount: "Rentals",
-    rentalId: "Rental Id",
-    rentalIncome: "Rental Income",
-    returnedRentalsUnpaidToday: "Returned Rentals Unpaid Today",
-    saleDate: "Sale Date",
-    saleNo: "Sale No.",
-    salePrice: "Sale Price",
-    simpleNet: "Simple Net",
-    status: "Status",
-    totalAmount: "Total Amount",
-    totalCollected: "Total Collected",
-    type: "Type",
-    utilizationPercent: "Utilization Percent",
-    vehicleId: "Vehicle Id",
-    vehicleBrand: "Brand",
-    vehicleModel: "Model",
-    vehiclePlateNumber: "Plate",
-    vehicleSales: "Vehicle Sales",
-    vehicleType: "Vehicle Type",
-    voidedAt: "Voided At",
-    voidReason: "Void Reason",
-  };
-
-  return labels[value] ?? value.replace(/([A-Z])/g, " $1").replace(/^./, (letter) => letter.toUpperCase());
-}
-
-function getEmptyMessage(type: ReportExportType): string {
-  if (type === "cancelledRentals") {
-    return "No cancelled rentals found. Cancelled contracts will appear here after a manager cancels a rental.";
-  }
-
-  if (type === "paymentVoids") {
-    return "No payment voids found. Voided payments will appear here for review.";
-  }
-
-  if (type === "expiringDocuments") {
-    return "No expiring documents found.";
-  }
-
-  return "No records found.";
-}
-
-function getHeaders(
-  type: ReportExportType,
-): string[] {
-  if (type === "dailyClosing") {
-    return [
-      "cashPayments",
-      "cardPayments",
-      "bankTransfers",
-      "otherPayments",
-      "vehicleSales",
-      "refunds",
-      "expenses",
-      "ownerWithdrawals",
-      "totalCollected",
-      "expectedCash",
-      "countedCash",
-      "difference",
-      "openBalancesCreatedToday",
-      "returnedRentalsUnpaidToday",
-    ];
-  }
-
-  // Return predefined headers to avoid displaying internal database keys
-  return getFallbackHeaders(type);
-}
-
-function getFallbackHeaders(type: ReportExportType): string[] {
-  const headers: Partial<Record<ReportExportType, string[]>> = {
-    outstandingBalances: [
-      "contractNo",
-      "customerName",
-      "vehiclePlateNumber",
-      "status",
-      "remainingAmount",
-    ],
-    dailyClosing: [
-      "date",
-      "cashPayments",
-      "cardPayments",
-      "bankTransfers",
-      "vehicleSales",
-      "refunds",
-      "expenses",
-      "totalCollected",
-    ],
-    deposits: [
-      "contractNo",
-      "customerName",
-      "vehiclePlateNumber",
-      "depositPaid",
-      "depositHeld",
-    ],
-    vehicleUtilization: [
-      "plateNumber",
-      "rentalCount",
-      "rentedDays",
-      "periodDays",
-      "utilizationPercent",
-    ],
-    vehicleNetSummary: [
-      "plateNumber",
-      "rentalIncome",
-      "maintenanceCost",
-      "simpleNet",
-    ],
-    expiringDocuments: [
-      "entityType",
-      "name",
-      "documentType",
-      "expiryDate",
-      "daysRemaining",
-    ],
-    cancelledRentals: [
-      "contractNo",
-      "customerName",
-      "vehiclePlateNumber",
-      "cancelledAt",
-      "cancelReason",
-    ],
-    paymentVoids: [
-      "receiptNo",
-      "contractNo",
-      "customerName",
-      "type",
-      "voidedAt",
-      "voidReason",
-    ],
-    vehicleSales: [
-      "saleNo",
-      "saleDate",
-      "vehiclePlateNumber",
-      "vehicleBrand",
-      "vehicleModel",
-      "buyerName",
-      "buyerPhone",
-      "paymentMethod",
-      "salePrice",
-      "status",
-    ],
-  };
-
-  return headers[type] ?? [];
-}
-
-type CellFormatOptions = {
-  formatCurrency: (value: number) => string;
-  numberFormatter: Intl.NumberFormat;
-  t: (key: string) => string;
-};
-
-function formatCell(
-  header: string,
-  value: unknown,
-  { formatCurrency, numberFormatter, t }: CellFormatOptions,
-): ReactNode {
-  if (value === null || value === undefined) return "";
-
-  if (typeof value === "number") {
-    if (isPercentHeader(header)) {
-      return <BidiValue value={`${numberFormatter.format(value)}%`} />;
-    }
-
-    if (isCountHeader(header)) {
-      return <BidiValue value={numberFormatter.format(value)} />;
-    }
-
-    if (isMoneyHeader(header)) {
-      return (
-        <BidiValue
-          className={isRefundHeader(header) && value !== 0 ? "text-warning" : undefined}
-          value={formatCurrency(value)}
-        />
-      );
-    }
-
-    return <BidiValue value={numberFormatter.format(value)} />;
-  }
-
-  const text = String(value);
-
-  if (isEnumHeader(header)) {
-    return <span dir="auto">{t(text)}</span>;
-  }
-
-  if (isLtrCell(header, text)) {
-    return <BidiValue value={text} />;
-  }
-
-  return <span dir="auto">{text}</span>;
-}
-
-function isEndAlignedHeader(header: string): boolean {
-  return isMoneyHeader(header) || isPercentHeader(header) || isCountHeader(header);
-}
-
-function isNowrapHeader(header: string): boolean {
-  return /phone|plate|contract|date|datetime|status|amount|paid|remaining|held|refund|cost|income|net|type|method/i.test(header);
-}
-
-function isMoneyHeader(header: string): boolean {
-  return /amount|payment|payments|transfer|refund|collected|deposit|required|paid|held|income|cost|net|expense|withdrawal|cash|difference|price|sales/i.test(header);
-}
-
-function isRefundHeader(header: string): boolean {
-  return /refund/i.test(header);
-}
-
-function isCountHeader(header: string): boolean {
-  return /count|days|id$|createdToday|unpaidToday/i.test(header);
-}
-
-function isPercentHeader(header: string): boolean {
-  return /percent/i.test(header);
-}
-
-function isEnumHeader(header: string): boolean {
-  return /status|type|method/i.test(header);
-}
-
-function isLtrCell(header: string, value: string): boolean {
-  return (
-    /date|datetime|at$|expiry|return|phone|plate|contract|receipt|path|version|id$/i.test(header) ||
-    /^[\d\s.,:;+\-/\\()[\]#A-Z_a-z]+$/.test(value)
-  );
-}
-
-function toDateInputValue(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
 }

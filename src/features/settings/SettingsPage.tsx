@@ -1,91 +1,39 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import {
   AlertTriangle,
-  Banknote,
   Building2,
   CheckCircle2,
-  CircleDollarSign,
-  Clock,
-  Coins,
   FileText,
-  Globe2,
-  History,
-  Image,
   Eye,
   EyeOff,
-  KeyRound,
   Languages,
   Loader2,
-  LockKeyhole,
-  Mail,
-  MapPin,
-  Phone,
-  ReceiptText,
-  RefreshCw,
   Save,
   Settings,
   ShieldCheck,
-  Trash2,
-  Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { BidiValue } from "@/components/ui/bidi-value";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { SensitiveActionDialog } from "@/components/ui/sensitive-action-dialog";
 import { useAuth } from "@/hooks/useAuth";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { useI18n } from "@/hooks/useI18n";
 import { useSetShopSettings, useShopSettingsQuery } from "@/hooks/useShopSettings";
-import { rentalAppApi, getUpdatesApi } from "@/data/rental-app-api";
-import { languageValues } from "@/shared/language";
+import { rentalAppApi } from "@/data/rental-app-api";
 import { normalizeDigits } from "@/shared/numerals";
 import type { ShopSettings } from "@/shared/settings";
 import { shopSettingsToFormValues } from "@/shared/settings-form";
-import { DiagnosticsPanel } from "./DiagnosticsPanel";
-import { AccessoriesManagement } from "../accessories/AccessoriesManagement";
-
-const settingsFormSchema = z.object({
-  shopName: z.string().trim().min(1, "Shop name is required.").max(100),
-  shopPhone: z.string().trim().min(1, "Shop phone number is required.").max(40),
-  shopAddress: z.string().trim().min(1, "Shop address is required.").max(200),
-  defaultCurrency: z.string().trim().min(1, "Default currency is required.").max(10),
-  defaultLateFee: z
-    .string()
-    .trim()
-    .min(1, "Default late fee is required.")
-    .refine((val) => {
-      const num = Number(val);
-      return !Number.isNaN(num) && num >= 0;
-    }, "Late fee must be zero or a positive number."),
-  enableClientDeposit: z.boolean(),
-  autoPrintReceipt: z.boolean(),
-  dailyClosingEnabled: z.boolean(),
-  enableSalesCommission: z.boolean(),
-  defaultDailyCommissionRate: z
-    .string()
-    .trim()
-    .min(1, "Default daily commission is required.")
-    .refine((val) => !Number.isNaN(Number(val)) && Number(val) >= 0, "Must be zero or a positive number."),
-  printLanguage: z.enum(["app", "ar", "en", "both"]),
-  insuranceWarningDays: z.string().trim().min(1),
-  registrationWarningDays: z.string().trim().min(1),
-  technicalInspectionWarningDays: z.string().trim().min(1),
-  licenseWarningDays: z.string().trim().min(1),
-  backupReminderDays: z.string().trim().min(1),
-  scheduledBackupEnabled: z.boolean(),
-  ownerPinEnabled: z.boolean(),
-  contractFooter: z.string().trim().max(1000, "Footer text is too long."),
-  printHeaderSubtitle: z.string().trim().max(200, "Header subtitle is too long."),
-  printTermsAndConditions: z.string().trim().max(2000, "Terms text is too long."),
-  enableContractWatermark: z.boolean(),
-  language: z.enum(languageValues),
-});
-
-type SettingsFormInput = z.infer<typeof settingsFormSchema>;
+import { SettingsContractTab } from "./SettingsContractTab";
+import { SettingsLocalizationTab } from "./SettingsLocalizationTab";
+import { SettingsOperationsTab } from "./SettingsOperationsTab";
+import { SettingsProfileTab } from "./SettingsProfileTab";
+import { SettingsSecurityTab } from "./SettingsSecurityTab";
+import { StatusBanner } from "./StatusBanner";
+import {
+  settingsFormSchema,
+  type SettingsFormInput,
+} from "./settings-form-schema";
 
 type SettingsPageProps = {
   onDirtyChange?: (isDirty: boolean) => void;
@@ -556,589 +504,53 @@ export function SettingsPage({
           />
         ) : null}
 
-        {activeTab === "profile" && (
-          <Card className="overflow-hidden">
-            <CardHeader className="border-b border-border/70 bg-muted">
-              <div className="flex items-center gap-3">
-                <div className="flex size-10 items-center justify-center rounded-xl bg-success/10 text-success">
-                  <Building2 className="size-5" />
-                </div>
-                <div>
-                  <CardTitle>{t("Shop Profile")}</CardTitle>
-                  <CardDescription>
-                    {t("Details printed on local contracts and receipts.")}
-                  </CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-6 pt-5">
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="flex flex-col gap-2 text-sm font-medium">
-                  <span>{t("Shop Name")} <span className="text-destructive">*</span></span>
-                  <Input
-                    {...register("shopName")}
-                    placeholder={t("e.g. Metro Car Rental")}
-                    aria-invalid={Boolean(errors.shopName)}
-                  />
-                  {errors.shopName && (
-                    <span className="text-xs text-destructive">{t(errors.shopName.message ?? "")}</span>
-                  )}
-                </label>
+        {activeTab === "profile" ? (
+          <SettingsProfileTab
+            can={can}
+            currentSettings={currentSettings}
+            errors={errors}
+            isSaving={isSaving}
+            onClearLogo={() => void handleClearLogo()}
+            onSelectLogo={() => void handleSelectLogo()}
+            register={register}
+            t={t}
+          />
+        ) : null}
 
-                <label className="flex flex-col gap-2 text-sm font-medium">
-                  <span>{t("Contact Phone")} <span className="text-destructive">*</span></span>
-                  <Input
-                    {...register("shopPhone")}
-                    data-ltr="true"
-                    placeholder={t("e.g. +218 92 000 0000")}
-                    aria-invalid={Boolean(errors.shopPhone)}
-                  />
-                  {errors.shopPhone && (
-                    <span className="text-xs text-destructive">{t(errors.shopPhone.message ?? "")}</span>
-                  )}
-                </label>
-              </div>
+        {activeTab === "localization" ? (
+          <SettingsLocalizationTab errors={errors} register={register} t={t} />
+        ) : null}
 
-              <label className="flex flex-col gap-2 text-sm font-medium">
-                <span>{t("Business Address")} <span className="text-destructive">*</span></span>
-                <Input
-                  {...register("shopAddress")}
-                  placeholder={t("e.g. Tripoli, Libya")}
-                  aria-invalid={Boolean(errors.shopAddress)}
-                />
-                {errors.shopAddress && (
-                  <span className="text-xs text-destructive">{t(errors.shopAddress.message ?? "")}</span>
-                )}
-              </label>
+        {activeTab === "contract" ? (
+          <SettingsContractTab
+            can={can}
+            currentSettings={currentSettings}
+            isSaving={isSaving}
+            onClearOwnerSignature={() => void handleClearOwnerSignature()}
+            onSelectOwnerSignature={() => void handleSelectOwnerSignature()}
+            register={register}
+            t={t}
+          />
+        ) : null}
 
-              <div className="rounded-2xl border border-border/80 bg-muted p-4">
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex h-16 w-28 shrink-0 items-center justify-center overflow-hidden rounded-xl border bg-card text-muted-foreground shadow-xs">
-                      {currentSettings?.shopLogoDataUrl ? (
-                        <img
-                          alt={t("Shop Logo")}
-                          className="max-h-14 max-w-24 object-contain"
-                          src={currentSettings.shopLogoDataUrl}
-                        />
-                      ) : (
-                        <Image className="size-5" />
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="font-semibold">{t("Shop Logo")}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {t("Printed on the header of rental contracts and payment receipts.")}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={isSaving || !can("settings.edit")}
-                      onClick={() => void handleSelectLogo()}
-                    >
-                      <Upload data-icon="inline-start" />
-                      {t("Choose Logo")}
-                    </Button>
-                    {currentSettings?.shopLogoDataUrl ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        disabled={isSaving || !can("settings.edit")}
-                        onClick={() => void handleClearLogo()}
-                      >
-                        <Trash2 data-icon="inline-start" />
-                        {t("Remove Logo")}
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
+        {activeTab === "operations" ? (
+          <SettingsOperationsTab errors={errors} register={register} t={t} />
+        ) : null}
 
-            </CardContent>
-          </Card>
-        )}
-
-        {activeTab === "localization" && (
-          <Card className="overflow-hidden">
-            <CardHeader className="border-b border-border/70 bg-muted">
-              <div className="flex items-center gap-3">
-                <div className="flex size-10 items-center justify-center rounded-xl bg-accent text-primary">
-                  <Languages className="size-5" />
-                </div>
-                <div>
-                  <CardTitle>{t("Language & Currency")}</CardTitle>
-                  <CardDescription>
-                    {t("Choose app language, currency, and receipt behavior.")}
-                  </CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-6 pt-5">
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="flex flex-col gap-2 text-sm font-medium">
-                  <span>{t("Application Language")} <span className="text-destructive">*</span></span>
-                  <select
-                    {...register("language")}
-                    className="h-10 w-full rounded-md border bg-background px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
-                  >
-                    <option value="ar">{t("Arabic")}</option>
-                    <option value="en">{t("English")}</option>
-                  </select>
-                </label>
-
-                <label className="flex flex-col gap-2 text-sm font-medium">
-                  <span>{t("Default Currency")} <span className="text-destructive">*</span></span>
-                  <Input
-                    {...register("defaultCurrency")}
-                    data-ltr="true"
-                    placeholder={t("e.g. LYD")}
-                    aria-invalid={Boolean(errors.defaultCurrency)}
-                  />
-                  {errors.defaultCurrency && (
-                    <span className="text-xs text-destructive">{t(errors.defaultCurrency.message ?? "")}</span>
-                  )}
-                </label>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="flex flex-col gap-2 text-sm font-medium">
-                  <span>{t("Default Print Language")}</span>
-                  <select
-                    {...register("printLanguage")}
-                    className="h-10 w-full rounded-md border bg-background px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
-                  >
-                    <option value="app">{t("Use app language")}</option>
-                    <option value="ar">{t("Arabic")}</option>
-                    <option value="en">{t("English")}</option>
-                    <option value="both">{t("Bilingual")}</option>
-                  </select>
-                </label>
-              </div>
-
-              <label className="flex items-start gap-3 rounded-lg border bg-card p-4 text-sm shadow-xs">
-                <input
-                  type="checkbox"
-                  className="mt-1 size-4 accent-primary"
-                  {...register("autoPrintReceipt")}
-                />
-                <span>
-                  <span className="flex items-center gap-2 font-medium">
-                    <ReceiptText className="size-4 text-success" />
-                    {t("Auto-print receipt after payment")}
-                  </span>
-                  <span className="mt-1 block text-muted-foreground">
-                    {t("Auto-print receipt setting help")}
-                  </span>
-                </span>
-              </label>
-
-            </CardContent>
-          </Card>
-        )}
-
-        {activeTab === "contract" && (
-          <Card className="overflow-hidden">
-            <CardHeader className="border-b border-border/70 bg-muted">
-              <div className="flex items-center gap-3">
-                <div className="flex size-10 items-center justify-center rounded-xl bg-accent text-primary">
-                  <FileText className="size-5" />
-                </div>
-                <div>
-                  <CardTitle>{t("Contract & Terms")}</CardTitle>
-                  <CardDescription>
-                    {t("Owner signature, terms and conditions, and footer printed on rental contracts.")}
-                  </CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-6 pt-5">
-              <div className="rounded-2xl border border-border/80 bg-muted p-4">
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex h-16 w-28 shrink-0 items-center justify-center overflow-hidden rounded-xl border bg-card text-muted-foreground shadow-xs">
-                      {currentSettings?.ownerSignatureDataUrl ? (
-                        <img
-                          alt={t("Owner Signature")}
-                          className="max-h-14 max-w-24 object-contain"
-                          src={currentSettings.ownerSignatureDataUrl}
-                        />
-                      ) : (
-                        <Image className="size-5" />
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="font-semibold">{t("Owner Signature")}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {t("Printed above the employee finalizer line on rental contracts.")}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={isSaving || !can("settings.edit")}
-                      onClick={() => void handleSelectOwnerSignature()}
-                    >
-                      <Upload data-icon="inline-start" />
-                      {t("Choose Signature")}
-                    </Button>
-                    {currentSettings?.ownerSignatureDataUrl ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        disabled={isSaving || !can("settings.edit")}
-                        onClick={() => void handleClearOwnerSignature()}
-                      >
-                        <Trash2 data-icon="inline-start" />
-                        {t("Remove Signature")}
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-
-              <label className="flex flex-col gap-2 text-sm font-medium">
-                <span>{t("Header Subtitle")}</span>
-                <Input {...register("printHeaderSubtitle")} placeholder={t("e.g. Car & Motorcycle Rental Agreement")} />
-              </label>
-
-              <label className="flex flex-col gap-2 text-sm font-medium">
-                <span>{t("Contract Terms & Conditions")}</span>
-                <Textarea
-                  {...register("printTermsAndConditions")}
-                  className="min-h-28"
-                  placeholder={t("Enter custom shop rental terms & conditions clause here...")}
-                />
-              </label>
-
-              <label className="flex items-start gap-3 rounded-lg border bg-card p-4 text-sm shadow-xs">
-                <input
-                  type="checkbox"
-                  className="mt-1 size-4 accent-primary"
-                  {...register("enableContractWatermark")}
-                />
-                <span className="min-w-0">
-                  <span className="block font-medium">{t("Contract Watermark")}</span>
-                  <span className="mt-1 block text-muted-foreground">
-                    {t("Displays a faint, centered logo watermark in the background of contract pages.")}
-                  </span>
-                </span>
-              </label>
-
-              <label className="flex flex-col gap-2 text-sm font-medium">
-                <span>{t("Contract Agreement Footer")}</span>
-                <Textarea
-                  {...register("contractFooter")}
-                  className="min-h-20"
-                  placeholder={t("Enter contract agreement note here...")}
-                />
-              </label>
-
-            </CardContent>
-          </Card>
-        )}
-
-        {activeTab === "operations" && (
-          <div className="flex flex-col gap-6">
-            <Card className="overflow-hidden">
-              <CardHeader className="border-b border-border/70 bg-muted">
-                <div className="flex items-center gap-3">
-                  <div className="flex size-10 items-center justify-center rounded-xl bg-accent text-primary">
-                    <Settings className="size-5" />
-                  </div>
-                  <div>
-                    <CardTitle>{t("Operations & Reminders")}</CardTitle>
-                    <CardDescription>
-                      {t("Rental defaults, deposits, commissions, and renewal reminder days.")}
-                    </CardDescription>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-6 pt-5">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <label className="flex flex-col gap-2 text-sm font-medium">
-                    <span>{t("Default Late Fee (Per Day)")} <span className="text-destructive">*</span></span>
-                    <Input
-                      {...register("defaultLateFee")}
-                      data-ltr="true"
-                      placeholder="e.g. 15.00"
-                      aria-invalid={Boolean(errors.defaultLateFee)}
-                    />
-                    {errors.defaultLateFee && (
-                      <span className="text-xs text-destructive">{t(errors.defaultLateFee.message ?? "")}</span>
-                    )}
-                  </label>
-                </div>
-
-                <SettingBlock
-                  icon={<CircleDollarSign className="size-5" />}
-                  title={t("Rental defaults")}
-                  description={t("Simple defaults used when staff create new rentals.")}
-                >
-                  <label className="flex items-start gap-3 rounded-lg border bg-card p-4 text-sm shadow-xs">
-                    <input
-                      type="checkbox"
-                      className="mt-1 size-4 accent-primary"
-                      {...register("enableClientDeposit")}
-                    />
-                    <span>
-                      <span className="block font-medium">{t("Require security deposit by default")}</span>
-                      <span className="mt-1 block text-muted-foreground">
-                        {t("Pre-fills deposit field when creating new contracts.")}
-                      </span>
-                    </span>
-                  </label>
-                </SettingBlock>
-
-                <SettingBlock
-                  icon={<Banknote className="size-5" />}
-                  title={t("Cash count")}
-                  description={t("Optional end-of-day drawer count for shops that need it.")}
-                >
-                  <label className="flex items-start gap-3 rounded-lg border bg-card p-4 text-sm shadow-xs">
-                    <input
-                      type="checkbox"
-                      className="mt-1 size-4 accent-primary"
-                      {...register("dailyClosingEnabled")}
-                    />
-                    <span className="min-w-0">
-                      <span className="block font-medium">{t("Show Close Day")}</span>
-                      <span className="mt-1 block text-muted-foreground">
-                        {t("Shows the Today tab and Close Day cash count in Accounting.")}
-                      </span>
-                    </span>
-                  </label>
-                </SettingBlock>
-
-                <SettingBlock
-                  icon={<Coins className="size-5" />}
-                  title={t("Sales Commission")}
-                  description={t("Auto calculate fixed daily commission for sales employees.")}
-                >
-                  <div className="space-y-4">
-                    <label className="flex items-start gap-3 rounded-lg border bg-card p-4 text-sm shadow-xs">
-                      <input
-                        type="checkbox"
-                        className="mt-1 size-4 accent-primary"
-                        {...register("enableSalesCommission")}
-                      />
-                      <span className="min-w-0">
-                        <span className="block font-medium">{t("Enable sales commission calculation")}</span>
-                        <span className="mt-1 block text-muted-foreground">
-                          {t("Auto calculate fixed daily commission for sales employees.")}
-                        </span>
-                      </span>
-                    </label>
-
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">
-                        {t("Default Daily Commission (Dinars)")}
-                      </label>
-                      <input
-                        type="number"
-                        step="0.5"
-                        className="w-full rounded-md border p-2 text-sm"
-                        {...register("defaultDailyCommissionRate")}
-                      />
-                    </div>
-                  </div>
-                </SettingBlock>
-
-                <SettingBlock
-                  icon={<Clock className="size-5" />}
-                  title={t("Reminders")}
-                  description={t("Local reminders for renewals and backup checks.")}
-                >
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-                    <label className="flex flex-col gap-2 text-sm font-medium">
-                      <span>{t("Mandatory insurance warning days")}</span>
-                      <Input data-ltr="true" inputMode="numeric" {...register("insuranceWarningDays")} />
-                    </label>
-                    <label className="flex flex-col gap-2 text-sm font-medium">
-                      <span>{t("Vehicle license warning days")}</span>
-                      <Input data-ltr="true" inputMode="numeric" {...register("registrationWarningDays")} />
-                    </label>
-                    <label className="flex flex-col gap-2 text-sm font-medium">
-                      <span>{t("Technical inspection warning days")}</span>
-                      <Input data-ltr="true" inputMode="numeric" {...register("technicalInspectionWarningDays")} />
-                    </label>
-                    <label className="flex flex-col gap-2 text-sm font-medium">
-                      <span>{t("License warning days")}</span>
-                      <Input data-ltr="true" inputMode="numeric" {...register("licenseWarningDays")} />
-                    </label>
-                    <label className="flex flex-col gap-2 text-sm font-medium">
-                      <span>{t("Backup reminder days")}</span>
-                      <Input data-ltr="true" inputMode="numeric" {...register("backupReminderDays")} />
-                    </label>
-                  </div>
-                </SettingBlock>
-
-              </CardContent>
-            </Card>
-            <AccessoriesManagement />
-          </div>
-        )}
-
-        {activeTab === "security" && (
-          <div className="flex flex-col gap-6">
-            <Card className="overflow-hidden">
-              <CardHeader className="border-b border-border/70 bg-muted">
-                <div className="flex items-center gap-3">
-                  <div className="flex size-10 items-center justify-center rounded-xl bg-accent text-primary">
-                    <ShieldCheck className="size-5" />
-                  </div>
-                  <div>
-                    <CardTitle>{t("Security & System")}</CardTitle>
-                    <CardDescription>
-                      {t("Owner PIN prompts, automated daily backups, and admin tools.")}
-                    </CardDescription>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-6 pt-5">
-                <SettingBlock
-                  icon={<LockKeyhole className="size-5" />}
-                  title={t("Owner PIN prompts")}
-                  description={t("Use a local owner PIN for sensitive actions on this computer.")}
-                >
-                  <div className="rounded-lg border bg-card p-4 text-sm shadow-xs">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <span>
-                        <span className="block font-medium">{t("Owner PIN prompts")}</span>
-                        <span className="mt-1 block text-muted-foreground">
-                          {currentSettings?.ownerPinEnabled ? t("Enabled") : t("Disabled")}
-                        </span>
-                      </span>
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={isSaving || !can("settings.edit")}
-                          onClick={() => void handleSetOwnerPin()}
-                        >
-                          {t("Set PIN")}
-                        </Button>
-                        {currentSettings?.ownerPinEnabled ? (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            disabled={isSaving || !can("settings.edit")}
-                            onClick={() => void handleClearOwnerPin()}
-                          >
-                            {t("Disable")}
-                          </Button>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                </SettingBlock>
-
-                <SettingBlock
-                  icon={<Clock className="size-5" />}
-                  title={t("Auto-Backup")}
-                  description={t("Automated daily local backup configuration.")}
-                >
-                  <label className="flex items-start gap-3 rounded-lg border bg-card p-4 text-sm shadow-xs">
-                    <input
-                      type="checkbox"
-                      className="mt-1 size-4 accent-primary"
-                      {...register("scheduledBackupEnabled")}
-                    />
-                    <span className="min-w-0">
-                      <span className="block font-medium">{t("Automated Daily Backup")}</span>
-                      <span className="mt-1 block text-muted-foreground">
-                        {t("Automatically saves a local backup ZIP into app data folder on application launch.")}
-                      </span>
-                    </span>
-                  </label>
-                </SettingBlock>
-
-              </CardContent>
-            </Card>
-
-            <div className="grid gap-6 md:grid-cols-2">
-              <Card className="h-fit overflow-hidden">
-                <CardHeader className="border-b border-border/70 bg-muted">
-                  <div className="flex items-center gap-3">
-                    <div className="flex size-10 items-center justify-center rounded-xl bg-accent text-primary">
-                      <Settings className="size-5" />
-                    </div>
-                    <div>
-                      <CardTitle>{t("Administration shortcuts")}</CardTitle>
-                      <CardDescription>
-                        {t("Open local admin screens from here.")}
-                      </CardDescription>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-3">
-                  {can("users.view") ? (
-                    <AdminShortcut
-                      description={t("Manage local staff accounts.")}
-                      icon={<ShieldCheck className="size-4" />}
-                      label={t("Users")}
-                      onClick={onOpenUsers}
-                    />
-                  ) : null}
-                  {can("audit.view") ? (
-                    <AdminShortcut
-                      description={t("Review important staff actions.")}
-                      icon={<History className="size-4" />}
-                      label={t("Activity Log")}
-                      onClick={onOpenActivityLog}
-                    />
-                  ) : null}
-                  <AdminShortcut
-                    description={t("Offline activation and trial status.")}
-                    icon={<KeyRound className="size-4" />}
-                    label={t("App License")}
-                    onClick={onOpenAppLicense}
-                  />
-                </CardContent>
-              </Card>
-
-              <Card className="h-fit overflow-hidden">
-                <CardHeader className="border-b border-border/70 bg-muted">
-                  <div className="flex items-center gap-3">
-                    <div className="flex size-10 items-center justify-center rounded-xl bg-accent text-primary">
-                      <Globe2 className="size-5" />
-                    </div>
-                    <div>
-                      <CardTitle>{t("About")}</CardTitle>
-                      <CardDescription>
-                        {t("Support contacts")}
-                      </CardDescription>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-4 text-sm">
-                  <SupportLine icon={<Globe2 className="size-4" />} label={t("Website")} value="arak.ly" valueMode="ltr" />
-                  <SupportLine icon={<Phone className="size-4" />} label={t("Phone")} value="+218 92 782 8080" valueMode="ltr" />
-                  <SupportLine icon={<Mail className="size-4" />} label={t("Sales Email")} value="sales@arak.ly" valueMode="ltr" />
-                  <SupportLine icon={<Mail className="size-4" />} label={t("Email")} value="info@arak.ly" valueMode="ltr" />
-                  <SupportLine
-                    icon={<MapPin className="size-4" />}
-                    label={t("Office Address")}
-                    value={t("Khalifa Al-Zaidi Street, Al-Madina Building, 7th Floor, Office 702, Tripoli")}
-                  />
-                  <SupportLine icon={<Clock className="size-4" />} label={t("Hours")} value={t("Sun-Thu: 9AM-6PM")} />
-                  <div className="rounded-xl border border-success/20 bg-success/10 p-3 font-medium text-success">
-                    {t("Developed by ARAK Communication & IT Services")}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            <SoftwareUpdateCard />
-            <DiagnosticsPanel />
-          </div>
-        )}
+        {activeTab === "security" ? (
+          <SettingsSecurityTab
+            can={can}
+            currentSettings={currentSettings}
+            isSaving={isSaving}
+            onClearOwnerPin={() => void handleClearOwnerPin()}
+            onOpenActivityLog={onOpenActivityLog}
+            onOpenAppLicense={onOpenAppLicense}
+            onOpenUsers={onOpenUsers}
+            onSetOwnerPin={() => void handleSetOwnerPin()}
+            register={register}
+            t={t}
+          />
+        ) : null}
 
         <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/80 bg-card/95 px-4 py-3 shadow-lg backdrop-blur">
           <p className="text-sm text-muted-foreground">
@@ -1292,37 +704,6 @@ export function SettingsPage({
   );
 }
 
-function AdminShortcut({
-  description,
-  icon,
-  label,
-  onClick,
-}: {
-  description: string;
-  icon: ReactNode;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <Button
-      type="button"
-      variant="outline"
-      className="h-auto w-full justify-start gap-3 whitespace-normal p-3 text-start"
-      onClick={onClick}
-    >
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-primary">
-        {icon}
-      </span>
-      <span className="min-w-0">
-        <span className="block font-semibold">{label}</span>
-        <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
-          {description}
-        </span>
-      </span>
-    </Button>
-  );
-}
-
 function buildSettingsPayload(values: SettingsFormInput): Partial<ShopSettings> {
   return {
     shopName: values.shopName,
@@ -1349,218 +730,4 @@ function buildSettingsPayload(values: SettingsFormInput): Partial<ShopSettings> 
     enableContractWatermark: values.enableContractWatermark,
     language: values.language,
   };
-}
-
-function SettingBlock({
-  children,
-  description,
-  icon,
-  title,
-}: {
-  children: ReactNode;
-  description: string;
-  icon: ReactNode;
-  title: string;
-}) {
-  return (
-    <section className="rounded-2xl border border-border/80 bg-muted p-4">
-      <div className="mb-4 flex items-start gap-3">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-card text-primary shadow-xs ring-1 ring-border">
-          {icon}
-        </div>
-        <div className="min-w-0">
-          <h3 className="font-semibold">{title}</h3>
-          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-        </div>
-      </div>
-      <div className="flex flex-col gap-4">{children}</div>
-    </section>
-  );
-}
-
-function StatusBanner({
-  icon,
-  message,
-  title,
-  tone,
-}: {
-  icon: ReactNode;
-  message?: string | null;
-  title: string;
-  tone: "error" | "info" | "success";
-}) {
-  const toneClass = {
-    error: "border-destructive/20 bg-destructive/5 text-destructive",
-    info: "border-primary/20 bg-accent text-primary",
-    success: "border-success/20 bg-success/10 text-success",
-  }[tone];
-
-  return (
-    <div
-      aria-live="polite"
-      className={`flex items-start gap-3 rounded-md border px-4 py-3 ${toneClass}`}
-      role={tone === "error" ? "alert" : "status"}
-    >
-      <span className="mt-0.5 shrink-0">{icon}</span>
-      <div className="min-w-0 text-sm">
-        <p className="font-semibold">{title}</p>
-        {message ? <p className="mt-1 break-words opacity-80">{message}</p> : null}
-      </div>
-    </div>
-  );
-}
-
-function SupportLine({
-  icon,
-  label,
-  value,
-  valueMode = "auto",
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-  valueMode?: "auto" | "ltr";
-}) {
-  return (
-    <div className="flex items-start gap-3">
-      <span className="mt-0.5 text-primary">{icon}</span>
-      <div className="min-w-0">
-        <p className="text-xs font-medium text-muted-foreground">{label}</p>
-        <p className="break-words font-medium">
-          {valueMode === "ltr" ? <BidiValue value={value} wrap /> : <span dir="auto">{value}</span>}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function SoftwareUpdateCard({ currentVersion }: { currentVersion?: string }) {
-  const { t } = useI18n();
-  const [appVersion, setAppVersion] = useState<string>(currentVersion || "");
-  const [checking, setChecking] = useState(false);
-  const [statusText, setStatusText] = useState<string | null>(null);
-  const [downloadedVersion, setDownloadedVersion] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!appVersion) {
-      rentalAppApi?.diagnostics?.getStatus?.().then((diag) => {
-        if (diag?.appVersion) setAppVersion(diag.appVersion);
-      }).catch(() => {});
-    }
-
-    void getUpdatesApi()?.getPendingUpdate?.().then((info) => {
-      if (info?.version) {
-        setDownloadedVersion(info.version);
-      }
-    });
-
-    const unsubDownloaded = getUpdatesApi()?.onDownloaded?.((info) => {
-      setDownloadedVersion(info.version);
-      setStatusText(t("Update ready! Click Restart & Update to install."));
-    });
-
-    const unsubStatus = getUpdatesApi()?.onStatusChange?.((state) => {
-      if (state.status === "checking") {
-        setChecking(true);
-        setStatusText(t("Checking for updates..."));
-      } else if (state.status === "available") {
-        setChecking(true);
-        setStatusText(t("A new version (v{{version}}) is available and downloading...", { version: state.version ?? "" }));
-      } else if (state.status === "downloading") {
-        setChecking(true);
-        setStatusText(t("Downloading update... {{percent}}%", { percent: state.percent ?? 0 }));
-      } else if (state.status === "downloaded") {
-        setChecking(false);
-        if (state.version) setDownloadedVersion(state.version);
-        setStatusText(t("Update ready! Click Restart & Update to install."));
-      } else if (state.status === "error") {
-        setChecking(false);
-        if (state.error?.includes("404")) {
-          setStatusText(t("Could not access update server (404 Not Found). Repository may be private."));
-        } else {
-          setStatusText(state.error || t("Could not check for updates. Check internet connection."));
-        }
-      } else if (state.status === "idle") {
-        setChecking(false);
-      }
-    });
-
-    return () => {
-      unsubDownloaded?.();
-      unsubStatus?.();
-    };
-  }, [appVersion, t]);
-
-  async function handleCheckForUpdates() {
-    setChecking(true);
-    setStatusText(null);
-    try {
-      const res = await getUpdatesApi()?.checkForUpdates?.();
-      if (res?.status === "idle" && !downloadedVersion) {
-        setStatusText(t("Your app is completely up to date."));
-      }
-    } catch (err) {
-      setStatusText(err instanceof Error ? err.message : t("Could not check for updates. Check internet connection."));
-    } finally {
-      setChecking(false);
-    }
-  }
-
-  async function handleRestartAndInstall() {
-    await getUpdatesApi()?.restartAndInstall?.();
-  }
-
-  return (
-    <Card className="h-fit overflow-hidden">
-      <CardHeader className="border-b border-border/70 bg-muted">
-        <div className="flex items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-xl bg-accent text-primary">
-            <RefreshCw className="size-5" />
-          </div>
-          <div>
-            <CardTitle>{t("Software Updates")}</CardTitle>
-            <CardDescription>
-              {t("Check for software updates and install latest release.")}
-            </CardDescription>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3 text-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
-          <div>
-            <p className="text-xs text-muted-foreground">{t("Current Version")}</p>
-            <p className="font-mono text-base font-bold text-foreground">v{appVersion || currentVersion || "0.2.2"}</p>
-          </div>
-          {downloadedVersion ? (
-            <Button
-              type="button"
-              size="sm"
-              className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2"
-              onClick={handleRestartAndInstall}
-            >
-              <RefreshCw className="size-4 animate-spin" />
-              {t("Restart & Update (v{{version}})", { version: downloadedVersion })}
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={checking}
-              onClick={handleCheckForUpdates}
-              className="gap-2"
-            >
-              {checking ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-              {t("Check for Updates")}
-            </Button>
-          )}
-        </div>
-        {statusText ? (
-          <p className="rounded-md border border-primary/20 bg-accent/40 px-3 py-2 text-xs font-medium text-foreground">
-            {statusText}
-          </p>
-        ) : null}
-      </CardContent>
-    </Card>
-  );
 }
