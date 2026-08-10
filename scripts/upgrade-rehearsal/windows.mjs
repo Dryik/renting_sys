@@ -29,10 +29,15 @@ export function resourcesPathFor(applicationPath) {
 /** Runs a command to completion, capturing output for the report. */
 export function run(command, args, { cwd, env, timeoutMs = 45 * 60_000, log } = {}) {
   return new Promise((resolve, reject) => {
+    const canonicalCwd = cwd ? fs.realpathSync.native(cwd) : undefined;
+
     log?.(`  $ ${command} ${args.join(" ")}`);
+    if (cwd && canonicalCwd !== cwd) {
+      log?.(`    cwd resolved from ${cwd} to ${canonicalCwd}`);
+    }
 
     const child = spawn(command, args, {
-      cwd,
+      cwd: canonicalCwd,
       env: { ...process.env, ...env },
       shell: process.platform === "win32",
       windowsHide: true,
