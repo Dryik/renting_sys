@@ -74,6 +74,7 @@ export function buildSeedExpression({ ownerPassword = "1234" } = {}) {
             fullName: "Rehearsal Staff",
             username: "rehearsalstaff",
             password: "4321",
+            confirmPassword: "4321",
             roleKey: "staff",
           }),
         );
