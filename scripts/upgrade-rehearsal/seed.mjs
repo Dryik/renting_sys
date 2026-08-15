@@ -432,7 +432,7 @@ export function buildSeedExpression({ ownerPassword = "1234" } = {}) {
             buyerName: "Synthetic Buyer",
             buyerPhone: "0910000009",
             buyerIdNumber: "ID-9999",
-            saleDate: iso(0, 15).slice(0, 10),
+            saleDate: iso(0, 15),
             salePrice: 8750.555,
             paymentMethod: "cash",
             notes: "rehearsal sale",

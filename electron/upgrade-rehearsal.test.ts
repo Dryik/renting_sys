@@ -277,6 +277,27 @@ describe("the released-build seed data", () => {
     }
   });
 
+  // v0.3.9 parses a full ISO datetime everywhere it stamps a record, except the
+  // staff daily closing, which takes a calendar date. Truncating the wrong one
+  // fails as "Invalid ISO datetime" deep inside the rehearsal, long after the
+  // installer has already run.
+  it("dates each seeded record the way the released build parses it", () => {
+    const dateOnlyFields = ["closingDate"];
+    const expression = buildSeedExpression();
+    const dated = [
+      ...expression.matchAll(/(\w+):\s*iso\([^)]*\)(\.slice\(0,\s*10\))?/g),
+    ].map((match) => ({ field: match[1], dateOnly: Boolean(match[2]) }));
+
+    expect(dated.length).toBeGreaterThan(0);
+
+    for (const { field, dateOnly } of dated) {
+      expect({ field, dateOnly }).toEqual({
+        field,
+        dateOnly: dateOnlyFields.includes(field),
+      });
+    }
+  });
+
   it("never sends a vehicle out below its current mileage", () => {
     for (const scenario of Object.values(seedMileageScenarios)) {
       if (scenario.out !== null) {
