@@ -291,7 +291,12 @@ export function buildSeedExpression({ ownerPassword = "1234" } = {}) {
             collateralItems: [],
           }),
         );
-        await step("cancel that rental", () => api.rentals.cancel(cancelledRental.id));
+        await step("cancel that rental", () =>
+          api.rentals.cancel({
+            rentalId: cancelledRental.id,
+            reason: "Customer changed plans during the rehearsal.",
+          }),
+        );
 
         const draftRental = await step("create a draft rental", () =>
           api.rentals.createDraft({

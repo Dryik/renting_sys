@@ -13,7 +13,10 @@ import {
   toMinorUnits as rehearsalToMinorUnits,
   toMinorUnitsOrNull as rehearsalToMinorUnitsOrNull,
 } from "../scripts/upgrade-rehearsal/money.mjs";
-import { seedMileageScenarios } from "../scripts/upgrade-rehearsal/seed.mjs";
+import {
+  buildSeedExpression,
+  seedMileageScenarios,
+} from "../scripts/upgrade-rehearsal/seed.mjs";
 import {
   readUpgradeMethod,
   upgradeMethodValues,
@@ -233,6 +236,14 @@ describe("the rehearsal's restatement of the money column inventory", () => {
 });
 
 describe("the released-build seed data", () => {
+  it("uses the v0.3.9 cancellation input shape", () => {
+    const expression = buildSeedExpression();
+
+    expect(expression).toContain("api.rentals.cancel({");
+    expect(expression).toContain("rentalId: cancelledRental.id");
+    expect(expression).toContain('reason: "Customer changed plans during the rehearsal."');
+  });
+
   it("never sends a vehicle out below its current mileage", () => {
     for (const scenario of Object.values(seedMileageScenarios)) {
       if (scenario.out !== null) {

@@ -125,7 +125,18 @@ export async function removeWorktree({ repoPath, workPath, log }) {
  * of the executable is what is actually waited on.
  */
 export async function installSilently(installerPath, { log, timeoutMs = 10 * 60_000 } = {}) {
-  await run(installerPath, ["/S"], { log, timeoutMs });
+  let installerError = null;
+  try {
+    await run(installerPath, ["/S"], { log, timeoutMs });
+  } catch (error) {
+    // On GitHub-hosted Windows, the one-click NSIS process has occasionally
+    // returned STATUS_ACCESS_VIOLATION after it finished writing and launched
+    // the application. Do not trust the exit code alone: the caller launches
+    // the installed executable and checks its reported version immediately
+    // after this function returns.
+    installerError = error instanceof Error ? error : new Error(String(error));
+    log?.(`  installer returned nonzero; checking the installed executable: ${installerError.message}`);
+  }
 
   const applicationPath = installedApplicationPath();
   const deadline = Date.now() + timeoutMs;
@@ -133,12 +144,21 @@ export async function installSilently(installerPath, { log, timeoutMs = 10 * 60_
   while (Date.now() < deadline) {
     if (fs.existsSync(applicationPath)) {
       // The installer also launches the app on completion; give it a moment
-      // and then make sure nothing is holding the files.
+      // before the caller stops it or verifies the installed version.
       await delay(3000);
+      if (installerError) {
+        log?.("  installed executable exists; continuing to the version check");
+      }
       return applicationPath;
     }
 
     await delay(1000);
+  }
+
+  if (installerError) {
+    throw new Error(
+      `${installerError.message}\nthe installed executable never appeared at ${applicationPath}`,
+    );
   }
 
   throw new Error(`the installer finished but ${applicationPath} never appeared`);
