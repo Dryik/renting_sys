@@ -1,9 +1,10 @@
-# Proves that a real 0.3.9 installation survives a real electron-updater
-# upgrade to the version on this branch, with its data intact.
+# Proves that a real 0.3.9 installation survives both electron-updater and a
+# manual installer upgrade to the version on this branch, with its data intact.
 #
-# This workflow installs a package, lets the updater replace it, and migrates
-# the database the installed application opens. That is destructive, so it runs
-# only on a fresh GitHub-hosted Windows runner, which is discarded afterwards.
+# This workflow installs a package, replaces it through each supported path,
+# and migrates the database the installed application opens. That is
+# destructive, so it runs only on fresh GitHub-hosted Windows runners, which
+# are discarded afterwards.
 # The rehearsal itself refuses to start unless it can independently confirm the
 # machine is disposable; the environment variable below is one half of that,
 # and the runner's own identity is the other.
@@ -21,8 +22,8 @@ on:
       - "scripts/upgrade-rehearsal/**"
       - ".github/workflows/upgrade-rehearsal.yml"
 
-# One rehearsal at a time: two runs would fight over the same feed ports and
-# the same installed application.
+# One workflow run per ref at a time. The matrix jobs use separate disposable
+# runners, so the updater and manual-installer paths cannot share app data.
 concurrency:
   group: upgrade-rehearsal-${{ github.ref }}
   cancel-in-progress: true
@@ -36,12 +37,17 @@ jobs:
     # a clearer signal than failing three steps later.
     runs-on: windows-latest
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        method: [updater, manual-installer]
 
     env:
       # Half of the disposable proof. The other half is the runner itself,
       # which the guard checks through GITHUB_ACTIONS, CI and RUNNER_TEMP.
       RENTAL_UPGRADE_REHEARSAL_DISPOSABLE: yes-this-machine-is-disposable
-      RENTAL_UPGRADE_REPORT: ${{ github.workspace }}\upgrade-rehearsal-report.json
+      RENTAL_UPGRADE_METHOD: ${{ matrix.method }}
+      RENTAL_UPGRADE_REPORT: ${{ github.workspace }}\upgrade-rehearsal-report-${{ matrix.method }}.json
 
     steps:
       - name: Refuse to run anywhere but Windows
@@ -99,9 +105,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: upgrade-rehearsal-report
+          name: upgrade-rehearsal-report-${{ matrix.method }}
           path: |
-            upgrade-rehearsal-report.json
+            upgrade-rehearsal-report-${{ matrix.method }}.json
             release/latest.yml
           if-no-files-found: warn
           retention-days: 14

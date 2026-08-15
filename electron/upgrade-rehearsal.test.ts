@@ -14,6 +14,10 @@ import {
   toMinorUnitsOrNull as rehearsalToMinorUnitsOrNull,
 } from "../scripts/upgrade-rehearsal/money.mjs";
 import { seedMileageScenarios } from "../scripts/upgrade-rehearsal/seed.mjs";
+import {
+  readUpgradeMethod,
+  upgradeMethodValues,
+} from "../scripts/upgrade-rehearsal/method.mjs";
 
 /**
  * A machine that should be allowed: a fresh hosted runner with the opt-in set
@@ -247,6 +251,22 @@ describe("the released-build seed data", () => {
   });
 });
 
+describe("the two release installation paths", () => {
+  it("defaults to the electron-updater rehearsal", () => {
+    expect(readUpgradeMethod(undefined)).toBe("updater");
+  });
+
+  it.each(upgradeMethodValues)("accepts %s", (method) => {
+    expect(readUpgradeMethod(method)).toBe(method);
+  });
+
+  it("rejects an unknown installation path", () => {
+    expect(() => readUpgradeMethod("direct-copy")).toThrow(
+      /RENTAL_UPGRADE_METHOD/,
+    );
+  });
+});
+
 describe("release invariants the updater depends on", () => {
   const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8")) as {
     version: string;
@@ -306,6 +326,8 @@ describe("release invariants the updater depends on", () => {
     expect(workflow).toContain("runs-on: windows-latest");
     expect(workflow).toContain(disposableMarker.name);
     expect(workflow).toContain(disposableMarker.value);
+    expect(workflow).toContain("method: [updater, manual-installer]");
+    expect(workflow).toContain("RENTAL_UPGRADE_METHOD: ${{ matrix.method }}");
     // A rehearsal must never turn into a publish.
     expect(workflow).not.toContain("softprops/action-gh-release");
     expect(workflow).not.toContain("--publish always");

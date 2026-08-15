@@ -1,14 +1,15 @@
 /**
  * The Windows upgrade rehearsal: prove that a real 0.3.9 installation, holding
- * real data written by the released code, survives a real electron-updater
- * upgrade to this version with nothing lost or changed.
+ * real data written by the released code, survives both supported upgrade
+ * paths to this version with nothing lost or changed.
  *
  * What makes this different from the migration tests in `npm test`: nothing
  * here calls the migration runner. A released package is built from its own
  * tag, installed by its own NSIS installer, launched, filled with data through
- * its own IPC bridge, and then upgraded by the updater that ships in it. The
- * migration happens because the new application opened an old file, which is
- * the only way a shop will ever experience it.
+ * its own IPC bridge, and then upgraded either by electron-updater or by
+ * running the new installer over the existing installation. The migration
+ * happens because the new application opened an old file, which is the only
+ * way a shop will ever experience it.
  *
  *   npm run dist
  *   npm run test:upgrade
@@ -38,6 +39,7 @@ import {
   expectedTriggerNameList,
   toMinorUnitsOrNull,
 } from "./money.mjs";
+import { readUpgradeMethod } from "./method.mjs";
 import { buildSeedExpression } from "./seed.mjs";
 import {
   buildReleasedVersion,
@@ -53,6 +55,7 @@ import {
 const repositoryPath = path.resolve(fileURLToPath(import.meta.url), "..", "..", "..");
 const releasedTag = process.env.RENTAL_UPGRADE_FROM_TAG ?? "v0.3.9";
 const debuggingPort = Number(process.env.RENTAL_UPGRADE_DEBUG_PORT ?? 9411);
+const upgradeMethod = readUpgradeMethod(process.env.RENTAL_UPGRADE_METHOD);
 
 const lines = [];
 const checks = [];
@@ -98,12 +101,14 @@ async function main() {
 
   log(`  workspace:   ${workspace}`);
   log(`  upgrading:   ${releasedTag} -> ${newVersion}`);
+  log(`  method:      ${upgradeMethod}`);
   log(`  data:        ${userDataPath}`);
 
   Object.assign(report, {
     startedAt: new Date().toISOString(),
     releasedTag,
     newVersion,
+    upgradeMethod,
     workspace,
     userDataPath,
     environment: { signals: decision.signals, probe: redactProbe(probe) },
@@ -165,9 +170,9 @@ async function main() {
     check("the released file has no minor-unit columns yet", before.minorColumns.length, 0);
     check("uploaded files exist before the upgrade", before.uploads.length > 0, true);
 
-    // ------------------------------------------------------------- 4. feed
+    // -------------------------------------------------------- 4. new package
     log("");
-    log("[5/8] serving the new package from a loopback feed");
+    log("[5/8] validating the new package artifacts");
     fs.mkdirSync(feedPath, { recursive: true });
     const artifacts = copyReleaseArtifacts(
       path.join(repositoryPath, "release"),
@@ -175,98 +180,131 @@ async function main() {
       newVersion,
     );
     report.newArtifacts = artifacts.names;
-    log(`  serving ${artifacts.names.join(", ")}`);
+    log(`  found ${artifacts.names.join(", ")}`);
 
-    feed = await startUpdateFeed(feedPath, artifacts.names);
-    const redirect = redirectInstalledCopyToFeed(
-      resourcesPathFor(applicationPath),
-      feed.url,
-    );
-    log(`  ${redirect.configPath} now points at ${feed.url}`);
-    report.feedUrl = feed.url;
-    report.appUpdateYmlBefore = redirect.original.trim();
-    report.appUpdateYmlAfter = redirect.replacement.trim();
+    if (upgradeMethod === "updater") {
+      feed = await startUpdateFeed(feedPath, artifacts.names);
+      const redirect = redirectInstalledCopyToFeed(
+        resourcesPathFor(applicationPath),
+        feed.url,
+      );
+      log(`  ${redirect.configPath} now points at ${feed.url}`);
+      report.feedUrl = feed.url;
+      report.appUpdateYmlBefore = redirect.original.trim();
+      report.appUpdateYmlAfter = redirect.replacement.trim();
+    }
 
     // ----------------------------------------------------------- 5. upgrade
     log("");
-    log("[6/8] running the real updater");
-    launchApplication(applicationPath, { port: debuggingPort, log });
-    client = await connectToApp(debuggingPort, { log });
+    if (upgradeMethod === "updater") {
+      log("[6/8] running the real updater");
+      launchApplication(applicationPath, { port: debuggingPort, log });
+      client = await connectToApp(debuggingPort, { log });
 
-    const originalPid = await mainProcessPid();
-    log(`  main process is ${originalPid}`);
+      const originalPid = await mainProcessPid();
+      log(`  main process is ${originalPid}`);
 
-    // Record every status the main process broadcasts, so the report can show
-    // the sequence rather than only the end state.
-    await client.evaluate(`
-      window.__rehearsalUpdateEvents = [];
-      window.rentalApp.updates.onStatusChange((state) => {
-        window.__rehearsalUpdateEvents.push({ at: Date.now(), ...state });
-      });
-      true
-    `);
+      // Record every status the main process broadcasts, so the report can show
+      // the sequence rather than only the end state.
+      await client.evaluate(`
+        window.__rehearsalUpdateEvents = [];
+        window.rentalApp.updates.onStatusChange((state) => {
+          window.__rehearsalUpdateEvents.push({ at: Date.now(), ...state });
+        });
+        true
+      `);
 
-    // A packaged build already runs `checkForUpdatesAndNotify` at startup, so
-    // by now a check or download may be under way. Calling `checkForUpdates`
-    // on top of that starts a second download of the same package against the
-    // same cache. Read the state first and only push it along if nothing has
-    // begun.
-    const initialState = await client.evaluate(
-      "window.rentalApp.updates.getUpdateState()",
-    );
-    log(`  update state on arrival: ${JSON.stringify(initialState)}`);
-    report.initialUpdateState = initialState;
-
-    const automaticCheckStarted = ["checking", "available", "downloading", "downloaded"].includes(
-      initialState?.status,
-    );
-
-    if (automaticCheckStarted) {
-      log("  the startup check is already running; not starting a second one");
-      report.manualCheckInvoked = false;
-    } else {
-      const triggered = await client.evaluate(
-        "window.rentalApp.updates.checkForUpdates()",
+      // A packaged build already runs `checkForUpdatesAndNotify` at startup, so
+      // by now a check or download may be under way. Calling `checkForUpdates`
+      // on top of that starts a second download of the same package against the
+      // same cache. Read the state first and only push it along if nothing has
+      // begun.
+      const initialState = await client.evaluate(
+        "window.rentalApp.updates.getUpdateState()",
       );
-      log(`  checkForUpdates -> ${JSON.stringify(triggered)}`);
-      report.manualCheckInvoked = true;
-      report.manualCheckResult = triggered;
+      log(`  update state on arrival: ${JSON.stringify(initialState)}`);
+      report.initialUpdateState = initialState;
+
+      const automaticCheckStarted = ["checking", "available", "downloading", "downloaded"].includes(
+        initialState?.status,
+      );
+
+      if (automaticCheckStarted) {
+        log("  the startup check is already running; not starting a second one");
+        report.manualCheckInvoked = false;
+      } else {
+        const triggered = await client.evaluate(
+          "window.rentalApp.updates.checkForUpdates()",
+        );
+        log(`  checkForUpdates -> ${JSON.stringify(triggered)}`);
+        report.manualCheckInvoked = true;
+        report.manualCheckResult = triggered;
+      }
+
+      const downloaded = await pollUntil(
+        client,
+        "window.rentalApp.updates.getUpdateState()",
+        (state) => state?.status === "downloaded" || state?.status === "error",
+        { timeoutMs: 15 * 60_000, intervalMs: 2000, log },
+      );
+
+      const events = await client.evaluate("window.__rehearsalUpdateEvents");
+      report.updateEvents = events;
+      log(`  update events: ${JSON.stringify(events)}`);
+
+      if (downloaded?.status !== "downloaded") {
+        throw new Error(`the updater did not download: ${JSON.stringify(downloaded)}`);
+      }
+
+      check("the updater offered the new version", downloaded.version, newVersion);
+      check(
+        "the feed served latest.yml and the package",
+        feed.requests.some((request) => request.name === "latest.yml") &&
+          feed.requests.some((request) => request.name.endsWith(".exe")),
+        true,
+      );
+
+      log("  invoking the real restart-and-install channel");
+      await client.evaluate("window.rentalApp.updates.restartAndInstall()").catch(() => {
+        // The channel never resolves: the process is being replaced underneath it.
+      });
+      client.close("the application is restarting");
+
+      const handoff = await waitForUpdaterHandoff(originalPid, { log });
+      report.handoff = handoff;
+      check("the updater replaced the original process", handoff.newPid !== originalPid, true);
+
+      await stopApplication({ log });
+    } else {
+      log("[6/8] installing the new package over the existing installation");
+      const newInstallerPath = path.join(
+        repositoryPath,
+        "release",
+        artifacts.names[0],
+      );
+      const installedPath = await installSilently(newInstallerPath, { log });
+      check(
+        "the manual installer kept the application path",
+        path.resolve(installedPath),
+        path.resolve(applicationPath),
+      );
+
+      // NSIS launches the application when installation completes. Stop that
+      // copy, then start one with CDP enabled so the reported version proves
+      // that the executable on disk was actually replaced.
+      await stopApplication({ log });
+      launchApplication(installedPath, { port: debuggingPort, log });
+      client = await connectToApp(debuggingPort, { log });
+      const installedAppInfo = await client.evaluate("window.rentalApp.getAppInfo()");
+      check(
+        "the manual installer launched the new version",
+        installedAppInfo?.version,
+        newVersion,
+      );
+      client.close();
+      await stopApplication({ log });
+      report.manualInstallation = { installer: artifacts.names[0], installedPath };
     }
-
-    const downloaded = await pollUntil(
-      client,
-      "window.rentalApp.updates.getUpdateState()",
-      (state) => state?.status === "downloaded" || state?.status === "error",
-      { timeoutMs: 15 * 60_000, intervalMs: 2000, log },
-    );
-
-    const events = await client.evaluate("window.__rehearsalUpdateEvents");
-    report.updateEvents = events;
-    log(`  update events: ${JSON.stringify(events)}`);
-
-    if (downloaded?.status !== "downloaded") {
-      throw new Error(`the updater did not download: ${JSON.stringify(downloaded)}`);
-    }
-
-    check("the updater offered the new version", downloaded.version, newVersion);
-    check(
-      "the feed served latest.yml and the package",
-      feed.requests.some((request) => request.name === "latest.yml") &&
-        feed.requests.some((request) => request.name.endsWith(".exe")),
-      true,
-    );
-
-    log("  invoking the real restart-and-install channel");
-    await client.evaluate("window.rentalApp.updates.restartAndInstall()").catch(() => {
-      // The channel never resolves: the process is being replaced underneath it.
-    });
-    client.close("the application is restarting");
-
-    const handoff = await waitForUpdaterHandoff(originalPid, { log });
-    report.handoff = handoff;
-    check("the updater replaced the original process", handoff.newPid !== originalPid, true);
-
-    await stopApplication({ log });
 
     // ------------------------------------------------------- 6. post manifest
     log("");
@@ -612,7 +650,7 @@ function verifyMigrationArchive(migrationBackupsPath, { workspace, before, log }
 /**
  * Copies exactly the three artifacts a release publishes. Anything else in
  * `release/` — the unpacked directory, builder debug output — stays out of the
- * feed, so the rehearsal serves what a real client would be offered.
+ * rehearsal, so each path uses exactly what a real client would receive.
  */
 function copyReleaseArtifacts(releasePath, feedPath, version) {
   const installer = `ARAK-Rental-Desk-Setup-${version}.exe`;
