@@ -21,6 +21,19 @@ const jpegDataUrl =
   "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==";
 
 /**
+ * Mileage fixtures live outside the browser expression so the fast unit suite
+ * can reject an impossible seed before the Windows runner spends minutes
+ * building and installing two application versions.
+ */
+export const seedMileageScenarios = Object.freeze({
+  active: Object.freeze({ vehicle: 12000, out: 12000, in: null }),
+  returned: Object.freeze({ vehicle: 8000, out: 8000, in: 8450 }),
+  cancelled: Object.freeze({ vehicle: 500, out: 500, in: null }),
+  draft: Object.freeze({ vehicle: 12000, out: null, in: null }),
+  sold: Object.freeze({ vehicle: 12000, out: null, in: null }),
+});
+
+/**
  * Builds the expression handed to the page. It returns a JSON-serialisable
  * summary, and throws with the failing step's name if any call is rejected, so
  * a schema mismatch surfaces as "step X: <validation message>" rather than an
@@ -46,6 +59,7 @@ export function buildSeedExpression({ ownerPassword = "1234" } = {}) {
         when.setHours(hour ?? 10, 0, 0, 0);
         return when.toISOString();
       };
+      const mileage = ${JSON.stringify(seedMileageScenarios)};
 
       try {
         // --- users and settings -------------------------------------------
@@ -104,7 +118,7 @@ export function buildSeedExpression({ ownerPassword = "1234" } = {}) {
         );
 
         // --- vehicles ------------------------------------------------------
-        const vehicle = async (plate, dailyPrice, deposit, commission) =>
+        const vehicle = async (plate, dailyPrice, deposit, commission, initialMileage) =>
           api.vehicles.create({
             type: "car",
             brand: "Rehearsal",
@@ -116,7 +130,7 @@ export function buildSeedExpression({ ownerPassword = "1234" } = {}) {
             dailyPrice,
             depositAmount: deposit,
             status: "available",
-            mileage: 12000,
+            mileage: initialMileage,
             insuranceExpiryDate: null,
             registrationExpiryDate: null,
             technicalInspectionExpiryDate: null,
@@ -127,19 +141,19 @@ export function buildSeedExpression({ ownerPassword = "1234" } = {}) {
           });
 
         const carActive = await step("vehicle for the active rental", () =>
-          vehicle("REH-001", 33.33, 100.005, 2.675),
+          vehicle("REH-001", 33.33, 100.005, 2.675, mileage.active.vehicle),
         );
         const carReturned = await step("vehicle for the returned rental", () =>
-          vehicle("REH-002", 19.99, 250.5, null),
+          vehicle("REH-002", 19.99, 250.5, null, mileage.returned.vehicle),
         );
         const carCancelled = await step("vehicle for the cancelled rental", () =>
-          vehicle("REH-003", 12.345, 75.25, null),
+          vehicle("REH-003", 12.345, 75.25, null, mileage.cancelled.vehicle),
         );
         const carDraft = await step("vehicle for the draft rental", () =>
-          vehicle("REH-004", 44.44, 0, null),
+          vehicle("REH-004", 44.44, 0, null, mileage.draft.vehicle),
         );
         const carSold = await step("vehicle to sell", () =>
-          vehicle("REH-005", 27.77, 60, null),
+          vehicle("REH-005", 27.77, 60, null, mileage.sold.vehicle),
         );
 
         // --- customers -----------------------------------------------------
@@ -195,7 +209,7 @@ export function buildSeedExpression({ ownerPassword = "1234" } = {}) {
             dailyPrice: 33.33,
             depositRequired: 100.005,
             depositPaid: 50.5,
-            mileageOut: 12000,
+            mileageOut: mileage.active.out,
             fuelOut: "full",
             notesOut: "active rehearsal rental",
             salesUserId: staffUserId,
@@ -234,7 +248,7 @@ export function buildSeedExpression({ ownerPassword = "1234" } = {}) {
             dailyPrice: 19.99,
             depositRequired: 250.5,
             depositPaid: 250.5,
-            mileageOut: 8000,
+            mileageOut: mileage.returned.out,
             fuelOut: "half",
             notesOut: "to be returned",
             salesUserId: staffUserId,
@@ -250,7 +264,7 @@ export function buildSeedExpression({ ownerPassword = "1234" } = {}) {
             lateFeePerDay: 25.5,
             damageCharge: 15.555,
             discount: 3.33,
-            mileageIn: 8450,
+            mileageIn: mileage.returned.in,
             fuelIn: "half",
             damageNotes: "scratch",
             notesIn: "returned in the rehearsal",
@@ -269,7 +283,7 @@ export function buildSeedExpression({ ownerPassword = "1234" } = {}) {
             dailyPrice: 12.345,
             depositRequired: 75.25,
             depositPaid: 0,
-            mileageOut: 500,
+            mileageOut: mileage.cancelled.out,
             fuelOut: "full",
             notesOut: "to be cancelled",
             salesUserId: null,

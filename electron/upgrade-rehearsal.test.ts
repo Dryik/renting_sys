@@ -13,6 +13,7 @@ import {
   toMinorUnits as rehearsalToMinorUnits,
   toMinorUnitsOrNull as rehearsalToMinorUnitsOrNull,
 } from "../scripts/upgrade-rehearsal/money.mjs";
+import { seedMileageScenarios } from "../scripts/upgrade-rehearsal/seed.mjs";
 
 /**
  * A machine that should be allowed: a fresh hosted runner with the opt-in set
@@ -224,6 +225,25 @@ describe("the rehearsal's restatement of the money column inventory", () => {
 
     expect(expectedTriggerNameList.slice().sort()).toEqual(production);
     expect(expectedTriggerNameList).toHaveLength(58);
+  });
+});
+
+describe("the released-build seed data", () => {
+  it("never sends a vehicle out below its current mileage", () => {
+    for (const scenario of Object.values(seedMileageScenarios)) {
+      if (scenario.out !== null) {
+        expect(scenario.out).toBeGreaterThanOrEqual(scenario.vehicle);
+      }
+    }
+  });
+
+  it("never returns a vehicle below its mileage out", () => {
+    for (const scenario of Object.values(seedMileageScenarios)) {
+      if (scenario.in !== null) {
+        expect(scenario.out).not.toBeNull();
+        expect(scenario.in).toBeGreaterThanOrEqual(scenario.out ?? 0);
+      }
+    }
   });
 });
 
