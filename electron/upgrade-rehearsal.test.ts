@@ -298,6 +298,18 @@ describe("the released-build seed data", () => {
     }
   });
 
+  // getAppInfo resolves to AppInfo, which names the version `appVersion`.
+  // Reading `.version` yields undefined, and because the checks compare
+  // undefined against the expected string they report the released build's
+  // version as "undefined" rather than proving the executable changed.
+  it("reads the app version through the field the bridge returns", () => {
+    const harness = fs.readFileSync("scripts/upgrade-rehearsal/index.mjs", "utf8");
+
+    expect(harness).toContain("window.rentalApp.getAppInfo()");
+    expect(harness).toMatch(/AppInfo\?\.appVersion\b/);
+    expect(harness).not.toMatch(/AppInfo\?\.version\b/);
+  });
+
   it("never sends a vehicle out below its current mileage", () => {
     for (const scenario of Object.values(seedMileageScenarios)) {
       if (scenario.out !== null) {

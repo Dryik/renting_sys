@@ -155,7 +155,11 @@ async function main() {
     report.seed = seeded;
 
     const oldAppInfo = await client.evaluate("window.rentalApp.getAppInfo()");
-    check("the seeded application is the released version", oldAppInfo?.version, releasedTag.replace(/^v/, ""));
+    check(
+      "the seeded application is the released version",
+      oldAppInfo?.appVersion,
+      releasedTag.replace(/^v/, ""),
+    );
 
     client.close();
     await stopApplication({ log });
@@ -295,10 +299,20 @@ async function main() {
       await stopApplication({ log });
       launchApplication(installedPath, { port: debuggingPort, log });
       client = await connectToApp(debuggingPort, { log });
-      const installedAppInfo = await client.evaluate("window.rentalApp.getAppInfo()");
+      // getAppInfo is guarded by the view permissions, and this launch has no
+      // session yet, so the version has to be read from inside a signed-in one.
+      const installedAppInfo = await client.evaluate(`
+        (async () => {
+          await window.rentalApp.auth.login({
+            username: "rehearsalowner",
+            password: "1234",
+          });
+          return window.rentalApp.getAppInfo();
+        })()
+      `);
       check(
         "the manual installer launched the new version",
-        installedAppInfo?.version,
+        installedAppInfo?.appVersion,
         newVersion,
       );
       client.close();
@@ -370,9 +384,9 @@ async function main() {
     launchApplication(applicationPath, { port: debuggingPort, log });
     client = await connectToApp(debuggingPort, { log });
 
-    const newAppInfo = await client.evaluate("window.rentalApp.getAppInfo()");
-    check("the application reports the new version", newAppInfo?.version, newVersion);
-
+    // Signing in comes first because the version read below is permission
+    // guarded, and this launch starts without a session. That the sign-in
+    // succeeds at all is the proof that credentials survived the migration.
     const login = await client.evaluate(`
       (async () => {
         await window.rentalApp.auth.logout();
@@ -391,6 +405,13 @@ async function main() {
     log(`  login and settings: ${JSON.stringify(login)}`);
     check("login still works after the upgrade", login?.isAuthenticated, true);
     check("settings survived the upgrade", login?.shopName, "Rehearsal Rentals");
+
+    const newAppInfo = await client.evaluate("window.rentalApp.getAppInfo()");
+    check(
+      "the application reports the new version",
+      newAppInfo?.appVersion,
+      newVersion,
+    );
 
     client.close();
     await stopApplication({ log });
