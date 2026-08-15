@@ -371,7 +371,7 @@ export function buildSeedExpression({ ownerPassword = "1234" } = {}) {
           api.accounting.createCashMovement({
             type: "transfer",
             fromLocation: "cash_drawer",
-            toLocation: "safe",
+            toLocation: "shop_safe",
             amount: 100.555,
             movementDate: iso(0, 13),
             notes: "rehearsal transfer",

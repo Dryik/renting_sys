@@ -259,6 +259,24 @@ describe("the released-build seed data", () => {
     expect(expression).toContain("enableClientDeposit: true");
   });
 
+  // The seed runs against the released v0.3.9 build, so every literal it sends
+  // has to satisfy v0.3.9's Zod schemas, not this branch's. A location named
+  // "safe" instead of "shop_safe" reached the hosted runner once and cost a
+  // full rehearsal to find, because the seed only reports its first bad step.
+  it("only names money locations the released build accepts", () => {
+    const releasedMoneyLocations = ["cash_drawer", "shop_safe", "bank"];
+    const expression = buildSeedExpression();
+    const locations = [
+      ...expression.matchAll(/\b(?:from|to|source)?[Ll]ocation:\s*"([^"]+)"/g),
+    ].map((match) => match[1]);
+
+    expect(locations.length).toBeGreaterThan(0);
+
+    for (const location of locations) {
+      expect(releasedMoneyLocations).toContain(location);
+    }
+  });
+
   it("never sends a vehicle out below its current mileage", () => {
     for (const scenario of Object.values(seedMileageScenarios)) {
       if (scenario.out !== null) {
