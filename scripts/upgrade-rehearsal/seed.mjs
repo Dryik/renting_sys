@@ -101,6 +101,7 @@ export function buildSeedExpression({ ownerPassword = "1234" } = {}) {
             shopName: "Rehearsal Rentals",
             shopPhone: "0900000000",
             defaultLateFee: 25.5,
+            enableClientDeposit: true,
             language: "en",
             reason: "upgrade rehearsal seed",
           });

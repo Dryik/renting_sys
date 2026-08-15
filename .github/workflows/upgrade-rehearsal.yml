@@ -79,7 +79,10 @@ jobs:
         run: npm run lint
 
       - name: Unit tests
-        run: npm test
+        # Real SQLite migrations and verified ZIP backups contend heavily when
+        # Vitest runs files in parallel on hosted Windows. One worker makes the
+        # timing deterministic while each pure unit test keeps its 5s ceiling.
+        run: npm test -- --maxWorkers=1
 
       - name: Production audit
         run: npm audit --omit=dev

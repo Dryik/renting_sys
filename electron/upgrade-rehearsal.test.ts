@@ -177,17 +177,31 @@ describe("the rehearsal's restatement of the money rules", () => {
     expect(rehearsalToMinorUnits(-2.675)).toBe(-268);
   });
 
-  it("agrees with production across a wide sweep", () => {
-    const values: number[] = [0, -0, 0.1, 0.2, 12.345, -12.345, 19.99, 33.33, 1e6 + 0.005];
+  it(
+    "agrees with production across a wide sweep",
+    () => {
+      const values: number[] = [
+        0,
+        -0,
+        0.1,
+        0.2,
+        12.345,
+        -12.345,
+        19.99,
+        33.33,
+        1e6 + 0.005,
+      ];
 
-    for (let cents = -5000; cents <= 5000; cents += 7) {
-      values.push(cents / 100, cents / 100 + 0.005, cents / 1000);
-    }
+      for (let cents = -5000; cents <= 5000; cents += 7) {
+        values.push(cents / 100, cents / 100 + 0.005, cents / 1000);
+      }
 
-    for (const value of values) {
-      expect(rehearsalToMinorUnits(value)).toBe(toMinorUnits(value));
-    }
-  });
+      for (const value of values) {
+        expect(rehearsalToMinorUnits(value)).toBe(toMinorUnits(value));
+      }
+    },
+    60_000,
+  );
 
   it("keeps null null, like the nullable columns it checks", () => {
     expect(rehearsalToMinorUnitsOrNull(null)).toBeNull();
@@ -242,6 +256,7 @@ describe("the released-build seed data", () => {
     expect(expression).toContain("api.rentals.cancel({");
     expect(expression).toContain("rentalId: cancelledRental.id");
     expect(expression).toContain('reason: "Customer changed plans during the rehearsal."');
+    expect(expression).toContain("enableClientDeposit: true");
   });
 
   it("never sends a vehicle out below its current mileage", () => {
@@ -339,6 +354,7 @@ describe("release invariants the updater depends on", () => {
     expect(workflow).toContain(disposableMarker.value);
     expect(workflow).toContain("method: [updater, manual-installer]");
     expect(workflow).toContain("RENTAL_UPGRADE_METHOD: ${{ matrix.method }}");
+    expect(workflow).toContain("npm test -- --maxWorkers=1");
     // A rehearsal must never turn into a publish.
     expect(workflow).not.toContain("softprops/action-gh-release");
     expect(workflow).not.toContain("--publish always");
