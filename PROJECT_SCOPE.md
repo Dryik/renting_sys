@@ -1,121 +1,73 @@
-# Version 1 Scope
+# Product Scope
 
-This app is for small rental shops with one Windows desktop or laptop.
+Current release: **v0.4.0**.
 
-## Version 1 Includes
+This app is for small car and motorcycle rental shops running one Windows
+desktop or laptop. It is local-only: no cloud, no server, no account to sign up
+for. The users are non-technical shop staff.
 
-### Vehicles
+> This file describes what the application **is today**. An earlier version of
+> this document described a much smaller "Version 1" that the product has long
+> since outgrown; it was rewritten at v0.4.0. Where this file and the code
+> disagree, the code wins — and please fix this file.
 
-- Add vehicle
-- Edit vehicle
-- Search vehicles
-- Vehicle status
-- Daily price
-- Deposit amount
-- Plate number
-- Type: car or motorcycle
-- Insurance expiry
-- Registration expiry
-- Notes
+## What ships today
 
-### Customers
+The renderer is organised as feature modules under `src/features`, one per area
+below.
 
-- Add customer
-- Edit customer
-- Search customers
-- Name
-- Phone
-- National ID / Passport
-- Driver license number
-- Address
-- Notes
+### Core rental workflow
 
-### Rentals
+- **Vehicles** — cars and motorcycles, daily price, deposit, plate, mileage,
+  status, insurance/registration/inspection expiry, uploaded documents and
+  photos, per-vehicle commission override.
+- **Customers** — name, phones, ID or passport, driver licence and expiry,
+  address, uploaded documents and photos.
+- **Rentals** — draft, active, returned, cancelled and overdue contracts;
+  mileage and fuel out/in, deposits, extra charges, discounts, collateral items
+  with or without a stated value, and printable contracts.
+- **Returns** — handled inside the rental, not as a separate screen.
+- **Payments** — rent, deposit, extra charge and refund, by cash, card, bank
+  transfer or other, with receipts and voiding.
+- **Maintenance** — records and reminders, plus vehicle mileage history.
 
-- Create rental contract
-- Select customer
-- Select available vehicle
-- Start date/time
-- Expected return date/time
-- Daily price
-- Deposit
-- Mileage out
-- Fuel level out
-- Notes
-- Activate rental
-- Print or export contract PDF
+### Added since the original v1 scope
 
-### Returns
+- **Accounting** — expenses, cash movements between money locations
+  (cash drawer, shop safe, bank), owner withdrawals, adjustments and daily
+  closings. Deliberately *not* double-entry.
+- **Accessories** — rentable extras attached to a contract.
+- **Commissions** — per-day rate and amount recorded on a rental, with a
+  salesperson.
+- **Employee loans** — issue and repay, tracked against a user.
+- **Vehicle sales** — sell a vehicle out of the fleet and keep the history.
+- **Users, roles and audit** — five fixed roles (`owner_admin`, `manager`,
+  `staff`, `accountant`, `viewer`) with explicit permissions, and an
+  append-only audit log of who did what.
+- **Reports** and **global search** across vehicles, customers and rentals.
+- **Backup and restore** — automatic scheduled backups and manual ones, as
+  verified ZIP archives; restore is atomic and fails closed.
+- **Offline licensing** — request/apply flow with read-only enforcement when a
+  licence is missing or expired.
+- **Updates** — in-app update check and install against the GitHub release.
+- **Arabic and English**, right-to-left by default, with dark mode.
 
-Returns should be handled inside the active rental workflow.
+## Still excluded
 
-- Return vehicle
-- Actual return date/time
-- Mileage in
-- Fuel level in
-- Damage notes
-- Extra charges
-- Discount
-- Final amount
-- Deposit refund
-- Mark vehicle available or maintenance
+These remain out of scope. Do not add them without an explicit task.
 
-### Payments
-
-- Record payment
-- Payment type
-- Payment method
-- Amount
-- Date
-- Related rental
-
-### Dashboard
-
-- Available vehicles
-- Rented vehicles
-- Overdue rentals
-- Expected returns today
-- Income today
-
-### Reports
-
-- Active rentals
-- Returned rentals
-- Overdue rentals
-- Daily payments
-- Vehicle income
-- Customer rental history
-
-### Settings
-
-- Shop name
-- Phone
-- Address
-- Default currency
-- Default late fee
-- Contract footer text
-
-### Backup / Restore
-
-- Manual backup
-- Restore from backup
-- Backup includes database and uploaded files
-
-## Version 1 Excludes
-
-- Online booking
-- Cloud database
-- Multi-branch
+- Online booking, cloud sync, multi-branch, multi-tenant SaaS
 - GPS tracking
 - Automatic SMS/WhatsApp
-- Advanced accounting
-- VAT/tax engine
-- Employee payroll
-- Complex role permissions
+- Double-entry accounting, VAT/tax engine, payroll
+- CRM and marketing tools
 - Mobile app
-- SaaS login
-- AI features
+- Complex inventory
 
-## Product Rule
+## Product rule
 
-If a feature does not help the shop answer “who has which vehicle, when is it due, and how much money is owed?”, postpone it.
+If a feature does not help the shop answer *"who has which vehicle, when is it
+due, and how much money is owed?"*, postpone it.
+
+The corollary at this size: prefer making an existing screen clearer over adding
+a new one.
