@@ -1,0 +1,24 @@
+appId: ly.arak.rentaldesk.cleanup.v039
+productName: ARAK v0.3.9 Data Cleanup
+artifactName: ARAK-v0.3.9-Data-Cleanup-${version}.${ext}
+compression: maximum
+electronVersion: 39.8.10
+asar: true
+asarUnpack:
+  - node_modules/better-sqlite3/**/*
+directories:
+  app: .
+  output: ../cleanup-v0.3.9
+  buildResources: build
+files:
+  - "**/*"
+npmRebuild: false
+win:
+  signAndEditExecutable: false
+  target:
+    - target: portable
+      arch:
+        - x64
+  icon: build/icon.ico
+  requestedExecutionLevel: asInvoker
+publish: null

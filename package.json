@@ -17,6 +17,8 @@
     "test:upgrade": "node scripts/upgrade-rehearsal/index.mjs",
     "license:app": "electron scripts/generate-license-app.mjs",
     "capture:visual-qa": "node scripts/capture-visual-qa.mjs",
+    "cleanup:v0.3.9": "electron scripts/cleanup-v0.3.9.mjs",
+    "dist:cleanup:v0.3.9": "node scripts/build-cleanup-v0.3.9.mjs",
     "perf:stress": "electron scripts/perf-stress.cjs",
     "qa:contract-print": "npm run build && electron out/main/contract-print-smoke.js",
     "clean:release": "node scripts/clean-release.mjs",
