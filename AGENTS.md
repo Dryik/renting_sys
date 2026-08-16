@@ -19,31 +19,36 @@ The users are non-technical staff. The app must be simple, local, fast, and reli
 
 ## Product Scope
 
-Build a local-only rental management app.
+A local-only rental management app. Current release: **v0.4.0**, in front of
+real shops with real customer data.
 
-Allowed modules:
-- Dashboard
-- Vehicles
-- Customers
-- Rentals
-- Returns inside rental workflow
-- Payments
-- Maintenance
-- Reports
-- Settings
-- Backup and Restore
+Modules that exist today, as feature folders under `src/features`:
+
+- Dashboard, Vehicles, Customers, Rentals (returns handled inside the rental)
+- Payments, Maintenance, Reports, Search, Settings, Backup and Restore
+- Accounting — expenses, cash movements between money locations, adjustments,
+  daily closings. Simple, single-entry.
+- Accessories, commissions, employee loans, vehicle sales
+- Users, roles and audit — five fixed roles with explicit permissions
+- Offline licensing with read-only enforcement, and in-app updates
+
+Some of these were forbidden by an earlier version of this file, which was never
+updated as the product grew. The list above is what the code actually contains;
+see `PROJECT_SCOPE.md` for detail.
 
 Do not add:
 - Cloud sync
 - Online booking
 - GPS tracking
 - Multi-branch architecture
-- Advanced accounting
+- Double-entry accounting, VAT/tax engine, payroll
 - Complex inventory
 - CRM
 - Marketing tools
-- Enterprise permissions
 - Multi-tenant SaaS logic
+
+Do not widen scope on your own. If a task seems to need one of the above, say so
+and stop.
 
 ## Main Business Rules
 
@@ -173,6 +178,60 @@ A task is not complete unless:
 - no TypeScript errors remain
 - no obvious broken UI remains
 
+## Architecture and Invariants (v0.4.0)
+
+React feature screens → the typed API in `src/data/rental-app-api.ts` →
+sandboxed preload/IPC → permission-guarded services in `electron/db/*.service.ts`
+→ Drizzle/SQLite. Business rules and Zod schemas live in `src/shared`.
+
+**The renderer's only backend gateway is `src/data/rental-app-api.ts`.** React
+components must never touch SQLite or `ipcRenderer` directly.
+
+**Money is stored as integer minor units.** Every monetary column is a pair: the
+original `REAL` column and an integer `_minor` column beside it — 29 pairs and
+58 database triggers, both asserted by tests. Conversion is half away from zero
+(`src/shared/money.ts`). Migration 12 deliberately leaves historical `REAL`
+values alone, so `legacy === minor / 100` is **false** for old rows and must
+never be asserted. Details in `DATABASE_DESIGN.md`.
+
+**Migrations write a verified safety backup first** and refuse to run if it
+cannot be written. Schema version is 12.
+
+**The audit log is append-only.** Rows may be added; existing rows must survive
+every upgrade.
+
+## Before Trusting a Test, Make It Fail
+
+At v0.4.0 three separate checks were found reporting success while asserting
+nothing: queries naming columns that do not exist and comparing an error against
+the identical error, version checks reading a field the IPC bridge does not
+return, and a `select *` that read a migration's own new columns as drift.
+
+A green check is not evidence. Break the thing on purpose, watch the guard fail,
+then fix it. If a guard cannot be made to fail, it is not a guard.
+
+## Upgrade Rehearsal
+
+`.github/workflows/upgrade-rehearsal.yml` installs the previous release, seeds it
+through its own IPC bridge, upgrades it, and compares every row, monetary total
+and uploaded file across the boundary.
+
+Two things will trip you up:
+
+1. **The `updater` job fails on purpose**, for the reason documented in
+   `TASKS.md`. It is a limitation of the rehearsal's feed redirection, not a
+   defect in the application. Do not make CI green by weakening the rehearsal or
+   changing product code.
+2. **The seed runs against the previous release**, so every literal it sends must
+   satisfy *that* release's Zod schemas, not `main`'s. It reports only its first
+   bad step, so each mismatch costs a full run to find. Check
+   `git show v0.3.9:src/shared/<area>.ts` before editing
+   `scripts/upgrade-rehearsal/seed.mjs`, and add a fast unit-test guard.
+
+On hosted Windows the unit suite runs with `--maxWorkers=1`; real SQLite
+migrations and verified ZIP backups contend badly in parallel and fail on the
+clock with no assertion failure behind them.
+
 ## Release & Auto-Updater Rules
 
 When creating a new application release:
@@ -182,4 +241,7 @@ When creating a new application release:
    - `ARAK-Rental-Desk-Setup-${version}.exe`
    - `ARAK-Rental-Desk-Setup-${version}.exe.blockmap`
    - `latest.yml`
-3. **Verification**: Always verify asset filenames on GitHub (`gh release view v${version}`) match the `url` and `path` entries in `latest.yml` character-for-character before declaring a release finished.
+3. **Verification**: Always verify asset filenames on GitHub (`gh release view v${version}`) match the `url` and `path` entries in `latest.yml` character-for-character before declaring a release finished. Also confirm the SHA-512 and size in `latest.yml` match the built `.exe`.
+4. **Releases are built and published locally.** There is no release workflow; the upgrade rehearsal never publishes and never tags.
+5. **`npm run dist` deletes the whole `release/` directory.** Copy out anything you need from there first.
+6. **Known local build failure**: `electron-builder` aborts while extracting its `winCodeSign` cache, because two macOS `.dylib` symlinks need a privilege Windows withholds (`A required privilege is not held by the client`). The tools do extract; only the final rename is skipped. Copy the extracted directory to `…/AppData/Local/electron-builder/Cache/winCodeSign/winCodeSign-2.6.0` and rebuild.

@@ -1,133 +1,76 @@
-# Build Tasks
+# Tasks
 
-## Milestone 1: App Foundation
+Current release: **v0.4.0**, published from `main`.
 
-- [x] Create Electron + React + TypeScript project
-- [x] Add Tailwind
-- [x] Add shadcn/ui
-- [x] Add SQLite
-- [x] Add Drizzle
-- [x] Add app layout
-- [x] Add navigation
-- [x] Add database initialization
-- [x] Add typecheck command
+> This file used to be a milestone checklist for the original v1 build, with
+> every box ticked. It stopped tracking reality several releases ago and was
+> rewritten at v0.4.0 to record what is actually outstanding. Completed history
+> lives in the git log and in the release notes, not here.
 
-## Milestone 2: Vehicles
+## How work gets done here
 
-- [x] Vehicle database schema
-- [x] Vehicle list
-- [x] Vehicle form
-- [x] Vehicle edit
-- [x] Vehicle search
-- [x] Vehicle status badge
+1. Branch off `main`. Do not commit to `main` directly.
+2. Make the change, with tests for business logic.
+3. Run the checks in the "Definition of done" section below.
+4. Open a PR.
 
-## Milestone 3: Customers
+## Outstanding
 
-- [x] Customer database schema
-- [x] Customer list
-- [x] Customer form
-- [x] Customer edit
-- [x] Customer search
+### The updater rehearsal never completes
 
-## Milestone 4: Rentals
+`.github/workflows/upgrade-rehearsal.yml` runs two jobs. `manual-installer`
+passes end to end. **`updater` fails, and this is known and understood — do not
+"fix" it by weakening the rehearsal or changing the application.**
 
-- [x] Rental database schema
-- [x] Create rental form
-- [x] Only show available vehicles
-- [x] Calculate rental days
-- [x] Calculate total amount
-- [x] Activate rental
-- [x] Mark vehicle rented
-- [x] Prevent two active rentals for same vehicle
+The job installs v0.3.9, serves the new package from a loopback feed, and
+rewrites the installed copy's `resources/app-update.yml` to point at it. The
+application ignores the rewrite and consults its original GitHub provider:
 
-## Milestone 5: Returns
+```
+Checking for update
+Update for version 0.3.9 is not available (latest version: 0.3.9, downgrade is disallowed).
+```
 
-- [x] Return rental form
-- [x] Calculate late fees
-- [x] Add damage charges
-- [x] Add discount
-- [x] Calculate final balance
-- [x] Mark rental returned
-- [x] Mark vehicle available or maintenance
+The feed recorded **zero requests** in fifteen minutes. The redirect is written
+to the correct path before the relaunch, and there is no `setFeedURL` in the
+application. The next step is to find why the relaunched process does not honour
+the rewritten config.
 
-## Milestone 6: Payments
+Now that v0.4.0 exists on the real provider, the other half of this can be
+checked directly: a v0.3.9 installation pointed at the real GitHub release
+should offer and install v0.4.0.
 
-- [x] Add payment form
-- [x] Payment list per rental
-- [x] Update paid amount
-- [x] Update remaining amount
-- [x] Record initial deposit payment during rental activation
-- [x] Preserve payment history when rental is cancelled
+### The v0.3.9 cleanup tool is unmerged
 
-## Milestone 7: Maintenance
+Lives on `cleanup/v0.3.9-data-tool`. It only accepts a schema-11 database, so it
+must run on a client machine **before** that machine is upgraded to v0.4.0.
+Decide whether it merges to `main` or stays a branch-held utility.
 
-- [x] Maintenance database schema
-- [x] Maintenance list
-- [x] Maintenance form
-- [x] Maintenance edit
-- [x] Maintenance search
-- [x] Mark maintenance complete
-- [x] Archive maintenance records without permanent delete
-- [x] Update vehicle status for active maintenance
+### Stray files at the repository root
 
-## Milestone 8: Dashboard and Reports
+`audit-patterns.txt` and `audit-screenshot.png` are untracked and unexplained.
+Identify and either commit or delete them.
 
-- [x] Dashboard cards
-- [x] Active rentals report
-- [x] Overdue rentals report
-- [x] Returned rentals report
-- [x] Daily payments report
-- [x] Vehicle income report
-- [x] Customer rental history report
+## Definition of done
 
-## Milestone 9: PDF and Printing
+A change is not finished until all of these pass:
 
-- [x] Rental contract PDF
-- [x] Payment receipt PDF
-- [x] Print contract
-- [x] Print receipt
-- [x] Escape printable customer and notes text
+```bash
+npm run typecheck && npm run lint && npm test && npm run build
+```
 
-## Milestone 10: Backup and Installer
+For anything touching the database, money, backups or the upgrade path, the
+upgrade rehearsal must also be considered — it triggers on pull requests that
+touch `package.json`, `package-lock.json`, `electron/db/**`,
+`scripts/upgrade-rehearsal/**` or the workflow itself.
 
-- [x] Manual backup
-- [x] Restore backup
-- [x] Restore safety backup before data replacement
-- [x] Restore ZIP validation and staged replacement
-- [x] Windows installer
-- [x] Final smoke test
+## A hard-won lesson worth keeping
 
-## Milestone 11: ARAK Branding and Localization
+Three checks in the upgrade rehearsal were reporting success while asserting
+nothing: six queries named columns that do not exist and compared an error
+against the identical error, three version comparisons read `.version` where the
+bridge returns `appVersion`, and one query used `select *` so the migration's own
+new columns read as drift.
 
-- [x] Product renamed to ARAK Rental Desk
-- [x] ARAK logo asset added to the app shell
-- [x] Windows installer icon generated
-- [x] Installer artifact renamed for ARAK Rental Desk
-- [x] ARAK blue/cyan theme applied
-- [x] Arabic set as the default app language
-- [x] English language option retained in Settings
-- [x] RTL direction applied to the app shell
-- [x] Visible app screens localized through shared i18n helpers
-- [x] Status, payment, vehicle, date, and currency formatting localized
-- [x] About and support panel added with ARAK contact details
-- [x] Rental contract print output localized for Arabic/English
-- [x] Payment receipt print output localized for Arabic/English
-- [x] Printable dynamic text still escaped before rendering
-
-## Audit Remediation Verification
-
-- [x] TypeScript typecheck
-- [x] ESLint
-- [x] Unit tests
-- [x] Production build
-- [x] Electron smoke test
-- [x] Windows installer build
-
-## Brand and Localization Verification
-
-- [x] TypeScript typecheck
-- [x] ESLint
-- [x] Unit tests
-- [x] Production build
-- [x] Electron smoke test with temporary user data
-- [x] Windows installer build
+**Before trusting a new guard, make it fail on the real defect first.** Every
+guard added at v0.4.0 was verified that way.

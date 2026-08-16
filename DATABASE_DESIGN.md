@@ -1,93 +1,80 @@
 # Database Design
 
-Use SQLite with Drizzle ORM.
+SQLite through Drizzle ORM, in the Electron `userData` directory. WAL mode,
+foreign keys on. **Schema version 12** as of v0.4.0.
 
-Keep the schema simple. Do not add extra tables unless needed by the current milestone.
+> An earlier version of this document listed six tables for a much smaller
+> product. There are 26 today. It was rewritten at v0.4.0. The authoritative
+> definition is [`electron/db/schema.ts`](electron/db/schema.ts); if this file
+> disagrees with it, the schema wins.
 
-## vehicles
+## Where the truth lives
 
-- id
-- type: car | motorcycle
-- brand
-- model
-- plate_number
-- color
-- year
-- daily_price
-- deposit_amount
-- status: available | rented | maintenance | inactive
-- mileage
-- insurance_expiry_date
-- registration_expiry_date
-- notes
-- created_at
-- updated_at
+| Thing | File |
+| --- | --- |
+| Table definitions | `electron/db/schema.ts` |
+| Migration ladder | `electron/db/migrations.ts` |
+| Migration runner | `electron/db/migration-runner.ts` |
+| Money column registry | `electron/db/money-columns.ts` |
+| Per-domain queries | `electron/db/*.service.ts` (23 of them) |
 
-## customers
+## Tables
 
-- id
-- full_name
-- phone
-- secondary_phone
-- national_id
-- driver_license_no
-- license_expiry_date
-- address
-- notes
-- created_at
-- updated_at
+**Rental core** — `vehicles`, `customers`, `rentals`, `payments`,
+`rental_accessories`, `rental_collateral_items`, `accessories`
 
-## rentals
+**Fleet upkeep** — `maintenance_records`, `maintenance_reminders`,
+`vehicle_mileage_events`, `vehicle_sales`
 
-- id
-- contract_no
-- customer_id
-- vehicle_id
-- status: draft | active | returned | cancelled | overdue
-- start_datetime
-- expected_return_datetime
-- actual_return_datetime
-- daily_price
-- deposit_required
-- deposit_paid
-- mileage_out
-- mileage_in
-- fuel_out
-- fuel_in
-- notes_out
-- notes_in
-- damage_notes
-- extra_charges
-- discount
-- total_amount
-- paid_amount
-- remaining_amount
-- created_at
-- updated_at
+**Money** — `expenses`, `cash_movements`, `accounting_adjustments`,
+`daily_closings`, `money_locations`, `employee_loans`,
+`employee_loan_payments`
 
-## payments
+**People and safety** — `users`, `roles`, `role_permissions`, `audit_events`,
+`app_events`
 
-- id
-- rental_id
-- type: rent | deposit | extra_charge | refund
-- method: cash | card | bank_transfer | other
-- amount
-- payment_date
-- notes
-- created_at
+**Plumbing** — `app_settings`, `attachments`, `number_sequences`
 
-## maintenance_records
+## Money is stored as integer minor units
 
-- id
-- vehicle_id
-- title
-- description
-- cost
-- start_date
-- end_date
-- created_at
+This is the single most important invariant in the database, and the easiest to
+break by accident.
 
-## app_settings
+Every monetary column exists as a **pair**: the original `REAL` column and an
+integer `_minor` column beside it. There are **29 pairs** and **58 triggers**
+(an insert and an update check for each), and both counts are asserted by the
+test suite and by the upgrade rehearsal.
 
-- key
-- value
+Rules:
+
+- The integer column is the source of truth. Compute with it.
+- Conversion is **half away from zero** — see `src/shared/money.ts`.
+- Migration 12 deliberately **leaves historical `REAL` values alone**. A row
+  stored as `100.005` keeps `100.005` while its minor becomes `10001`.
+  Therefore `legacy === minor / 100` is **false** for historical rows and must
+  never be asserted; dividing back gives `100.01`.
+- The triggers reject any mirror that disagrees with its value, so a write that
+  updates one side without the other fails loudly.
+
+Adding a money column means adding it to the registry in
+`electron/db/money-columns.ts`, which is what generates the triggers and what
+the tests count.
+
+## Migrations
+
+An ordered registry, not a folder of loose files. Each entry has a version and
+runs inside a transaction.
+
+Before any migration runs, the runner writes a **verified safety backup** and
+refuses to migrate if that backup cannot be written or verified. A failing
+migration rolls back without recording its version. The database refuses to open
+if its version is newer than the application understands.
+
+## Data safety rules
+
+- Never permanently delete business records by default — prefer a `voided`
+  status or an inactive flag.
+- The database and all uploads live under `app.getPath("userData")`. Never
+  inside the project directory.
+- The audit log is append-only. Rows may be added; existing rows must survive
+  every upgrade.
