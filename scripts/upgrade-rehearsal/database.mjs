@@ -73,37 +73,42 @@ export function readRepresentativeValues(database) {
   return [
     pick(
       "rentals",
-      `select id, contract_number, status, daily_price, total_amount, paid_amount,
+      `select id, contract_no, status, daily_price, total_amount, paid_amount,
               remaining_amount, deposit_required, deposit_paid, extra_charges,
               discount, commission_rate_per_day, commission_amount
        from rentals order by id`,
     ),
     pick(
       "payments",
-      `select id, rental_id, payment_type, amount, is_voided
+      `select id, rental_id, type, amount, status
        from payments order by id`,
     ),
-    pick("expenses", "select id, amount, is_voided from expenses order by id"),
+    pick("expenses", "select id, amount, status from expenses order by id"),
     pick(
       "cash_movements",
-      "select id, movement_type, amount, is_voided from cash_movements order by id",
+      "select id, type, amount, status from cash_movements order by id",
     ),
     pick(
       "employee_loans",
-      "select id, employee_id, amount, is_voided from employee_loans order by id",
+      "select id, employee_user_id, amount, status from employee_loans order by id",
     ),
     pick(
       "vehicle_sales",
-      "select id, vehicle_id, sale_price, is_voided from vehicle_sales order by id",
+      "select id, vehicle_id, sale_price, status from vehicle_sales order by id",
     ),
     pick(
       "vehicles",
       `select id, plate_number, daily_price, deposit_amount, commission_rate_override, status
        from vehicles order by id`,
     ),
+    // Named columns, never `select *`: migration 12 adds the minor-unit mirror
+    // beside each money column, so a star would report the columns the upgrade
+    // is supposed to add as values the upgrade changed.
     pick(
       "daily_closings",
-      "select * from daily_closings order by id",
+      `select id, closing_date, expected_cash, counted_cash, difference, notes,
+              closed_at, updated_at
+       from daily_closings order by id`,
     ),
   ];
 }

@@ -466,6 +466,17 @@ function compareBusinessCounts(before, after) {
       continue;
     }
 
+    // The audit log is append-only, and the rehearsal signs in to read the
+    // installed version — an audited action. Losing audit history is a
+    // failure; the rows the rehearsal itself caused are not.
+    if (table === "audit_events") {
+      if ((after[table] ?? 0) < count) {
+        drifted.push({ table, before: count, after: after[table] ?? null });
+      }
+
+      continue;
+    }
+
     if (after[table] !== count) {
       drifted.push({ table, before: count, after: after[table] ?? null });
     }
@@ -477,6 +488,17 @@ function compareBusinessCounts(before, after) {
 /** The money values a user would see, compared exactly. */
 function compareRepresentatives(before, after) {
   const drifted = [];
+
+  // A query that cannot run returns an error instead of rows, and an error
+  // compares equal to the same error on the other side — so six of these
+  // reported success while proving nothing, for as long as their column names
+  // were wrong. A table that cannot be read is a broken check, not a passing
+  // one, and has to fail on its own.
+  const unreadable = [...before, ...after]
+    .filter((group) => group.error)
+    .map((group) => `${group.label}: ${group.error}`);
+
+  check("every representative table could be read", unreadable, []);
 
   for (const group of before) {
     const match = after.find((candidate) => candidate.label === group.label);
