@@ -186,12 +186,40 @@ export function launchApplication(applicationPath, { port, env, log } = {}) {
     applicationPath,
     [`--remote-debugging-port=${port}`, "--remote-allow-origins=*"],
     {
-      env: { ...process.env, ...env },
+      // electron-updater logs to console, which is the main process's stdout.
+      // Discarding it is why an updater that sat at idle for fifteen minutes
+      // could not be explained: the run never saw which feed it consulted or
+      // what it decided. A Windows GUI build writes nothing without
+      // ELECTRON_ENABLE_LOGGING, so both halves are needed to see anything.
+      env: { ELECTRON_ENABLE_LOGGING: "1", ...process.env, ...env },
       detached: false,
-      stdio: "ignore",
+      stdio: ["ignore", "pipe", "pipe"],
       windowsHide: false,
     },
   );
+
+  const relay = (stream, label) => {
+    let pending = "";
+
+    stream.setEncoding("utf8");
+    stream.on("data", (chunk) => {
+      pending += chunk;
+      const lines = pending.split(/\r?\n/);
+      pending = lines.pop() ?? "";
+
+      for (const line of lines) {
+        // Only the updater's own reporting; a packaged Electron build is
+        // otherwise noisy enough to bury it.
+        if (/update|feed|provider|version|error/i.test(line)) {
+          log?.(`  app ${label}: ${line.trim()}`);
+        }
+      }
+    });
+    stream.on("error", () => {});
+  };
+
+  relay(child.stdout, "out");
+  relay(child.stderr, "err");
 
   child.on("error", (error) => log?.(`  launch error: ${error.message}`));
 
