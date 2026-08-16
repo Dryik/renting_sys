@@ -124,7 +124,10 @@ export async function removeWorktree({ repoPath, workPath, log }) {
  * one-click installer returns before it has finished writing, so the presence
  * of the executable is what is actually waited on.
  */
-export async function installSilently(installerPath, { log, timeoutMs = 10 * 60_000 } = {}) {
+export async function installSilently(
+  installerPath,
+  { log, timeoutMs = 10 * 60_000, attempt = 1 } = {},
+) {
   let installerError = null;
   try {
     await run(installerPath, ["/S"], { log, timeoutMs });
@@ -155,13 +158,24 @@ export async function installSilently(installerPath, { log, timeoutMs = 10 * 60_
     await delay(1000);
   }
 
+  // The access violation this tolerates above sometimes kills the one-click
+  // installer before it writes anything, and the same package installs on the
+  // next attempt. Retry once, so a crash in NSIS is not read as a defect in
+  // the upgrade. A second failure is reported as the real thing.
+  if (attempt === 1) {
+    log?.("  the installed executable never appeared; running the installer once more");
+    return installSilently(installerPath, { log, timeoutMs, attempt: 2 });
+  }
+
   if (installerError) {
     throw new Error(
-      `${installerError.message}\nthe installed executable never appeared at ${applicationPath}`,
+      `${installerError.message}\nthe installed executable never appeared at ${applicationPath} after 2 attempts`,
     );
   }
 
-  throw new Error(`the installer finished but ${applicationPath} never appeared`);
+  throw new Error(
+    `the installer finished but ${applicationPath} never appeared after 2 attempts`,
+  );
 }
 
 /** Starts the installed application with a debugging port open. */

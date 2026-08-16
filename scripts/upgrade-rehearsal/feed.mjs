@@ -19,7 +19,7 @@ import path from "node:path";
  * Range requests are supported because `differentialPackage` is on: the
  * updater asks for byte ranges of the previous package when it can.
  */
-export async function startUpdateFeed(directory, allowedFileNames) {
+export async function startUpdateFeed(directory, allowedFileNames, { log } = {}) {
   const allowed = new Set(allowedFileNames);
   const requests = [];
 
@@ -34,6 +34,15 @@ export async function startUpdateFeed(directory, allowedFileNames) {
       name: requestedName,
       range: request.headers.range ?? null,
     });
+
+    // Logged as it arrives, not at the end. Whether the updater ever asked for
+    // latest.yml is the difference between "it never reached the feed" and "it
+    // read the feed and decided there was nothing newer", and a run that hangs
+    // on idle never reaches the code that reports the requests afterwards.
+    log?.(
+      `  feed <- ${request.method} ${requestedName}` +
+        `${request.headers.range ? ` range ${request.headers.range}` : ""}`,
+    );
 
     // A whitelist, not a static file server: the feed directory sits next to
     // build output and must not become a way to read the rest of the disk.

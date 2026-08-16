@@ -187,7 +187,10 @@ async function main() {
     log(`  found ${artifacts.names.join(", ")}`);
 
     if (upgradeMethod === "updater") {
-      feed = await startUpdateFeed(feedPath, artifacts.names);
+      feed = await startUpdateFeed(feedPath, artifacts.names, { log });
+      // A live reference, so the report carries whatever the feed served even
+      // when the run fails before the requests are inspected.
+      report.feedRequests = feed.requests;
       const redirect = redirectInstalledCopyToFeed(
         resourcesPathFor(applicationPath),
         feed.url,
@@ -245,16 +248,25 @@ async function main() {
         report.manualCheckResult = triggered;
       }
 
-      const downloaded = await pollUntil(
-        client,
-        "window.rentalApp.updates.getUpdateState()",
-        (state) => state?.status === "downloaded" || state?.status === "error",
-        { timeoutMs: 15 * 60_000, intervalMs: 2000, log },
-      );
-
-      const events = await client.evaluate("window.__rehearsalUpdateEvents");
-      report.updateEvents = events;
-      log(`  update events: ${JSON.stringify(events)}`);
+      let downloaded;
+      try {
+        downloaded = await pollUntil(
+          client,
+          "window.rentalApp.updates.getUpdateState()",
+          (state) => state?.status === "downloaded" || state?.status === "error",
+          { timeoutMs: 15 * 60_000, intervalMs: 2000, log },
+        );
+      } finally {
+        // Recorded even when the poll gives up: an updater that never leaves
+        // idle is diagnosed from what it emitted and what it asked the feed
+        // for, and both are lost if this only runs on the happy path.
+        const timedOutEvents = await client
+          .evaluate("window.__rehearsalUpdateEvents")
+          .catch(() => null);
+        report.updateEvents = timedOutEvents;
+        log(`  update events: ${JSON.stringify(timedOutEvents)}`);
+        log(`  feed served: ${JSON.stringify(feed.requests)}`);
+      }
 
       if (downloaded?.status !== "downloaded") {
         throw new Error(`the updater did not download: ${JSON.stringify(downloaded)}`);
