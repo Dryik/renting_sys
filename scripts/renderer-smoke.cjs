@@ -45,6 +45,108 @@ function check(label, actual, expected) {
   return ok;
 }
 
+/**
+ * Pins the viewport, independent of the host's display.
+ *
+ * The window is asked for 1280x800, but a smaller screen silently clamps it —
+ * a GitHub-hosted runner gave a viewport at or under 1180, which is where
+ * `app-shell` collapses the sidebar and stops rendering nav labels. The smoke
+ * then found no controls and five checks failed for a reason that had nothing
+ * to do with the code under test.
+ *
+ * Device emulation overrides `viewSize` regardless of the real screen, so the
+ * layout under test is chosen here rather than by whatever machine happens to
+ * run it. Every parameter is supplied: partial ones are merged with defaults
+ * that may not be what the caller assumes.
+ */
+function setViewport(page, width, height) {
+  page.enableDeviceEmulation({
+    screenPosition: "desktop",
+    screenSize: { width, height },
+    viewPosition: { x: 0, y: 0 },
+    deviceScaleFactor: 1,
+    viewSize: { width, height },
+    scale: 1,
+  });
+}
+
+/**
+ * One way to find a sidebar control, used by every navigation step.
+ *
+ * Scoped to `nav`, so a button elsewhere on the page cannot stand in for the
+ * sidebar. Three strategies in order, because the expanded rail renders a text
+ * label and the collapsed rail renders only an icon with the label on `title`:
+ * visible text, then `aria-label`, then `title`. It reports which one matched,
+ * so the compact case can prove the icon-only rail is still reachable by an
+ * accessible name rather than by luck.
+ *
+ * Re-injected after every reload; a navigation clears it.
+ */
+const navFinderSource = `
+  window.__smokeFindNav = (label) => {
+    const normalize = (value) => (value || "").replace(/\\s+/g, " ").trim();
+    const controls = Array.from(document.querySelectorAll("nav button, nav a"));
+
+    const byText = controls.find((el) => normalize(el.innerText) === label);
+    if (byText) return { el: byText, via: "text" };
+
+    const byAria = controls.find(
+      (el) => normalize(el.getAttribute("aria-label")) === label,
+    );
+    if (byAria) return { el: byAria, via: "aria-label" };
+
+    const byTitle = controls.find((el) => normalize(el.getAttribute("title")) === label);
+    if (byTitle) return { el: byTitle, via: "title" };
+
+    return null;
+  };
+`;
+
+/** The four destinations and the thing only each one renders. */
+const pageAnchorSource = `
+  window.__smokeAnchors = [
+    ["Rentals", () =>
+      document.body.innerText.includes("New Rental") &&
+      Boolean(document.querySelector("table"))],
+    ["Reports", () => document.body.innerText.includes("Report Hub")],
+    ["Settings", () => document.body.innerText.includes("Shop Settings")],
+    ["Accounting", () => document.body.innerText.includes("Record Expense")],
+  ];
+`;
+
+/**
+ * Walks all four destinations, recording how each control was found. A landed
+ * click proves nothing on its own: the route can change while the extracted
+ * component fails to mount, and the sidebar stays on screen either way.
+ */
+const pageTourSource = `
+  ${navFinderSource}
+  ${pageAnchorSource}
+  (async () => {
+    const visited = [];
+    const errors = [];
+    const foundVia = {};
+
+    for (const [label, hasAnchor] of window.__smokeAnchors) {
+      const found = window.__smokeFindNav(label);
+
+      if (!found) {
+        errors.push("no sidebar control for " + label);
+        continue;
+      }
+
+      foundVia[label] = found.via;
+      found.el.click();
+      await new Promise((r) => setTimeout(r, 1200));
+
+      if (hasAnchor()) visited.push(label);
+      else errors.push(label + " opened without its anchor");
+    }
+
+    return JSON.stringify({ visited, errors, foundVia });
+  })()
+`;
+
 async function main() {
   const workspacePath = fs.mkdtempSync(path.join(os.tmpdir(), "pr5-smoke-"));
   process.env.RENTAL_APP_USER_DATA_DIR = workspacePath;
@@ -184,39 +286,31 @@ async function main() {
    * PR6 split these screens across many files. Opening each one proves the
    * extracted components still mount and render, which a type-check alone
    * cannot show: a missing import or a bad prop only fails at runtime.
+   *
+   * The expanded layout is exercised first, at a viewport chosen here rather
+   * than inherited from the host.
    */
-  const pageTour = await page.executeJavaScript(`
-    (async () => {
-      // A destination counts as visited only when something that page alone
-      // renders is on screen. A landed click proves nothing by itself: the
-      // route can change while the extracted component fails to mount, and
-      // the sidebar it was clicked from stays on screen either way.
-      const anchors = [
-        ["Rentals", () =>
-          document.body.innerText.includes("New Rental") &&
-          Boolean(document.querySelector("table"))],
-        ["Reports", () => document.body.innerText.includes("Report Hub")],
-        ["Settings", () => document.body.innerText.includes("Shop Settings")],
-        ["Accounting", () => document.body.innerText.includes("Record Expense")],
-      ];
-      const visited = [];
-      const errors = [];
+  log("--- expanded layout (1400x900) ---");
+  setViewport(page, 1400, 900);
+  // A previous run may have stored a collapsed rail; the layout under test has
+  // to come from the viewport, not from whatever the last session left behind.
+  await page.executeJavaScript(
+    `localStorage.removeItem("arak_sidebar_collapsed"); true`,
+  );
+  page.reload();
+  await new Promise((resolve) => setTimeout(resolve, 4000));
 
-      for (const [label, hasAnchor] of anchors) {
-        const target = Array.from(document.querySelectorAll("button, a"))
-          .find((el) => el.textContent && el.textContent.trim() === label);
-        if (!target) {
-          errors.push("no sidebar control for " + label);
-          continue;
-        }
-        target.click();
-        await new Promise((r) => setTimeout(r, 1200));
-        if (hasAnchor()) visited.push(label);
-        else errors.push(label + " opened without its anchor");
-      }
-      return JSON.stringify({ visited, errors });
-    })()
-  `);
+  const wideViewport = await page.executeJavaScript(
+    `JSON.stringify({ innerWidth: window.innerWidth, compact: window.matchMedia("(max-width: 1180px)").matches })`,
+  );
+  log(`  info  viewport: ${wideViewport}`);
+  check(
+    "the expanded case runs above the 1180px collapse threshold",
+    JSON.parse(wideViewport).innerWidth > 1180,
+    true,
+  );
+
+  const pageTour = await page.executeJavaScript(pageTourSource);
   log(`  info  page tour: ${pageTour}`);
   check(
     "opens Rentals, Reports, Settings and Accounting",
@@ -228,10 +322,10 @@ async function main() {
   // One OperationalReport tab: its table, config and cell formatting are now
   // three separate modules.
   const reportTab = await page.executeJavaScript(`
+    ${navFinderSource}
     (async () => {
-      const reports = Array.from(document.querySelectorAll("button, a"))
-        .find((el) => el.textContent && el.textContent.trim() === "Reports");
-      if (reports) { reports.click(); await new Promise((r) => setTimeout(r, 900)); }
+      const reports = window.__smokeFindNav("Reports");
+      if (reports) { reports.el.click(); await new Promise((r) => setTimeout(r, 900)); }
       const tab = Array.from(document.querySelectorAll("button"))
         .find((el) => el.textContent && /Deposits|Outstanding|Daily Closing|Expiring/.test(el.textContent));
       if (!tab) return JSON.stringify({ opened: false });
@@ -248,10 +342,10 @@ async function main() {
 
   // All five Settings tabs, each now its own component fed by the one form.
   const settingsTabs = await page.executeJavaScript(`
+    ${navFinderSource}
     (async () => {
-      const settings = Array.from(document.querySelectorAll("button, a"))
-        .find((el) => el.textContent && el.textContent.trim() === "Settings");
-      if (settings) { settings.click(); await new Promise((r) => setTimeout(r, 1000)); }
+      const settings = window.__smokeFindNav("Settings");
+      if (settings) { settings.el.click(); await new Promise((r) => setTimeout(r, 1000)); }
       // Only the active tab is mounted, and each one owns exactly one of these
       // registered fields. Finding the field is what shows the extracted
       // component mounted and wired itself to the shared form; page text alone
@@ -291,12 +385,12 @@ async function main() {
   // the sidebar, so the loop probe has to actually open one. Accounting is the
   // worst case: nine fields, previously rebuilt as a fresh literal per render.
   const navigation = await page.executeJavaScript(`
+    ${navFinderSource}
     (async () => {
       const opened = [];
       for (const label of ["Accounting", "Activity Log", "Payments"]) {
-        const button = Array.from(document.querySelectorAll("button, a"))
-          .find((el) => el.textContent && el.textContent.trim() === label);
-        if (button) { button.click(); opened.push(label); await new Promise((r) => setTimeout(r, 900)); }
+        const found = window.__smokeFindNav(label);
+        if (found) { found.el.click(); opened.push(label); await new Promise((r) => setTimeout(r, 900)); }
       }
       return JSON.stringify({ opened, heading: document.body.innerText.replace(/\\s+/g, " ").trim().slice(0, 90) });
     })()
@@ -305,26 +399,72 @@ async function main() {
   // Without this the idle measurement is meaningless: a failed click would
   // leave the probe on a page that never had an object-valued debounce, and
   // zero mutations would prove nothing.
-  check(
-    "the Accounting page actually opened before measuring",
-    JSON.parse(navigation).opened.includes("Accounting"),
-    true,
-  );
+  const accountingOpened = JSON.parse(navigation).opened.includes("Accounting");
+  check("the Accounting page actually opened before measuring", accountingOpened, true);
 
   // A settled page repaints only when something changes. The 150 ms debounce
   // loop drove a steady stream of DOM mutations; count them directly.
-  const mutationProbe = await page.executeJavaScript(`
-    (async () => {
-      let count = 0;
-      const observer = new MutationObserver((records) => { count += records.length; });
-      observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
-      await new Promise((r) => setTimeout(r, 3000));
-      observer.disconnect();
-      return count;
-    })()
-  `);
-  log(`  info  DOM mutations over 3s idle on the opened page: ${mutationProbe}`);
-  check("the idle page is not re-rendering in a loop", mutationProbe < 60, true);
+  //
+  // Measured only when the precondition held. A run that never reached
+  // Accounting would otherwise print a serene zero and a passing check for a
+  // page it never opened, which is worse than no measurement at all.
+  if (accountingOpened) {
+    const mutationProbe = await page.executeJavaScript(`
+      (async () => {
+        let count = 0;
+        const observer = new MutationObserver((records) => { count += records.length; });
+        observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
+        await new Promise((r) => setTimeout(r, 3000));
+        observer.disconnect();
+        return count;
+      })()
+    `);
+    log(`  info  DOM mutations over 3s idle on the opened page: ${mutationProbe}`);
+    check("the idle page is not re-rendering in a loop", mutationProbe < 60, true);
+  } else {
+    log("  info  DOM mutations: not measured, Accounting never opened");
+    check("the idle page is not re-rendering in a loop", "not measured", true);
+  }
+
+  /**
+   * The compact layout, at the size that broke the smoke on a hosted runner.
+   *
+   * Below 1180px `app-shell` collapses the rail to icons and stops rendering
+   * the text labels, so this is not the same DOM as above. Staff on a 1024x768
+   * machine see this one, and it has to remain navigable.
+   */
+  log("--- compact layout (1024x768) ---");
+  setViewport(page, 1024, 768);
+  page.reload();
+  await new Promise((resolve) => setTimeout(resolve, 4000));
+
+  const compactViewport = await page.executeJavaScript(
+    `JSON.stringify({ innerWidth: window.innerWidth, compact: window.matchMedia("(max-width: 1180px)").matches })`,
+  );
+  log(`  info  compact viewport: ${compactViewport}`);
+  check(
+    "the compact case is genuinely below the collapse threshold",
+    JSON.parse(compactViewport).compact,
+    true,
+  );
+
+  const compactTour = await page.executeJavaScript(pageTourSource);
+  log(`  info  compact page tour: ${compactTour}`);
+  const compact = JSON.parse(compactTour);
+  check(
+    "the collapsed rail still opens all four pages",
+    compact.visited,
+    ["Rentals", "Reports", "Settings", "Accounting"],
+  );
+  check("every compact destination reached its own anchor", compact.errors, []);
+  // The point of the compact case: with no visible label, each control must
+  // still carry an accessible name. If these ever come back as "text" the
+  // layout stopped collapsing and this case is no longer testing anything.
+  check(
+    "every collapsed control is reachable by accessible name",
+    Object.values(compact.foundVia).every((via) => via === "title" || via === "aria-label"),
+    true,
+  );
 
   // Logging out must leave nothing of the previous session readable.
   const logoutResult = await page.executeJavaScript(`

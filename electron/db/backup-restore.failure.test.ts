@@ -5,6 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { DB_INTEGRATION_TEST_TIMEOUT_MS } from "./test-timeouts";
+
 const showOpenDialog = vi.fn();
 const saveDialog = vi.fn();
 
@@ -125,7 +127,7 @@ afterEach(() => {
   stopTestDatabase(database);
 });
 
-describe("a successful restore", () => {
+describe("a successful restore", { timeout: DB_INTEGRATION_TEST_TIMEOUT_MS }, () => {
   it("replaces the database and uploads with the archive contents", async () => {
     seedLiveUploads();
     const archivePath = buildIncomingArchive("Restored Marker");
@@ -154,7 +156,10 @@ describe("a successful restore", () => {
   });
 });
 
-describe("failures before live data is touched", () => {
+describe(
+  "failures before live data is touched",
+  { timeout: DB_INTEGRATION_TEST_TIMEOUT_MS },
+  () => {
   it("keeps the database and uploads when the safety archive cannot be written", async () => {
     seedLiveUploads();
     const archivePath = buildIncomingArchive("Should Not Appear");
@@ -222,9 +227,13 @@ describe("failures before live data is touched", () => {
     expect(customerNames()).not.toContain("Should Not Appear");
     expect(liveUploadNames()).toEqual(["live-one.pdf", "live-two.pdf"]);
   });
-});
+  },
+);
 
-describe("failures after replacement has started", () => {
+describe(
+  "failures after replacement has started",
+  { timeout: DB_INTEGRATION_TEST_TIMEOUT_MS },
+  () => {
   it("restores the original database and uploads when the uploads copy fails", async () => {
     seedLiveUploads();
     const archivePath = buildIncomingArchive("Should Not Appear");
@@ -381,9 +390,13 @@ describe("failures after replacement has started", () => {
       .filter((name) => name.startsWith(".restore-rollback-"));
     expect(rollbackDirectories).toHaveLength(1);
   });
-});
+  },
+);
 
-describe("the WAL checkpoint gates backup creation", () => {
+describe(
+  "the WAL checkpoint gates backup creation",
+  { timeout: DB_INTEGRATION_TEST_TIMEOUT_MS },
+  () => {
   function stubCheckpoint(result: unknown): void {
     const live = getSqliteDatabase();
     const realPragma = live.pragma.bind(live);
@@ -436,9 +449,13 @@ describe("the WAL checkpoint gates backup creation", () => {
       fs.readdirSync(userDataPath).filter((name) => name.includes("partial")),
     ).toEqual([]);
   });
-});
+  },
+);
 
-describe("backup destinations are protected", () => {
+describe(
+  "backup destinations are protected",
+  { timeout: DB_INTEGRATION_TEST_TIMEOUT_MS },
+  () => {
   function liveDatabaseIsUsable(): boolean {
     return ownerUsernames().length === 1;
   }
@@ -520,9 +537,13 @@ describe("backup destinations are protected", () => {
       }),
     ).toThrow(/cannot be saved over the app's own data file/);
   });
-});
+  },
+);
 
-describe("the rollback snapshot is never trusted blindly", () => {
+describe(
+  "the rollback snapshot is never trusted blindly",
+  { timeout: DB_INTEGRATION_TEST_TIMEOUT_MS },
+  () => {
   it("refuses to clear live uploads when the snapshot has no manifest", async () => {
     seedLiveUploads();
     const archivePath = buildIncomingArchive("Should Not Appear");
@@ -569,4 +590,5 @@ describe("the rollback snapshot is never trusted blindly", () => {
       .sort();
     expect(preservedUploads).toEqual(["live-one.pdf", "live-two.pdf"]);
   });
-});
+  },
+);
