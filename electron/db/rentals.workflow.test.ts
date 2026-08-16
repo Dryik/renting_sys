@@ -35,6 +35,7 @@ const {
   createDraftRental,
   returnRental,
   returnRentalWithPayment,
+  updateDraftRental,
 } = await import("./rentals.service");
 const { createVehicleSale } = await import("./vehicle-sales.service");
 
@@ -233,6 +234,44 @@ describe("draft rentals", () => {
     expect(activated.status).toBe("active");
     expect(vehicleStatus(vehicleId)).toBe("rented");
   });
+
+  it("allows updating a draft rental details before activation", () => {
+    const customerId = createTestCustomer();
+    const vehicleId = createTestVehicle();
+
+    const input = buildActivationInput(customerId, vehicleId);
+    const draft = createDraftRental(input);
+    expect(draft.status).toBe("draft");
+
+    const updated = updateDraftRental(draft.id, {
+      ...input,
+      dailyPrice: 120,
+      notesOut: "Updated draft notes",
+    });
+
+    expect(updated.status).toBe("draft");
+    expect(updated.dailyPrice).toBe(120);
+    expect(updated.notesOut).toBe("Updated draft notes");
+    const row = getSqliteDatabase()
+      .prepare("select notes_out from rentals where id = ?")
+      .get(draft.id) as { notes_out: string | null };
+    expect(row.notes_out).toBe("Updated draft notes");
+  });
+
+  it("rejects updating non-draft rentals", () => {
+    const customerId = createTestCustomer();
+    const vehicleId = createTestVehicle();
+
+    const input = buildActivationInput(customerId, vehicleId);
+    const rental = activateRental(input);
+
+    expect(() =>
+      updateDraftRental(rental.id, {
+        ...input,
+        dailyPrice: 150,
+      }),
+    ).toThrow("Only draft rentals can be updated here.");
+  });
 });
 
 describe("cancellation", () => {
@@ -283,6 +322,40 @@ describe("returning a rental", () => {
     expect(rentalRow(rental.id).status).toBe("returned");
     expect(vehicleStatus(vehicleId)).toBe("maintenance");
     expect(countRows("maintenance_records", "vehicle_id = ?", vehicleId)).toBe(1);
+  });
+
+  it("recalculates total amount and remaining balance for actual days on early return", () => {
+    const customerId = createTestCustomer();
+    const vehicleId = createTestVehicle();
+    const start = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000).toISOString();
+    const expected = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(); // 30 days total
+    const actual = new Date(Date.now() - 1000).toISOString(); // 28 days
+
+    const rental = activateRental(
+      buildActivationInput(customerId, vehicleId, {
+        startDatetime: start,
+        expectedReturnDatetime: expected,
+        dailyPrice: 100,
+      }),
+    );
+
+    expect(rental.totalAmount).toBe(3000);
+
+    const returned = returnRental(
+      buildReturnInput(rental.id, {
+        actualReturnDatetime: actual,
+        recalculateForActualDays: true,
+      }),
+    );
+
+    expect(returned.status).toBe("returned");
+    expect(returned.totalAmount).toBe(2800);
+    expect(returned.remainingAmount).toBe(2800);
+
+    const row = rentalRow(rental.id);
+    expect(row.total_amount).toBe(2800);
+    expect(row.remaining_amount).toBe(2800);
+    expect(vehicleStatus(vehicleId)).toBe("available");
   });
 });
 

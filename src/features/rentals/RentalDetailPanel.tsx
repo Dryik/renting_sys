@@ -1,4 +1,4 @@
-import { CheckCircle2, CreditCard, FileDown, Loader2, Printer, XCircle } from "lucide-react";
+import { CheckCircle2, CreditCard, FileDown, Loader2, Pencil, Printer, XCircle } from "lucide-react";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
 import { MoneyText } from "@/components/ui/money-text";
@@ -20,10 +20,12 @@ export function RentalDetailPanel({
   contractPrintAction,
   currency,
   formatCurrency,
+  formatDate,
   formatDateTime,
   isSaving,
   onActivateDraft,
   onCancelRental,
+  onEditDraft,
   onPrintContract,
   onRecordPayment,
   onReturnVehicle,
@@ -37,10 +39,12 @@ export function RentalDetailPanel({
   contractPrintAction: PrintAction | null;
   currency: string;
   formatCurrency: (amount: number) => string;
+  formatDate: (value: string | Date) => string;
   formatDateTime: (value: string | Date) => string;
   isSaving: boolean;
   onActivateDraft?: () => void;
   onCancelRental?: () => void;
+  onEditDraft?: () => void;
   onPrintContract: (printToPDF: boolean) => void;
   onRecordPayment?: () => void;
   onReturnVehicle?: () => void;
@@ -161,13 +165,13 @@ export function RentalDetailPanel({
       <div className="rounded-md border">
         <div className="border-b px-4 py-3 font-medium">{t("Rental Period")}</div>
         <div className="grid gap-3 p-4 sm:grid-cols-2">
-          <DetailItem label={t("Start")} value={<BidiValue value={formatDateTime(rental.startDatetime)} />} />
-          <DetailItem label={t("Expected Return")} value={<BidiValue value={formatDateTime(rental.expectedReturnDatetime)} />} />
+          <DetailItem label={t("Start")} value={<BidiValue value={formatDate(rental.startDatetime)} />} />
+          <DetailItem label={t("Expected Return")} value={<BidiValue value={formatDate(rental.expectedReturnDatetime)} />} />
           <DetailItem
             label={t("Actual Return")}
             value={
               rental.actualReturnDatetime
-                ? <BidiValue value={formatDateTime(rental.actualReturnDatetime)} />
+                ? <BidiValue value={formatDate(rental.actualReturnDatetime)} />
                 : t("No date")
             }
           />
@@ -212,6 +216,12 @@ export function RentalDetailPanel({
             <Button onClick={onReturnVehicle}>
               <CheckCircle2 data-icon="inline-start" />
               {t("Return Vehicle")}
+            </Button>
+          ) : null}
+          {rental.status === "draft" && onEditDraft ? (
+            <Button variant="outline" disabled={isSaving} onClick={onEditDraft}>
+              <Pencil data-icon="inline-start" />
+              {t("Edit Draft")}
             </Button>
           ) : null}
           {rental.status === "draft" && onActivateDraft ? (

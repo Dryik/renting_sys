@@ -1,4 +1,4 @@
-import { CheckCircle2, Info, Plus, RotateCcw } from "lucide-react";
+import { CheckCircle2, Info, Pencil, Plus, RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
@@ -97,7 +97,7 @@ export function RentalsPage({
   workflowRequestKey,
 }: RentalsPageProps = {}) {
   const { can } = useAuth();
-  const { formatCurrency, formatDateTime, settings, t } = useI18n();
+  const { formatCurrency, formatDate, formatDateTime, settings, t } = useI18n();
   const [needsFormOptions, setNeedsFormOptions] = useState(false);
   const [queue, setQueue] = useState<RentalQueue>("active");
   const [search, setSearch] = useState("");
@@ -189,6 +189,10 @@ export function RentalsPage({
   const createDraft = useBusinessMutation((input: RentalActivationInput) =>
     rentalAppApi.rentals.createDraft(input),
   );
+  const updateDraft = useBusinessMutation(
+    ({ id, input }: { id: number; input: RentalActivationInput }) =>
+      rentalAppApi.rentals.updateDraft(id, input),
+  );
   const activateDraft = useBusinessMutation((rentalId: number) =>
     rentalAppApi.rentals.activateDraft(rentalId),
   );
@@ -236,6 +240,20 @@ export function RentalsPage({
     });
     setPanelState({ mode: "create" });
   }, [formOptionsKey, queryClient]);
+
+  const openEditDraftForm = useCallback(
+    async (rental: RentalListRecord) => {
+      setFormError(null);
+      setNeedsFormOptions(true);
+      await queryClient.fetchQuery({
+        queryKey: formOptionsKey,
+        queryFn: () => rentalAppApi.rentals.getFormOptions(),
+        staleTime: 0,
+      });
+      setPanelState({ mode: "edit-draft", rental });
+    },
+    [formOptionsKey, queryClient],
+  );
 
   useEffect(() => {
     if (!workflowRequest) {
@@ -307,6 +325,25 @@ export function RentalsPage({
       setPage(1);
     } catch (error) {
       setFormError(getErrorMessage(error, t("Rental could not be saved as draft.")));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleUpdateDraftRental(
+    rentalId: number,
+    input: RentalActivationInput,
+  ) {
+    setIsSaving(true);
+    setFormError(null);
+
+    try {
+      const updated = await updateDraft.mutateAsync({ id: rentalId, input });
+      setPanelState({ mode: "detail", rental: updated });
+    } catch (error) {
+      setFormError(
+        getErrorMessage(error, t("Rental could not be saved as draft.")),
+      );
     } finally {
       setIsSaving(false);
     }
@@ -595,10 +632,29 @@ export function RentalsPage({
           />
         ) : null}
 
+        {panelState?.mode === "edit-draft" ? (
+          <RentalForm
+            initialRental={panelState.rental}
+            error={formError}
+            isSaving={isSaving}
+            options={options}
+            onCancel={() =>
+              setPanelState({ mode: "detail", rental: panelState.rental })
+            }
+            onSave={(input) =>
+              handleUpdateDraftRental(panelState.rental.id, input)
+            }
+            onSaveDraft={(input) =>
+              handleUpdateDraftRental(panelState.rental.id, input)
+            }
+          />
+        ) : null}
+
         {panelState?.mode === "detail" ? (
           <RentalDetailPanel
             currency={settings.defaultCurrency}
             formatCurrency={formatCurrency}
+            formatDate={formatDate}
             formatDateTime={formatDateTime}
             isSaving={isSaving}
             contractPrintAction={contractPrintAction}
@@ -614,6 +670,11 @@ export function RentalsPage({
                 : undefined
             }
             onCancelRental={can("rentals.cancel") ? () => setRentalToCancel(panelState.rental) : undefined}
+            onEditDraft={
+              can("rentals.create")
+                ? () => void openEditDraftForm(panelState.rental)
+                : undefined
+            }
             onPrintContract={(printToPDF) =>
               void handlePrintContract(panelState.rental.id, printToPDF)
             }
@@ -717,7 +778,7 @@ export function RentalsPage({
                   </Td>
                   <Td className="whitespace-nowrap tabular-nums">
                     <BidiValue
-                      value={formatDateTime(
+                      value={formatDate(
                         rental.actualReturnDatetime ?? rental.expectedReturnDatetime,
                       )}
                     />
@@ -746,14 +807,25 @@ export function RentalsPage({
                         </>
                       ) : null}
                       {rental.status === "draft" && can("rentals.create") ? (
-                        <Button
-                          size="sm"
-                          disabled={isSaving}
-                          onClick={() => void handleActivateDraftRental(rental)}
-                        >
-                          <CheckCircle2 data-icon="inline-start" />
-                          {t("Activate Rental")}
-                        </Button>
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={isSaving}
+                            onClick={() => void openEditDraftForm(rental)}
+                          >
+                            <Pencil data-icon="inline-start" />
+                            {t("Edit Draft")}
+                          </Button>
+                          <Button
+                            size="sm"
+                            disabled={isSaving}
+                            onClick={() => void handleActivateDraftRental(rental)}
+                          >
+                            <CheckCircle2 data-icon="inline-start" />
+                            {t("Activate Rental")}
+                          </Button>
+                        </>
                       ) : null}
                       <Button
                         size="sm"

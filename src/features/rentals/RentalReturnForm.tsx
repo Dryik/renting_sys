@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2 } from "lucide-react";
+import { Info, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -76,14 +76,22 @@ export function RentalReturnForm({
     control,
     name: "actualReturnDatetime",
   });
+  const recalculateForActualDays = useWatch({
+    control,
+    name: "recalculateForActualDays",
+  });
   const lateFeePerDay = useWatch({ control, name: "lateFeePerDay" });
   const damageCharge = useWatch({ control, name: "damageCharge" });
   const discount = useWatch({ control, name: "discount" });
   const vehicleStatus = useWatch({ control, name: "vehicleStatus" });
 
   const summary = calculateReturnSummary({
+    startDatetime: rental.startDatetime,
     expectedReturnDatetime: rental.expectedReturnDatetime,
     actualReturnDatetime,
+    dailyPrice: rental.dailyPrice,
+    accessoryCharges: rental.accessoryCharges,
+    recalculateForActualDays: Boolean(recalculateForActualDays),
     baseTotalAmount: rental.totalAmount,
     paidAmount: rental.paidAmount,
     lateFeePerDay: Number(lateFeePerDay) || 0,
@@ -123,7 +131,7 @@ export function RentalReturnForm({
             <Input
               aria-invalid={Boolean(errors.actualReturnDatetime)}
               data-ltr="true"
-              type="datetime-local"
+              type="date"
               {...register("actualReturnDatetime")}
             />
           </Field>
@@ -274,6 +282,43 @@ export function RentalReturnForm({
       ) : null}
 
       <WorkflowSection title={t("Amounts")}>
+        {summary.isEarlyReturn ? (
+          <div className="mb-4 rounded-lg border border-sky-500/30 bg-sky-500/10 p-4 text-sm">
+            <div className="flex items-start gap-3">
+              <Info className="size-5 shrink-0 text-sky-600 dark:text-sky-400 mt-0.5" />
+              <div className="flex flex-col gap-2">
+                <div>
+                  <span className="font-semibold text-foreground">
+                    {t("Early Return Detected")}
+                  </span>
+                  <p className="text-muted-foreground mt-0.5">
+                    {t(
+                      "Returned early: {{actualDays}} of {{bookedDays}} days completed ({{earlyDays}} days early).",
+                      {
+                        actualDays: summary.actualDays,
+                        bookedDays: summary.bookedDays,
+                        earlyDays: summary.earlyDays,
+                      },
+                    )}
+                  </p>
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer select-none font-medium mt-1">
+                  <input
+                    type="checkbox"
+                    className="size-4 rounded border-input text-primary focus:ring-ring"
+                    {...register("recalculateForActualDays")}
+                  />
+                  <span>
+                    {t("Recalculate rent for actual days ({{days}} days)", {
+                      days: summary.actualDays,
+                    })}
+                  </span>
+                </label>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         <div className="grid gap-4 md:grid-cols-3">
           <Field
             label="Late Fee Per Day"
@@ -316,8 +361,8 @@ export function RentalReturnForm({
 
         <div className="mt-4 grid gap-3 rounded-md border bg-muted/25 p-4 lg:grid-cols-5 md:grid-cols-3">
           <SummaryValue
-            label={t("Base Rent")}
-            value={<BidiValue value={formatMoney(rental.totalAmount, currency, locale)} />}
+            label={summary.isEarlyReturn && recalculateForActualDays ? t("Adjusted Rent") : t("Base Rent")}
+            value={<BidiValue value={formatMoney(summary.effectiveBaseAmount, currency, locale)} />}
           />
           <SummaryValue
             label={t("Late Days")}

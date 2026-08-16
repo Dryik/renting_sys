@@ -183,18 +183,18 @@ const datetimeField = (label: string) =>
     .trim()
     .min(1, `${label} is required.`)
     .transform((value, context): string => {
-      const date = new Date(value);
+      const normalized = normalizeToCalendarDate(value);
 
-      if (Number.isNaN(date.getTime())) {
+      if (Number.isNaN(normalized.getTime())) {
         context.addIssue({
           code: "custom",
-          message: `${label} must be a valid date and time.`,
+          message: `${label} must be a valid date.`,
         });
 
         return z.NEVER;
       }
 
-      return date.toISOString();
+      return normalized.toISOString();
     });
 
 export const rentalActivationInputSchema = z
@@ -215,12 +215,12 @@ export const rentalActivationInputSchema = z
   })
   .superRefine((values, context) => {
     if (
-      new Date(values.expectedReturnDatetime).getTime() <=
-      new Date(values.startDatetime).getTime()
+      normalizeToCalendarDate(values.expectedReturnDatetime).getTime() <
+      normalizeToCalendarDate(values.startDatetime).getTime()
     ) {
       context.addIssue({
         code: "custom",
-        message: "Expected return must be after the start date and time.",
+        message: "Expected return cannot be before the start date.",
         path: ["expectedReturnDatetime"],
       });
     }
@@ -252,6 +252,7 @@ export const rentalReturnInputSchema = z
   .object({
     rentalId: z.number().int().positive("Rental is required."),
     actualReturnDatetime: z.string().datetime(),
+    recalculateForActualDays: z.boolean().default(false),
     lateFeePerDay: z
       .number()
       .finite()
@@ -272,7 +273,10 @@ export const rentalReturnInputSchema = z
     collateralReturns: z.array(rentalCollateralReturnInputSchema).default([]),
   })
   .superRefine((values, context) => {
-    if (new Date(values.actualReturnDatetime).getTime() > Date.now()) {
+    if (
+      normalizeToCalendarDate(values.actualReturnDatetime).getTime() >
+      normalizeToCalendarDate(new Date()).getTime()
+    ) {
       context.addIssue({
         code: "custom",
         message: "Actual return cannot be in the future.",
@@ -296,6 +300,7 @@ export type RentalReturnInput = z.infer<typeof rentalReturnInputSchema>;
 
 export type RentalReturnFormValues = {
   actualReturnDatetime: string;
+  recalculateForActualDays: boolean;
   lateFeePerDay: string;
   damageCharge: string;
   discount: string;
@@ -311,6 +316,7 @@ export type RentalReturnFormValues = {
 export const rentalReturnFormSchema = z
   .object({
     actualReturnDatetime: datetimeField("Actual return"),
+    recalculateForActualDays: z.boolean(),
     lateFeePerDay: requiredMoneyField("Late fee per day"),
     damageCharge: requiredMoneyField("Damage charges"),
     discount: requiredMoneyField("Discount"),
@@ -323,7 +329,10 @@ export const rentalReturnFormSchema = z
     maintenanceDescription: optionalTextField(1000),
   })
   .superRefine((values, context) => {
-    if (new Date(values.actualReturnDatetime).getTime() > Date.now()) {
+    if (
+      normalizeToCalendarDate(values.actualReturnDatetime).getTime() >
+      normalizeToCalendarDate(new Date()).getTime()
+    ) {
       context.addIssue({
         code: "custom",
         message: "Actual return cannot be in the future.",
@@ -459,14 +468,14 @@ export type RentalFormOptions = {
 };
 
 export function getDefaultRentalFormValues(): RentalFormValues {
-  const start = roundToNearestMinutes(new Date(), 15);
-  const expected = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  const start = new Date();
+  const expected = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
   return {
     customerId: "",
     vehicleId: "",
-    startDatetime: toDatetimeLocalValue(start),
-    expectedReturnDatetime: toDatetimeLocalValue(expected),
+    startDatetime: toDateInputValue(start),
+    expectedReturnDatetime: toDateInputValue(expected),
     dailyPrice: "",
     depositRequired: "0",
     depositPaid: "0",
@@ -477,14 +486,40 @@ export function getDefaultRentalFormValues(): RentalFormValues {
   };
 }
 
+export function rentalToFormValues(rental: RentalListRecord): RentalFormValues {
+  return {
+    customerId: String(rental.customerId),
+    vehicleId: String(rental.vehicleId),
+    startDatetime: toDateInputValue(new Date(rental.startDatetime)),
+    expectedReturnDatetime: toDateInputValue(
+      new Date(rental.expectedReturnDatetime),
+    ),
+    dailyPrice: String(rental.dailyPrice),
+    depositRequired: String(rental.depositRequired),
+    depositPaid: String(rental.depositPaid),
+    mileageOut: rental.mileageOut === null ? "" : String(rental.mileageOut),
+    fuelOut: rental.fuelOut ?? "",
+    notesOut: rental.notesOut ?? "",
+    salesUserId: rental.salesUserId ? String(rental.salesUserId) : "",
+  };
+}
+
 export function getDefaultRentalReturnFormValues(
   rental: RentalListRecord,
   defaultLateFee = rental.dailyPrice,
 ): RentalReturnFormValues {
-  const actualReturn = roundToNearestMinutes(new Date(), 15);
+  const actualReturn = new Date();
+  const actualReturnDateStr = toDateInputValue(actualReturn);
+  const bookedDays = calculateRentalDays(
+    rental.startDatetime,
+    rental.expectedReturnDatetime,
+  );
+  const actualDays = calculateRentalDays(rental.startDatetime, actualReturnDateStr);
+  const isEarly = actualDays < bookedDays;
 
   return {
-    actualReturnDatetime: toDatetimeLocalValue(actualReturn),
+    actualReturnDatetime: actualReturnDateStr,
+    recalculateForActualDays: isEarly,
     lateFeePerDay: String(defaultLateFee),
     damageCharge: "0",
     discount: "0",
@@ -575,20 +610,25 @@ export function calculateLateDays(
   expectedReturnDatetime: string | Date,
   actualReturnDatetime: string | Date,
 ): number {
-  const expectedReturn = new Date(expectedReturnDatetime).getTime();
-  const actualReturn = new Date(actualReturnDatetime).getTime();
+  const expectedReturn = normalizeToCalendarDate(expectedReturnDatetime);
+  const actualReturn = normalizeToCalendarDate(actualReturnDatetime);
   const millisecondsPerDay = 24 * 60 * 60 * 1000;
 
-  if (!Number.isFinite(expectedReturn) || !Number.isFinite(actualReturn)) {
+  if (Number.isNaN(expectedReturn.getTime()) || Number.isNaN(actualReturn.getTime())) {
     return 0;
   }
 
-  return Math.max(0, Math.ceil((actualReturn - expectedReturn) / millisecondsPerDay));
+  const diffDays = Math.round((actualReturn.getTime() - expectedReturn.getTime()) / millisecondsPerDay);
+  return Math.max(0, diffDays);
 }
 
 export type ReturnSummaryInput = {
+  startDatetime?: string | Date;
   expectedReturnDatetime: string | Date;
   actualReturnDatetime: string | Date;
+  dailyPrice?: number;
+  accessoryCharges?: number;
+  recalculateForActualDays?: boolean;
   baseTotalAmount: number;
   paidAmount: number;
   lateFeePerDay: number;
@@ -597,6 +637,11 @@ export type ReturnSummaryInput = {
 };
 
 export type ReturnSummary = {
+  bookedDays: number;
+  actualDays: number;
+  earlyDays: number;
+  isEarlyReturn: boolean;
+  effectiveBaseAmount: number;
   lateDays: number;
   lateFee: number;
   extraCharges: number;
@@ -654,8 +699,12 @@ export function calculateCancelledRentalBalance(): Pick<
 }
 
 export type ReturnSummaryMinorInput = {
+  startDatetime?: string | Date;
   expectedReturnDatetime: string | Date;
   actualReturnDatetime: string | Date;
+  dailyPriceMinor?: MoneyMinor;
+  accessoryChargesMinor?: MoneyMinor;
+  recalculateForActualDays?: boolean;
   baseTotalAmountMinor: MoneyMinor;
   paidAmountMinor: MoneyMinor;
   lateFeePerDayMinor: MoneyMinor;
@@ -664,6 +713,11 @@ export type ReturnSummaryMinorInput = {
 };
 
 export type ReturnSummaryMinor = {
+  bookedDays: number;
+  actualDays: number;
+  earlyDays: number;
+  isEarlyReturn: boolean;
+  effectiveBaseAmountMinor: MoneyMinor;
   lateDays: number;
   lateFeeMinor: MoneyMinor;
   extraChargesMinor: MoneyMinor;
@@ -674,6 +728,37 @@ export type ReturnSummaryMinor = {
 export function calculateReturnSummaryMinor(
   input: ReturnSummaryMinorInput,
 ): ReturnSummaryMinor {
+  const bookedDays = input.startDatetime
+    ? calculateRentalDays(input.startDatetime, input.expectedReturnDatetime)
+    : 1;
+  const actualDays = input.startDatetime
+    ? calculateRentalDays(input.startDatetime, input.actualReturnDatetime)
+    : 1;
+  const earlyDays = Math.max(0, bookedDays - actualDays);
+  const isEarlyReturn = earlyDays > 0;
+
+  let effectiveBaseAmountMinor: MoneyMinor;
+  if (
+    input.recalculateForActualDays &&
+    isEarlyReturn &&
+    input.startDatetime !== undefined &&
+    input.dailyPriceMinor !== undefined
+  ) {
+    const accessoryMinor = maxMoney(
+      input.accessoryChargesMinor ?? MONEY_MINOR_ZERO,
+      MONEY_MINOR_ZERO,
+    );
+    effectiveBaseAmountMinor = addMoney(
+      calculateRentalTotalMinor(actualDays, input.dailyPriceMinor),
+      accessoryMinor,
+    );
+  } else {
+    effectiveBaseAmountMinor = maxMoney(
+      input.baseTotalAmountMinor,
+      MONEY_MINOR_ZERO,
+    );
+  }
+
   const lateDays = calculateLateDays(
     input.expectedReturnDatetime,
     input.actualReturnDatetime,
@@ -689,13 +774,18 @@ export function calculateReturnSummaryMinor(
   );
   const finalAmountMinor = subtractMoney(
     addMoney(
-      maxMoney(input.baseTotalAmountMinor, MONEY_MINOR_ZERO),
+      effectiveBaseAmountMinor,
       extraChargesMinor,
     ),
     maxMoney(input.discountMinor, MONEY_MINOR_ZERO),
   );
 
   return {
+    bookedDays,
+    actualDays,
+    earlyDays,
+    isEarlyReturn,
+    effectiveBaseAmountMinor,
     lateDays,
     lateFeeMinor,
     extraChargesMinor,
@@ -709,8 +799,16 @@ export function calculateReturnSummaryMinor(
 
 export function calculateReturnSummary(input: ReturnSummaryInput): ReturnSummary {
   const summary = calculateReturnSummaryMinor({
+    startDatetime: input.startDatetime,
     expectedReturnDatetime: input.expectedReturnDatetime,
     actualReturnDatetime: input.actualReturnDatetime,
+    dailyPriceMinor:
+      input.dailyPrice !== undefined ? toMinorUnits(input.dailyPrice) : undefined,
+    accessoryChargesMinor:
+      input.accessoryCharges !== undefined
+        ? toMinorUnits(input.accessoryCharges)
+        : undefined,
+    recalculateForActualDays: input.recalculateForActualDays,
     baseTotalAmountMinor: toMinorUnits(input.baseTotalAmount),
     paidAmountMinor: toMinorUnits(input.paidAmount),
     lateFeePerDayMinor: toMinorUnits(input.lateFeePerDay),
@@ -719,6 +817,11 @@ export function calculateReturnSummary(input: ReturnSummaryInput): ReturnSummary
   });
 
   return {
+    bookedDays: summary.bookedDays,
+    actualDays: summary.actualDays,
+    earlyDays: summary.earlyDays,
+    isEarlyReturn: summary.isEarlyReturn,
+    effectiveBaseAmount: fromMinorUnits(summary.effectiveBaseAmountMinor),
     lateDays: summary.lateDays,
     lateFee: fromMinorUnits(summary.lateFeeMinor),
     extraCharges: fromMinorUnits(summary.extraChargesMinor),
@@ -763,9 +866,9 @@ export function getOpenRentalStatusForExpectedReturn(
   expectedReturnDatetime: string | Date,
   now: string | Date = new Date(),
 ): Extract<RentalStatus, "active" | "overdue"> {
-  return new Date(expectedReturnDatetime).getTime() < new Date(now).getTime()
-    ? "overdue"
-    : "active";
+  const expected = normalizeToCalendarDate(expectedReturnDatetime);
+  const current = normalizeToCalendarDate(now);
+  return expected.getTime() < current.getTime() ? "overdue" : "active";
 }
 
 export function formatRentalStatus(
@@ -811,20 +914,26 @@ export type {
   RentalAccessoryReturnInput,
 };
 
-function roundToNearestMinutes(date: Date, minutes: number): Date {
-  const interval = minutes * 60 * 1000;
-
-  return new Date(Math.ceil(date.getTime() / interval) * interval);
+export function normalizeToCalendarDate(value: string | Date): Date {
+  if (typeof value === "string") {
+    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+    if (match) {
+      return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+    }
+  }
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) {
+    return new Date(NaN);
+  }
+  return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
 }
 
-function toDatetimeLocalValue(date: Date): string {
+export function toDateInputValue(date: Date): string {
   const year = date.getFullYear();
   const month = pad(date.getMonth() + 1);
   const day = pad(date.getDate());
-  const hours = pad(date.getHours());
-  const minutes = pad(date.getMinutes());
 
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
+  return `${year}-${month}-${day}`;
 }
 
 function pad(value: number): string {

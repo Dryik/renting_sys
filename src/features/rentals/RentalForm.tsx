@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, FormEvent, ReactNode, SetStateAction } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { BidiValue } from "@/components/ui/bidi-value";
@@ -18,10 +18,12 @@ import {
   collateralTypeValues,
   formatCollateralType,
   getDefaultRentalFormValues,
+  rentalToFormValues,
   type RentalActivationInput,
   type RentalCollateralInput,
   type RentalFormOptions,
   type RentalFormValues,
+  type RentalListRecord,
   rentalFormSchema,
 } from "@/shared/rentals";
 import {
@@ -46,6 +48,7 @@ type CollateralFormRow = {
 };
 
 type RentalFormProps = {
+  initialRental?: RentalListRecord | null;
   error: string | null;
   isSaving: boolean;
   options: RentalFormOptions;
@@ -55,6 +58,7 @@ type RentalFormProps = {
 };
 
 export function RentalForm({
+  initialRental,
   error,
   isSaving,
   options,
@@ -62,7 +66,7 @@ export function RentalForm({
   onSave,
   onSaveDraft,
 }: RentalFormProps) {
-  const { formatCurrency, formatDateTime, locale, settings, t } = useI18n();
+  const { formatCurrency, formatDate, locale, settings, t } = useI18n();
   const {
     formState: { errors },
     control,
@@ -74,12 +78,21 @@ export function RentalForm({
     trigger,
   } = useForm<RentalFormValues, undefined, RentalActivationInput>({
     resolver: zodResolver(rentalFormSchema),
-    defaultValues: getDefaultRentalFormValues(),
+    defaultValues: initialRental
+      ? rentalToFormValues(initialRental)
+      : getDefaultRentalFormValues(),
     mode: "onBlur",
   });
-  const [accessoryRows, setAccessoryRows] = useState<AccessoryFormRow[]>([]);
-  const [collateralRows, setCollateralRows] = useState<CollateralFormRow[]>([]);
+  const [accessoryRows, setAccessoryRows] = useState<AccessoryFormRow[]>(() =>
+    initialRentalToAccessoryRows(initialRental),
+  );
+  const [collateralRows, setCollateralRows] = useState<CollateralFormRow[]>(() =>
+    initialRentalToCollateralRows(initialRental),
+  );
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
+  const previousVehicleIdRef = useRef<string | null>(
+    initialRental ? String(initialRental.vehicleId) : null,
+  );
 
   const selectedVehicleId = useWatch({ control, name: "vehicleId" });
   const selectedCustomerId = useWatch({ control, name: "customerId" });
@@ -90,37 +103,69 @@ export function RentalForm({
   });
   const dailyPriceValue = useWatch({ control, name: "dailyPrice" });
 
+  const availableVehicles = useMemo(() => {
+    if (!initialRental) return options.vehicles;
+    const exists = options.vehicles.some((v) => v.id === initialRental.vehicleId);
+    if (exists) return options.vehicles;
+    return [
+      {
+        id: initialRental.vehicleId,
+        plateNumber: initialRental.vehiclePlateNumber,
+        brand: initialRental.vehicleBrand,
+        model: initialRental.vehicleModel,
+        dailyPrice: initialRental.dailyPrice,
+        depositAmount: initialRental.depositRequired,
+        mileage: initialRental.mileageOut,
+      },
+      ...options.vehicles,
+    ];
+  }, [options.vehicles, initialRental]);
+
+  const availableCustomers = useMemo(() => {
+    if (!initialRental) return options.customers;
+    const exists = options.customers.some((c) => c.id === initialRental.customerId);
+    if (exists) return options.customers;
+    return [
+      {
+        id: initialRental.customerId,
+        fullName: initialRental.customerName,
+        phone: initialRental.customerPhone,
+      },
+      ...options.customers,
+    ];
+  }, [options.customers, initialRental]);
+
   const selectedVehicle = useMemo(() => {
     const id = Number(selectedVehicleId);
 
-    return options.vehicles.find((vehicle) => vehicle.id === id) ?? null;
-  }, [options.vehicles, selectedVehicleId]);
+    return availableVehicles.find((vehicle) => vehicle.id === id) ?? null;
+  }, [availableVehicles, selectedVehicleId]);
   const selectedCustomer = useMemo(() => {
     const id = Number(selectedCustomerId);
 
-    return options.customers.find((customer) => customer.id === id) ?? null;
-  }, [options.customers, selectedCustomerId]);
+    return availableCustomers.find((customer) => customer.id === id) ?? null;
+  }, [availableCustomers, selectedCustomerId]);
 
   const customerSelectOptions = useMemo<SearchableSelectOption[]>(
     () =>
-      options.customers.map((customer) => ({
+      availableCustomers.map((customer) => ({
         description: customer.phone,
         label: customer.fullName,
         searchText: `${customer.fullName} ${customer.phone}`,
         value: String(customer.id),
       })),
-    [options.customers],
+    [availableCustomers],
   );
 
   const vehicleSelectOptions = useMemo<SearchableSelectOption[]>(
     () =>
-      options.vehicles.map((vehicle) => ({
+      availableVehicles.map((vehicle) => ({
         description: `${vehicle.brand} ${vehicle.model}`,
         label: vehicle.plateNumber,
         searchText: `${vehicle.plateNumber} ${vehicle.brand} ${vehicle.model}`,
         value: String(vehicle.id),
       })),
-    [options.vehicles],
+    [availableVehicles],
   );
 
   useEffect(() => {
@@ -128,12 +173,21 @@ export function RentalForm({
       return;
     }
 
+    if (previousVehicleIdRef.current === String(selectedVehicle.id)) {
+      return;
+    }
+    previousVehicleIdRef.current = String(selectedVehicle.id);
+
     setValue("dailyPrice", String(selectedVehicle.dailyPrice), {
       shouldValidate: true,
     });
-    setValue("depositRequired", settings.enableClientDeposit ? String(selectedVehicle.depositAmount) : "0", {
-      shouldValidate: true,
-    });
+    setValue(
+      "depositRequired",
+      settings.enableClientDeposit ? String(selectedVehicle.depositAmount) : "0",
+      {
+        shouldValidate: true,
+      },
+    );
     if (!settings.enableClientDeposit) {
       setValue("depositPaid", "0", {
         shouldValidate: true,
@@ -147,14 +201,19 @@ export function RentalForm({
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
-      reset(getDefaultRentalFormValues());
-      setAccessoryRows([]);
-      setCollateralRows([]);
+      reset(
+        initialRental
+          ? rentalToFormValues(initialRental)
+          : getDefaultRentalFormValues(),
+      );
+      setAccessoryRows(initialRentalToAccessoryRows(initialRental));
+      setCollateralRows(initialRentalToCollateralRows(initialRental));
+      previousVehicleIdRef.current = initialRental ? String(initialRental.vehicleId) : null;
       setCurrentStep(1);
     }, 0);
 
     return () => window.clearTimeout(timeout);
-  }, [reset]);
+  }, [reset, initialRental]);
 
   const rentalAccessories = useMemo(
     () => normalizeAccessoryRows(accessoryRows),
@@ -221,9 +280,9 @@ export function RentalForm({
         </div>
       ) : null}
 
-      {options.customers.length === 0 || options.vehicles.length === 0 ? (
+      {availableCustomers.length === 0 || availableVehicles.length === 0 ? (
         <div className="rounded-md border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
-          {options.customers.length === 0
+          {availableCustomers.length === 0
             ? t("Add a customer before creating a rental.")
             : t("No vehicles are available for rental right now.")}
         </div>
@@ -234,7 +293,7 @@ export function RentalForm({
         steps={[
           t("Customer & Vehicle"),
           t("Rental Details"),
-          t("Review & Activate"),
+          t(initialRental ? "Review & Save" : "Review & Activate"),
         ]}
       />
 
@@ -244,14 +303,18 @@ export function RentalForm({
       {currentStep === 1 ? (
         <WorkflowSection
           title={t("Customer & Vehicle")}
-          description={t("Choose a customer, choose an available vehicle, then activate the rental.")}
+          description={t(
+            initialRental
+              ? "Update customer, vehicle, or rental details."
+              : "Choose a customer, choose an available vehicle, then activate the rental.",
+          )}
         >
         <div className="grid gap-4 md:grid-cols-2">
           <Field label="Customer" required error={errors.customerId?.message}>
             <SearchableSelect
               ariaLabel={t("Customer")}
               inputId="rental-customer"
-              disabled={options.customers.length === 0}
+              disabled={availableCustomers.length === 0}
               emptyMessage={t("No customers found.")}
               invalid={Boolean(errors.customerId)}
               moreResultsMessage={(count) =>
@@ -273,7 +336,7 @@ export function RentalForm({
             <SearchableSelect
               ariaLabel={t("Available Vehicle")}
               inputId="rental-vehicle"
-              disabled={options.vehicles.length === 0}
+              disabled={availableVehicles.length === 0}
               emptyMessage={t("No vehicles found.")}
               invalid={Boolean(errors.vehicleId)}
               moreResultsMessage={(count) =>
@@ -299,14 +362,14 @@ export function RentalForm({
       <WorkflowSection title={t("Rental Period")}>
         <div className="grid gap-4 md:grid-cols-2">
           <Field
-            label="Start Date and Time"
+            label="Start Date"
             required
             error={errors.startDatetime?.message}
           >
             <LocalizedDateInput
               aria-invalid={Boolean(errors.startDatetime)}
               displayValue={startDatetime}
-              type="datetime-local"
+              type="date"
               {...register("startDatetime")}
             />
           </Field>
@@ -319,7 +382,7 @@ export function RentalForm({
             <LocalizedDateInput
               aria-invalid={Boolean(errors.expectedReturnDatetime)}
               displayValue={expectedReturnDatetime}
-              type="datetime-local"
+              type="date"
               {...register("expectedReturnDatetime")}
             />
           </Field>
@@ -642,7 +705,7 @@ export function RentalForm({
           customerName={selectedCustomer?.fullName ?? t("No details")}
           endDatetime={expectedReturnDatetime}
           formatCurrency={formatCurrency}
-          formatDateTime={formatDateTime}
+          formatDate={formatDate}
           formatNumber={(value) => new Intl.NumberFormat(locale).format(value)}
           startDatetime={startDatetime}
           summary={summary}
@@ -677,32 +740,63 @@ export function RentalForm({
             variant="outline"
             disabled={
               isSaving ||
-              options.customers.length === 0 ||
-              options.vehicles.length === 0
+              availableCustomers.length === 0 ||
+              availableVehicles.length === 0
             }
             onClick={() =>
               void handleSubmit((values) => onSaveDraft(submitRental(values)))()
             }
           >
             {isSaving ? <Loader2 className="size-4 animate-spin" /> : null}
-            {t("Save Draft")}
+            {t(initialRental ? "Save Changes" : "Save Draft")}
           </Button>
         ) : null}
         <Button
           type="submit"
           disabled={
             isSaving ||
-            options.customers.length === 0 ||
-            options.vehicles.length === 0
+            availableCustomers.length === 0 ||
+            availableVehicles.length === 0
           }
         >
           {isSaving ? <Loader2 className="size-4 animate-spin" /> : null}
-          {t(currentStep === 3 ? "Activate Rental" : "Next")}
+          {t(
+            currentStep === 3
+              ? (initialRental ? "Save Changes" : "Activate Rental")
+              : "Next",
+          )}
         </Button>
         </div>
       </div>
     </form>
   );
+}
+
+function initialRentalToAccessoryRows(
+  rental: RentalListRecord | null | undefined,
+): AccessoryFormRow[] {
+  if (!rental?.accessories) return [];
+  return rental.accessories.map((item) => ({
+    accessoryId: String(item.accessoryId),
+    quantity: String(item.quantity),
+    unitCharge: String(item.unitCharge),
+    notes: item.notes ?? "",
+  }));
+}
+
+function initialRentalToCollateralRows(
+  rental: RentalListRecord | null | undefined,
+): CollateralFormRow[] {
+  if (!rental?.collateralItems) return [];
+  return rental.collateralItems.map((item) => ({
+    type: item.type,
+    description: item.description,
+    referenceNumber: item.referenceNumber ?? "",
+    estimatedValue:
+      item.estimatedValue !== null ? String(item.estimatedValue) : "",
+    currency: item.currency ?? "",
+    notes: item.notes ?? "",
+  }));
 }
 
 function normalizeAccessoryRows(rows: AccessoryFormRow[]): RentalAccessoryInput[] {
@@ -821,7 +915,7 @@ function RentalReview({
   customerName,
   endDatetime,
   formatCurrency,
-  formatDateTime,
+  formatDate,
   formatNumber,
   onEditStep,
   startDatetime,
@@ -836,7 +930,7 @@ function RentalReview({
   customerName: string;
   endDatetime: string;
   formatCurrency: (value: number) => string;
-  formatDateTime: (value: string | Date) => string;
+  formatDate: (value: string | Date) => string;
   formatNumber: (value: number) => string;
   onEditStep: (step: 1 | 2 | 3) => void;
   startDatetime: string;
@@ -866,8 +960,8 @@ function RentalReview({
           </Button>
         </div>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          <ReviewDetail label={t("Start Date and Time")} value={<BidiValue value={formatDateTime(startDatetime)} />} />
-          <ReviewDetail label={t("Expected Return")} value={<BidiValue value={formatDateTime(endDatetime)} />} />
+          <ReviewDetail label={t("Start Date")} value={<BidiValue value={formatDate(startDatetime)} />} />
+          <ReviewDetail label={t("Expected Return")} value={<BidiValue value={formatDate(endDatetime)} />} />
           <ReviewDetail label={t("Daily Price")} value={<BidiValue value={formatCurrency(Number(values.dailyPrice) || 0)} />} />
           <ReviewDetail label={t("Deposit")} value={<BidiValue value={formatCurrency(Number(values.depositRequired) || 0)} />} />
           <ReviewDetail label={t("Deposit Paid")} value={<BidiValue value={formatCurrency(Number(values.depositPaid) || 0)} />} />

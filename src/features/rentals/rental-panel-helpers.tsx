@@ -10,6 +10,7 @@ import type { RentalListRecord } from "@/shared/rentals";
  */
 export type RentalPanelState =
   | { mode: "create" }
+  | { mode: "edit-draft"; rental: RentalListRecord }
   | { mode: "detail"; rental: RentalListRecord }
   | { mode: "return"; rental: RentalListRecord }
   | { mode: "payment"; rental: RentalListRecord }
@@ -21,6 +22,10 @@ export function getPanelTitle(
   panelState: RentalPanelState,
   t: (key: string) => string,
 ): string {
+  if (panelState?.mode === "edit-draft") {
+    return t("Edit Draft");
+  }
+
   if (panelState?.mode === "detail") {
     return t("Rental Details");
   }
@@ -40,7 +45,7 @@ export function getPanelDescription(
   panelState: RentalPanelState,
   t: (key: string) => string,
 ): ReactNode {
-  if (panelState?.mode === "detail") {
+  if (panelState?.mode === "edit-draft" || panelState?.mode === "detail") {
     return (
       <>
         <BidiValue value={panelState.rental.contractNo} /> ·{" "}

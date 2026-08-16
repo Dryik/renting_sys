@@ -157,6 +157,7 @@ export function buildReturnInput(
     rentalId,
     // The schema rejects a future return, so stay just behind now.
     actualReturnDatetime: new Date(Date.now() - 1000).toISOString(),
+    recalculateForActualDays: false,
     lateFeePerDay: 0,
     damageCharge: 0,
     discount: 0,

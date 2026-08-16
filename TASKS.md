@@ -46,11 +46,6 @@ Lives on `cleanup/v0.3.9-data-tool`. It only accepts a schema-11 database, so it
 must run on a client machine **before** that machine is upgraded to v0.4.0.
 Decide whether it merges to `main` or stays a branch-held utility.
 
-### Stray files at the repository root
-
-`audit-patterns.txt` and `audit-screenshot.png` are untracked and unexplained.
-Identify and either commit or delete them.
-
 ## Definition of done
 
 A change is not finished until all of these pass:

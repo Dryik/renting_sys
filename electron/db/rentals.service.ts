@@ -1743,6 +1743,8 @@ function returnRentalInTransaction(
       status: rentals.status,
       startDatetime: rentals.startDatetime,
       expectedReturnDatetime: rentals.expectedReturnDatetime,
+      dailyPriceMinor: rentals.dailyPriceMinor,
+      accessoryChargesMinor: rentals.accessoryChargesMinor,
       totalAmountMinor: rentals.totalAmountMinor,
       paidAmountMinor: rentals.paidAmountMinor,
       mileageOut: rentals.mileageOut,
@@ -1792,8 +1794,18 @@ function returnRentalInTransaction(
   }
 
   const summary = calculateReturnSummaryMinor({
+    startDatetime: rental.startDatetime,
     expectedReturnDatetime: rental.expectedReturnDatetime,
     actualReturnDatetime: values.actualReturnDatetime,
+    dailyPriceMinor: columnToMinor(
+      rental.dailyPriceMinor,
+      "rentals.daily_price_minor",
+    ),
+    accessoryChargesMinor: columnToMinor(
+      rental.accessoryChargesMinor,
+      "rentals.accessory_charges_minor",
+    ),
+    recalculateForActualDays: values.recalculateForActualDays,
     baseTotalAmountMinor: columnToMinor(
       rental.totalAmountMinor,
       "rentals.total_amount_minor",

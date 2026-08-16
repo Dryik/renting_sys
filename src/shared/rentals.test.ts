@@ -57,11 +57,77 @@ describe("rental calculations", () => {
         discount: 10,
       }),
     ).toEqual({
+      bookedDays: 1,
+      actualDays: 1,
+      earlyDays: 0,
+      isEarlyReturn: false,
+      effectiveBaseAmount: 150,
       lateDays: 2,
       lateFee: 50,
       extraCharges: 90,
       finalAmount: 230,
       remainingAmount: 180,
+    });
+  });
+
+  it("recalculates base total for actual days on early return when enabled", () => {
+    // 30 days booked @ $100/day = $3000, returned at day 28
+    const startDatetime = "2026-05-01T10:00:00.000Z";
+    const expectedReturnDatetime = "2026-05-31T10:00:00.000Z";
+    const actualReturnDatetime = "2026-05-29T10:00:00.000Z";
+
+    const earlyRecalculated = calculateReturnSummary({
+      startDatetime,
+      expectedReturnDatetime,
+      actualReturnDatetime,
+      dailyPrice: 100,
+      accessoryCharges: 0,
+      recalculateForActualDays: true,
+      baseTotalAmount: 3000,
+      paidAmount: 3000,
+      lateFeePerDay: 100,
+      damageCharge: 0,
+      discount: 0,
+    });
+
+    expect(earlyRecalculated).toEqual({
+      bookedDays: 30,
+      actualDays: 28,
+      earlyDays: 2,
+      isEarlyReturn: true,
+      effectiveBaseAmount: 2800,
+      lateDays: 0,
+      lateFee: 0,
+      extraCharges: 0,
+      finalAmount: 2800,
+      remainingAmount: -200, // $200 refund owed
+    });
+
+    const earlyKeptOriginal = calculateReturnSummary({
+      startDatetime,
+      expectedReturnDatetime,
+      actualReturnDatetime,
+      dailyPrice: 100,
+      accessoryCharges: 0,
+      recalculateForActualDays: false,
+      baseTotalAmount: 3000,
+      paidAmount: 3000,
+      lateFeePerDay: 100,
+      damageCharge: 0,
+      discount: 0,
+    });
+
+    expect(earlyKeptOriginal).toEqual({
+      bookedDays: 30,
+      actualDays: 28,
+      earlyDays: 2,
+      isEarlyReturn: true,
+      effectiveBaseAmount: 3000,
+      lateDays: 0,
+      lateFee: 0,
+      extraCharges: 0,
+      finalAmount: 3000,
+      remainingAmount: 0,
     });
   });
 
