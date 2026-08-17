@@ -91,6 +91,7 @@ export type RentalContractDocumentInput = {
   issuedByUsername: string | null;
   printedAt: string;
   languageOverride?: ContractPrintLanguage;
+  firstPageOnly?: boolean;
 };
 
 const standardTermKeys = [
@@ -408,7 +409,10 @@ export function buildRentalContractHtml(input: RentalContractDocumentInput): str
       </section>
     </article>
 
-    <article class="page terms-page">
+    ${
+      input.firstPageOnly
+        ? ""
+        : `<article class="page terms-page">
       ${watermarkHtml}
       ${buildHeader(logoHtml, settings, headerSubtitle, tr)}
       <div class="document-heading"><div><h1>${escapeHtml(tr(rental.vehicleType === "motorcycle" ? "Detailed Motorcycle Rental Terms & Conditions" : "Contract Terms & Conditions"))}</h1><div class="contract-number">${ltr(rental.contractNo)}</div></div><div>${escapeHtml(rental.customerName)}</div></div>
@@ -417,7 +421,8 @@ export function buildRentalContractHtml(input: RentalContractDocumentInput): str
       <div class="terms-signature avoid-break"><span>${escapeHtml(tr("The customer acknowledges reading and agreeing to all detailed terms above."))}</span><span>${escapeHtml(tr("Customer Signature"))}: ____________________</span></div>
     </article>
 
-    ${diagramHtml}
+    ${diagramHtml}`
+    }
   </body>
   </html>`;
 }

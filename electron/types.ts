@@ -32,6 +32,7 @@ import type {
 import type {
   RentalActivationInput,
   RentalActiveUpdateInput,
+  RentalExtendInput,
   RentalCancelInput,
   RentalFormOptions,
   RentalListRequest,
@@ -180,6 +181,10 @@ export type RentalAppApi = {
     updateDraft: (id: number, input: RentalActivationInput) => Promise<RentalListRecord>;
     activateDraft: (id: number) => Promise<RentalListRecord>;
     updateActive: (input: RentalActiveUpdateInput) => Promise<RentalListRecord>;
+    extend: (input: RentalExtendInput) => Promise<{
+      rental: RentalListRecord;
+      payment: PaymentRecord | null;
+    }>;
     return: (input: RentalReturnInput) => Promise<RentalListRecord>;
     returnWithPayment: (input: RentalReturnWithPaymentInput) => Promise<{
       rental: RentalListRecord;
@@ -187,7 +192,7 @@ export type RentalAppApi = {
     }>;
     cancel: (input: number | RentalCancelInput) => Promise<RentalListRecord>;
     findOpenByPlate: (plateNumber: string) => Promise<RentalListRecord>;
-    printContract: (rentalId: number, printToPDF: boolean, language?: "ar" | "en" | "both") => Promise<PrintDocumentResult>;
+    printContract: (rentalId: number, printToPDF: boolean, language?: "ar" | "en" | "both", firstPageOnly?: boolean) => Promise<PrintDocumentResult>;
   };
   payments: {
     list: (request?: PaymentListRequest) => Promise<PageResult<PaymentListRecord>>;

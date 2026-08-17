@@ -22,3 +22,16 @@ export const rentalAppApi: RentalAppApi = window.rentalApp;
 export function getUpdatesApi(): RentalAppApi["updates"] {
   return rentalAppApi?.updates;
 }
+
+/**
+ * Whether the preload bridge is attached at all.
+ *
+ * Opened in a plain browser there is no bridge, and every screen below would
+ * fail on its first call. The shell asks this so it can say so instead. It is
+ * answered from the adapter's own binding rather than by reading the global a
+ * second time, because naming the global anywhere else — including for a mere
+ * existence check — is what the source guard forbids.
+ */
+export function isDesktopBridgeAvailable(): boolean {
+  return Boolean(rentalAppApi);
+}

@@ -259,6 +259,7 @@ export async function printRentalContract(
   rentalId: number,
   printToPDF: boolean,
   languageOverride?: ContractPrintLanguage,
+  firstPageOnly?: boolean,
 ): Promise<PrintDocumentResult> {
   const db = getDatabase();
   const settings = getShopSettings();
@@ -423,6 +424,7 @@ export async function printRentalContract(
     issuedByUsername,
     printedAt: new Date().toISOString(),
     languageOverride,
+    firstPageOnly,
   });
 
   return printHTML(

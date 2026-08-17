@@ -33,8 +33,10 @@ import type {
   RentalQueue,
   RentalReturnInput,
 } from "@/shared/rentals";
+import { ActivateDraftDialog } from "./ActivateDraftDialog";
 import { FinalPaymentDialog } from "./FinalPaymentDialog";
 import { RentalDetailPanel } from "./RentalDetailPanel";
+import { RentalExtendDialog } from "./RentalExtendDialog";
 import { ReturnByPlateDialog } from "./ReturnByPlateDialog";
 import {
   canOperateRental,
@@ -62,6 +64,7 @@ type PendingVoidPayment = PaymentRecord | null;
 const emptySummary: RentalListSummary = {
   total: 0,
   active: 0,
+  draft: 0,
   overdue: 0,
   returned: 0,
   amount: 0,
@@ -85,6 +88,7 @@ const emptyFormOptions: RentalFormOptions = {
 
 const queueTabs: { value: RentalQueue; label: string }[] = [
   { value: "active", label: "Active" },
+  { value: "draft", label: "Draft" },
   { value: "overdue", label: "Overdue" },
   { value: "due_today", label: "Due Today" },
   { value: "returned", label: "Returned" },
@@ -120,6 +124,8 @@ export function RentalsPage({
   const [returnByPlateError, setReturnByPlateError] = useState<string | null>(null);
   const [isFindingByPlate, setIsFindingByPlate] = useState(false);
   const [rentalToCancel, setRentalToCancel] = useState<RentalListRecord | null>(null);
+  const [rentalToActivate, setRentalToActivate] = useState<RentalListRecord | null>(null);
+  const [rentalToExtend, setRentalToExtend] = useState<RentalListRecord | null>(null);
   const [paymentToVoid, setPaymentToVoid] = useState<PendingVoidPayment>(null);
   const handledWorkflowRequestKey = useRef<string | number | null>(null);
 
@@ -207,6 +213,10 @@ export function RentalsPage({
     (input: { approvalToken?: string; rentalId: number; reason: string }) =>
       rentalAppApi.rentals.cancel(input),
   );
+  const extendRental = useBusinessMutation(
+    (input: Parameters<typeof rentalAppApi.rentals.extend>[0]) =>
+      rentalAppApi.rentals.extend(input),
+  );
   const createPayment = useBusinessMutation((input: PaymentInput) =>
     rentalAppApi.payments.create(input),
   );
@@ -289,13 +299,15 @@ export function RentalsPage({
     count:
       tab.value === "active"
         ? summary.active
-        : tab.value === "overdue"
-          ? summary.overdue
-          : tab.value === "returned"
-            ? summary.returned
-            : tab.value === "all"
-              ? summary.total
-              : undefined,
+        : tab.value === "draft"
+          ? summary.draft
+          : tab.value === "overdue"
+            ? summary.overdue
+            : tab.value === "returned"
+              ? summary.returned
+              : tab.value === "all"
+                ? summary.total
+                : undefined,
     tone: tab.value === "overdue" ? ("danger" as const) : ("default" as const),
   }));
 
@@ -618,7 +630,7 @@ export function RentalsPage({
         open={Boolean(panelState)}
         title={getPanelTitle(panelState, t)}
         description={getPanelDescription(panelState, t)}
-        width={panelState?.mode === "detail" ? "md" : "lg"}
+        width={panelState?.mode === "detail" ? "md" : "xl"}
         onClose={() => setPanelState(null)}
       >
         {panelState?.mode === "create" ? (
@@ -666,13 +678,18 @@ export function RentalsPage({
             t={t}
             onActivateDraft={
               can("rentals.create")
-                ? () => void handleActivateDraftRental(panelState.rental)
+                ? () => setRentalToActivate(panelState.rental)
                 : undefined
             }
             onCancelRental={can("rentals.cancel") ? () => setRentalToCancel(panelState.rental) : undefined}
             onEditDraft={
               can("rentals.create")
                 ? () => void openEditDraftForm(panelState.rental)
+                : undefined
+            }
+            onExtendRental={
+              can("rentals.editActive")
+                ? () => setRentalToExtend(panelState.rental)
                 : undefined
             }
             onPrintContract={(printToPDF) =>
@@ -820,7 +837,7 @@ export function RentalsPage({
                           <Button
                             size="sm"
                             disabled={isSaving}
-                            onClick={() => void handleActivateDraftRental(rental)}
+                            onClick={() => setRentalToActivate(rental)}
                           >
                             <CheckCircle2 data-icon="inline-start" />
                             {t("Activate Rental")}
@@ -844,6 +861,28 @@ export function RentalsPage({
         </DataTable>
         <PaginationControls page={rentalPage} t={t} onPageChange={setPage} />
       </section>
+
+      <ActivateDraftDialog
+        formatCurrency={formatCurrency}
+        formatDateTime={formatDateTime}
+        isBusy={isSaving}
+        open={Boolean(rentalToActivate)}
+        rental={rentalToActivate}
+        t={t}
+        onCancel={() => setRentalToActivate(null)}
+        onConfirm={async () => {
+          if (!rentalToActivate) return;
+          const target = rentalToActivate;
+          setRentalToActivate(null);
+          await handleActivateDraftRental(target);
+        }}
+        onEditDraft={() => {
+          if (!rentalToActivate) return;
+          const target = rentalToActivate;
+          setRentalToActivate(null);
+          void openEditDraftForm(target);
+        }}
+      />
 
       <SensitiveActionDialog
         action="rentals.cancel"
@@ -922,6 +961,48 @@ export function RentalsPage({
           return didReturn;
         }}
         open={Boolean(pendingReturnPayment)}
+        t={t}
+      />
+
+      <RentalExtendDialog
+        formatCurrency={formatCurrency}
+        formatDate={formatDate}
+        isBusy={extendRental.isPending}
+        onCancel={() => setRentalToExtend(null)}
+        onConfirm={async (input, printFirstPageOnly) => {
+          setActionListError(null);
+          try {
+            const result = await extendRental.mutateAsync(input);
+            setRentalToExtend(null);
+            if (
+              panelState?.mode === "detail" &&
+              panelState.rental.id === input.rentalId
+            ) {
+              setPanelState({ mode: "detail", rental: result.rental });
+              setPanelNotice(t("Contract extended successfully"));
+            }
+            if (printFirstPageOnly) {
+              try {
+                await rentalAppApi.rentals.printContract(
+                  result.rental.id,
+                  false,
+                  undefined,
+                  true,
+                );
+              } catch (error) {
+                console.error("Failed to print extension contract:", error);
+              }
+            }
+            return true;
+          } catch (error) {
+            setActionListError(
+              getErrorMessage(error, t("Rental could not be extended.")),
+            );
+            return false;
+          }
+        }}
+        open={Boolean(rentalToExtend)}
+        rental={rentalToExtend}
         t={t}
       />
 

@@ -190,4 +190,19 @@ describe("rental contract document", () => {
     });
     expect(htmlWithoutWatermark).not.toContain('class="page-watermark"');
   });
+
+  it("renders only the first page when firstPageOnly is true", () => {
+    const base = createInput();
+    const fullHtml = buildRentalContractHtml(base);
+    expect(fullHtml).toContain('class="page contract-page"');
+    expect(fullHtml).toContain('class="page terms-page"');
+
+    const firstPageHtml = buildRentalContractHtml({
+      ...base,
+      firstPageOnly: true,
+    });
+    expect(firstPageHtml).toContain('class="page contract-page"');
+    expect(firstPageHtml).not.toContain('class="page terms-page"');
+    expect(firstPageHtml).not.toContain('class="page diagram-page"');
+  });
 });

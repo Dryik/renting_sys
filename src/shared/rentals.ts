@@ -20,7 +20,12 @@ import {
   type MoneyMinor,
 } from "./money";
 import type { PageRequest } from "./pagination";
-import { paymentInputSchema, type PaymentInput } from "./payments";
+import {
+  paymentInputSchema,
+  paymentMethodValues,
+  type PaymentInput,
+  type PaymentMethod,
+} from "./payments";
 import { approvalTokenSchema } from "./security";
 
 export const rentalStatusValues = [
@@ -35,6 +40,7 @@ export type RentalStatus = (typeof rentalStatusValues)[number];
 
 export const rentalQueueValues = [
   "active",
+  "draft",
   "overdue",
   "due_today",
   "returned",
@@ -51,6 +57,7 @@ export type RentalListRequest = PageRequest & {
 export type RentalListSummary = {
   total: number;
   active: number;
+  draft: number;
   overdue: number;
   returned: number;
   amount: number;
@@ -163,6 +170,26 @@ const requiredMoneyField = (label: string) =>
     .trim()
     .min(1, `${label} is required.`)
     .transform((value, context): number => {
+      const numberValue = Number(value);
+
+      if (!Number.isFinite(numberValue) || numberValue < 0) {
+        context.addIssue({
+          code: "custom",
+          message: `${label} must be zero or more.`,
+        });
+
+        return z.NEVER;
+      }
+
+      return numberValue;
+    });
+
+const optionalMoneyField = (label: string) =>
+  z
+    .string()
+    .trim()
+    .transform((value, context): number => {
+      if (!value) return 0;
       const numberValue = Number(value);
 
       if (!Number.isFinite(numberValue) || numberValue < 0) {
@@ -386,6 +413,69 @@ export type RentalActiveUpdateInput = z.infer<
   typeof rentalActiveUpdateInputSchema
 >;
 
+export const rentalExtendInputSchema = z
+  .object({
+    rentalId: z.number().int().positive("Rental is required."),
+    newExpectedReturnDatetime: z.string().datetime(),
+    dailyPrice: z.number().finite().min(0, "Daily price cannot be negative.").optional(),
+    recordPayment: z.boolean().default(false),
+    paymentAmount: z.number().finite().min(0, "Payment amount cannot be negative.").optional(),
+    paymentMethod: z.enum(paymentMethodValues).optional(),
+    paymentNotes: z.string().trim().max(500).nullable().optional(),
+    notes: z.string().trim().max(500).nullable().optional(),
+  })
+  // The form enforces this too, but the form is convenience and this is the
+  // trust boundary. Without it a request asking for a payment is accepted and
+  // then quietly ignored, returning success with no payment attached.
+  .superRefine((values, context) => {
+    if (values.recordPayment && !(values.paymentAmount && values.paymentAmount > 0)) {
+      context.addIssue({
+        code: "custom",
+        message: "Payment amount must be greater than zero.",
+        path: ["paymentAmount"],
+      });
+    }
+  });
+
+export type RentalExtendInput = z.infer<typeof rentalExtendInputSchema>;
+
+export type RentalExtendFormValues = {
+  newExpectedReturnDatetime: string;
+  dailyPrice: string;
+  recordPayment: boolean;
+  paymentAmount: string;
+  paymentMethod: PaymentMethod;
+  paymentNotes: string;
+  notes: string;
+  printFirstPageOnly: boolean;
+};
+
+export const rentalExtendFormSchema = z
+  .object({
+    newExpectedReturnDatetime: datetimeField("New return date"),
+    dailyPrice: requiredMoneyField("Daily price"),
+    recordPayment: z.boolean(),
+    paymentAmount: optionalMoneyField("Payment amount"),
+    paymentMethod: z.enum(paymentMethodValues),
+    paymentNotes: optionalTextField(500),
+    notes: optionalTextField(500),
+    printFirstPageOnly: z.boolean(),
+  })
+  .superRefine((values, context) => {
+    if (values.recordPayment) {
+      const amount = Number(values.paymentAmount);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        context.addIssue({
+          code: "custom",
+          message: "Payment amount must be greater than zero.",
+          path: ["paymentAmount"],
+        });
+      }
+    }
+  });
+
+export type RentalExtendFormInput = z.infer<typeof rentalExtendFormSchema>;
+
 export const rentalCancelInputSchema = z.object({
   rentalId: z.number().int().positive("Rental is required."),
   reason: z.string().trim().min(1, "Cancel reason is required.").max(500),
@@ -533,6 +623,17 @@ export function getDefaultRentalReturnFormValues(
   };
 }
 
+/**
+ * A rental day is a 24-hour period, and any part of one is charged in full —
+ * the standard vehicle-rental convention. Collecting at 09:00 Monday and
+ * returning at 10:00 Wednesday is three days, not two.
+ *
+ * Deliberately not a difference between calendar dates. That reading drops a
+ * day from every contract whose return time of day is later than its pickup
+ * time of day, which is the ordinary shape of a rental, and it silently
+ * reprices contracts that have already been signed and printed whenever they
+ * are edited.
+ */
 export function calculateRentalDays(
   startDatetime: string | Date,
   expectedReturnDatetime: string | Date,
@@ -546,6 +647,107 @@ export function calculateRentalDays(
   }
 
   return Math.max(1, Math.ceil((expectedReturn - start) / millisecondsPerDay));
+}
+
+export type ExtensionSummary = {
+  currentDays: number;
+  newDays: number;
+  addedDays: number;
+  currentTotalAmount: number;
+  newTotalAmount: number;
+  addedRentAmount: number;
+  newRemainingAmount: number;
+};
+
+export function calculateExtensionSummary({
+  startDatetime,
+  currentExpectedReturnDatetime,
+  newExpectedReturnDatetime,
+  dailyPrice,
+  accessoryCharges = 0,
+  paidAmount = 0,
+}: {
+  startDatetime: string | Date;
+  currentExpectedReturnDatetime: string | Date;
+  newExpectedReturnDatetime: string | Date;
+  dailyPrice: number;
+  accessoryCharges?: number;
+  paidAmount?: number;
+}): ExtensionSummary {
+  const startIso = typeof startDatetime === "string" ? startDatetime : startDatetime.toISOString();
+  const currentExpectedIso =
+    typeof currentExpectedReturnDatetime === "string"
+      ? currentExpectedReturnDatetime
+      : currentExpectedReturnDatetime.toISOString();
+  const newExpectedIso =
+    typeof newExpectedReturnDatetime === "string"
+      ? newExpectedReturnDatetime
+      : newExpectedReturnDatetime.toISOString();
+
+  const currentSummary = calculateRentalSummary(
+    startIso,
+    currentExpectedIso,
+    dailyPrice,
+    accessoryCharges,
+  );
+
+  const newSummary = calculateRentalSummary(
+    startIso,
+    newExpectedIso,
+    dailyPrice,
+    accessoryCharges,
+  );
+
+  const currentDays = currentSummary.days;
+  const newDays = newSummary.days;
+  const addedDays = Math.max(0, newDays - currentDays);
+  const addedRentAmount = Math.max(0, newSummary.totalAmount - currentSummary.totalAmount);
+  const newRemainingAmount = Math.round((newSummary.totalAmount - paidAmount) * 100) / 100;
+
+  return {
+    currentDays,
+    newDays,
+    addedDays,
+    currentTotalAmount: currentSummary.totalAmount,
+    newTotalAmount: newSummary.totalAmount,
+    addedRentAmount,
+    newRemainingAmount,
+  };
+}
+
+export function getDefaultRentalExtendFormValues(
+  rental: RentalListRecord,
+  additionalDays = 7,
+): RentalExtendFormValues {
+  const currentExpected = normalizeToCalendarDate(rental.expectedReturnDatetime);
+  const newExpectedDate = new Date(
+    currentExpected.getTime() + additionalDays * 24 * 60 * 60 * 1000,
+  );
+  const newExpectedDateStr = toDateInputValue(newExpectedDate);
+  const extensionSummary = calculateExtensionSummary({
+    startDatetime: rental.startDatetime,
+    currentExpectedReturnDatetime: rental.expectedReturnDatetime,
+    newExpectedReturnDatetime: newExpectedDateStr,
+    dailyPrice: rental.dailyPrice,
+    accessoryCharges: rental.accessoryCharges,
+    paidAmount: rental.paidAmount,
+  });
+
+  return {
+    newExpectedReturnDatetime: newExpectedDateStr,
+    dailyPrice: String(rental.dailyPrice),
+    // Off by default. A posted payment raises the expected cash on the day's
+    // closing, so pre-arming it makes the till read short whenever staff
+    // extend a contract and collect later — and that looks like their error.
+    // The amount stays filled in, so recording a payment that was actually
+    // taken is still one tick.
+    recordPayment: false,
+    paymentAmount: String(extensionSummary.addedRentAmount),
+    paymentMethod: "cash",
+    paymentNotes: "",
+    notes: "",
+    printFirstPageOnly: true,
+  };
 }
 
 /** Rent for the booked period: a whole-day rate times whole days. */

@@ -1,4 +1,4 @@
-import { CheckCircle2, CreditCard, FileDown, Loader2, Pencil, Printer, XCircle } from "lucide-react";
+import { CalendarPlus, CheckCircle2, CreditCard, FileDown, Loader2, Pencil, Printer, XCircle } from "lucide-react";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
 import { MoneyText } from "@/components/ui/money-text";
@@ -26,6 +26,7 @@ export function RentalDetailPanel({
   onActivateDraft,
   onCancelRental,
   onEditDraft,
+  onExtendRental,
   onPrintContract,
   onRecordPayment,
   onReturnVehicle,
@@ -45,6 +46,7 @@ export function RentalDetailPanel({
   onActivateDraft?: () => void;
   onCancelRental?: () => void;
   onEditDraft?: () => void;
+  onExtendRental?: () => void;
   onPrintContract: (printToPDF: boolean) => void;
   onRecordPayment?: () => void;
   onReturnVehicle?: () => void;
@@ -216,6 +218,12 @@ export function RentalDetailPanel({
             <Button onClick={onReturnVehicle}>
               <CheckCircle2 data-icon="inline-start" />
               {t("Return Vehicle")}
+            </Button>
+          ) : null}
+          {canOperate && onExtendRental ? (
+            <Button variant="outline" disabled={isSaving} onClick={onExtendRental}>
+              <CalendarPlus data-icon="inline-start" />
+              {t("Extend Rental")}
             </Button>
           ) : null}
           {rental.status === "draft" && onEditDraft ? (
