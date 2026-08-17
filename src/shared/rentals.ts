@@ -417,7 +417,11 @@ export const rentalExtendInputSchema = z
   .object({
     rentalId: z.number().int().positive("Rental is required."),
     newExpectedReturnDatetime: z.string().datetime(),
-    dailyPrice: z.number().finite().min(0, "Daily price cannot be negative.").optional(),
+    // No daily price. Extending moves the return date; it does not renegotiate
+    // the rate. Because the total is recalculated over the whole contract, a
+    // rate sent here would silently reprice days the customer already paid for
+    // at the agreed rate. Changing a rate is updateActiveRental's job, which is
+    // permissioned and audited as the separate decision it is.
     recordPayment: z.boolean().default(false),
     paymentAmount: z.number().finite().min(0, "Payment amount cannot be negative.").optional(),
     paymentMethod: z.enum(paymentMethodValues).optional(),
@@ -441,7 +445,6 @@ export type RentalExtendInput = z.infer<typeof rentalExtendInputSchema>;
 
 export type RentalExtendFormValues = {
   newExpectedReturnDatetime: string;
-  dailyPrice: string;
   recordPayment: boolean;
   paymentAmount: string;
   paymentMethod: PaymentMethod;
@@ -453,7 +456,6 @@ export type RentalExtendFormValues = {
 export const rentalExtendFormSchema = z
   .object({
     newExpectedReturnDatetime: datetimeField("New return date"),
-    dailyPrice: requiredMoneyField("Daily price"),
     recordPayment: z.boolean(),
     paymentAmount: optionalMoneyField("Payment amount"),
     paymentMethod: z.enum(paymentMethodValues),
@@ -735,7 +737,6 @@ export function getDefaultRentalExtendFormValues(
 
   return {
     newExpectedReturnDatetime: newExpectedDateStr,
-    dailyPrice: String(rental.dailyPrice),
     // Off by default. A posted payment raises the expected cash on the day's
     // closing, so pre-arming it makes the till read short whenever staff
     // extend a contract and collect later — and that looks like their error.
@@ -1116,18 +1117,71 @@ export type {
   RentalAccessoryReturnInput,
 };
 
+/**
+ * The calendar day something falls on, as UTC midnight so two of them can be
+ * subtracted.
+ *
+ * One basis for both kinds of input. A date with no time is already a calendar
+ * day and is taken literally. Anything carrying an instant — an ISO timestamp
+ * or a Date — resolves to the day the shop was in when it happened, which is
+ * the local day, because a shop saying "the 15th" means its own 15th.
+ *
+ * The date-only pattern is anchored deliberately. Without the anchor an ISO
+ * timestamp matched it too, so `"…T23:00:00Z"` resolved to the UTC day while
+ * `new Date("…T23:00:00Z")` resolved to the local one: the same instant landing
+ * on two different days depending on which form the caller happened to hold.
+ */
 export function normalizeToCalendarDate(value: string | Date): Date {
   if (typeof value === "string") {
-    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
-    if (match) {
-      return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+    const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+
+    if (dateOnly) {
+      return new Date(
+        Date.UTC(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3])),
+      );
     }
   }
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) {
+
+  const instant = new Date(value);
+
+  if (Number.isNaN(instant.getTime())) {
     return new Date(NaN);
   }
-  return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+
+  return new Date(
+    Date.UTC(instant.getFullYear(), instant.getMonth(), instant.getDate()),
+  );
+}
+
+/**
+ * The return datetime for an extension that keeps the contract's own clock
+ * time.
+ *
+ * Staff pick a date, but a rental ends at a time of day. Taking the date at
+ * midnight shortens the last day and leaves a whole-day rate charging a part
+ * day in full, so "extend to Wednesday" on a contract due Wednesday 10:00 would
+ * bill an extra day for the ten hours it removed. Moving by whole days from the
+ * current return instead keeps the time of day, so extending by N days adds
+ * exactly N billable days.
+ */
+export function extendedReturnDatetime(
+  currentExpectedReturnDatetime: string | Date,
+  chosenDate: string | Date,
+): string {
+  const millisecondsPerDay = 24 * 60 * 60 * 1000;
+  const current = new Date(currentExpectedReturnDatetime);
+
+  if (Number.isNaN(current.getTime())) {
+    return new Date(NaN).toISOString();
+  }
+
+  const addedDays = Math.round(
+    (normalizeToCalendarDate(chosenDate).getTime() -
+      normalizeToCalendarDate(currentExpectedReturnDatetime).getTime()) /
+      millisecondsPerDay,
+  );
+
+  return new Date(current.getTime() + addedDays * millisecondsPerDay).toISOString();
 }
 
 export function toDateInputValue(date: Date): string {

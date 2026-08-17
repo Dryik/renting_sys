@@ -7,8 +7,10 @@ import {
   calculateRentalDays,
   calculateRentalTotal,
   calculateReturnSummary,
+  extendedReturnDatetime,
   getOpenRentalStatusForExpectedReturn,
   hasHeldCollateral,
+  normalizeToCalendarDate,
   rentalCancelInputSchema,
   validateMileageProgression,
 } from "./rentals";
@@ -294,6 +296,54 @@ describe("rental calculations", () => {
   it("formats money with a symbol fallback", () => {
     expect(formatMoney(12.5, "$")).toBe("$12.50");
     expect(formatMoney(1250, "LYD", "ar-LY-u-nu-latn")).toBe("1,250.00 د.ل");
+  });
+
+  // The same instant must not land on two different days depending on whether
+  // it arrives as a string or a Date.
+  //
+  // Note what this guard can and cannot do: the fault it describes only exists
+  // where local time differs from UTC, so on a UTC machine — which is what the
+  // hosted runners are — both readings agree and this passes either way. It
+  // fails on a developer's clock and on the shops', which is where it matters,
+  // but do not read a green CI run as proof of it.
+  it("puts an instant on the same calendar day however it is handed over", () => {
+    for (const iso of [
+      "2026-05-14T23:00:00.000Z",
+      "2026-05-15T00:30:00.000Z",
+      "2026-05-14T12:00:00.000Z",
+      "2026-12-31T22:45:00.000Z",
+    ]) {
+      expect(normalizeToCalendarDate(iso).getTime()).toBe(
+        normalizeToCalendarDate(new Date(iso)).getTime(),
+      );
+    }
+  });
+
+  it("takes a date with no time literally", () => {
+    expect(normalizeToCalendarDate("2026-05-14").toISOString()).toBe(
+      "2026-05-14T00:00:00.000Z",
+    );
+  });
+
+  it("keeps the contract's time of day when the return date moves", () => {
+    const current = "2026-05-16T10:30:00.000Z";
+
+    // Picking a date seven days later must not silently move the return to
+    // midnight, which would shorten the last day and bill it in full anyway.
+    const extended = extendedReturnDatetime(current, "2026-05-23");
+
+    expect(new Date(extended).getTime() - new Date(current).getTime()).toBe(
+      7 * 24 * 60 * 60 * 1000,
+    );
+  });
+
+  it("adds exactly the days asked for, in billable terms", () => {
+    const start = "2026-05-14T09:00:00.000Z";
+    const current = "2026-05-16T10:00:00.000Z"; // 49h, billed as 3 days
+    const extended = extendedReturnDatetime(current, "2026-05-23");
+
+    expect(calculateRentalDays(start, current)).toBe(3);
+    expect(calculateRentalDays(start, extended)).toBe(10);
   });
 
   it("calculates extension summary correctly for added rental days", () => {
