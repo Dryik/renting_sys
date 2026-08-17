@@ -40,6 +40,7 @@ export const ipcAccessPolicy = {
   "rentals:update-draft": { requiresWriteAccess: true },
   "rentals:activate-draft": { requiresWriteAccess: true },
   "rentals:update-active": { requiresWriteAccess: true },
+  "rentals:extend": { requiresWriteAccess: true },
   "rentals:return": { requiresWriteAccess: true },
   "rentals:return-with-payment": { requiresWriteAccess: true },
   "rentals:cancel": { requiresWriteAccess: true },

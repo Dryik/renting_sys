@@ -33,6 +33,8 @@ const {
   activateRental,
   cancelRental,
   createDraftRental,
+  extendRental,
+  listRentals,
   returnRental,
   returnRentalWithPayment,
   updateDraftRental,
@@ -272,6 +274,24 @@ describe("draft rentals", () => {
       }),
     ).toThrow("Only draft rentals can be updated here.");
   });
+
+  it("filters and counts draft rentals in listRentals queue='draft'", () => {
+    const customerId = createTestCustomer();
+    const vehicleId1 = createTestVehicle();
+    const vehicleId2 = createTestVehicle();
+
+    const draft = createDraftRental(buildActivationInput(customerId, vehicleId1));
+    const active = activateRental(buildActivationInput(customerId, vehicleId2));
+
+    const draftQueue = listRentals({ queue: "draft" });
+    expect(draftQueue.rows.some((r) => r.id === draft.id)).toBe(true);
+    expect(draftQueue.rows.some((r) => r.id === active.id)).toBe(false);
+    expect(draftQueue.summary?.draft).toBeGreaterThanOrEqual(1);
+
+    const activeQueue = listRentals({ queue: "active" });
+    expect(activeQueue.rows.some((r) => r.id === draft.id)).toBe(false);
+    expect(activeQueue.rows.some((r) => r.id === active.id)).toBe(true);
+  });
 });
 
 describe("cancellation", () => {
@@ -486,5 +506,150 @@ describe("stored status versus effective status", () => {
 
     expect(rental.status).toBe("active");
     expect(rentalRow(rental.id).status).toBe("active");
+  });
+});
+
+describe("extending active and overdue rentals", () => {
+  it("extends an active rental, updates totals and remaining balance", () => {
+    const customerId = createTestCustomer();
+    const vehicleId = createTestVehicle();
+
+    const rental = activateRental(
+      buildActivationInput(customerId, vehicleId, {
+        ...rentalWindow(0, 7), // 7 days @ 100 = 700
+        dailyPrice: 100,
+      }),
+    );
+
+    expect(rental.totalAmount).toBe(700);
+    expect(rental.remainingAmount).toBe(700);
+
+    // Anchored to the rental's own start, not a fresh Date.now(): a whole-day
+    // rate charges a part day in full, so a span of "14 days and two
+    // milliseconds" is fifteen days. See rentalWindow in the test harness.
+    const futureDate = new Date(
+      new Date(rental.startDatetime).getTime() + 14 * 24 * 3600 * 1000,
+    ).toISOString();
+
+    const result = extendRental({
+      rentalId: rental.id,
+      newExpectedReturnDatetime: futureDate, // 14 days total
+      recordPayment: false,
+    });
+
+    expect(result.rental.expectedReturnDatetime).toBe(futureDate);
+    expect(result.rental.totalAmount).toBe(1400); // 14 * 100
+    expect(result.rental.remainingAmount).toBe(1400);
+    expect(result.payment).toBeNull();
+
+    const dbRow = rentalRow(rental.id);
+    expect(dbRow.total_amount).toBe(1400);
+    expect(dbRow.remaining_amount).toBe(1400);
+  });
+
+  it("extends an overdue rental, records extension payment, and sets status back to active", () => {
+    const customerId = createTestCustomer();
+    const vehicleId = createTestVehicle();
+
+    // Rental started 5 days ago, expected return yesterday (4 days @ 100 = 400)
+    const rental = activateRental(
+      buildActivationInput(customerId, vehicleId, {
+        ...rentalWindow(-5, -1),
+        dailyPrice: 100,
+      }),
+    );
+
+    expect(rental.status).toBe("overdue");
+
+    // Twelve whole days from the start, which is seven days from now: the
+    // rental leaves overdue and the span stays exact.
+    const newReturnDate = new Date(
+      new Date(rental.startDatetime).getTime() + 12 * 24 * 3600 * 1000,
+    ).toISOString(); // 12 days total = 1200
+
+    const result = extendRental({
+      rentalId: rental.id,
+      newExpectedReturnDatetime: newReturnDate,
+      recordPayment: true,
+      paymentAmount: 800,
+      paymentMethod: "cash",
+      paymentNotes: "Extension payment for 8 more days",
+    });
+
+    expect(result.rental.status).toBe("active");
+    expect(result.rental.totalAmount).toBe(1200);
+    expect(result.payment).not.toBeNull();
+    expect(result.payment?.amount).toBe(800);
+    expect(result.payment?.receiptNo).toMatch(/^RCP/);
+
+    const dbRow = rentalRow(rental.id);
+    expect(dbRow.status).toBe("active");
+    expect(dbRow.total_amount).toBe(1200);
+    expect(dbRow.paid_amount).toBe(800);
+    expect(dbRow.remaining_amount).toBe(400);
+  });
+
+  it("refuses to move the return date earlier, leaving the money untouched", () => {
+    const customerId = createTestCustomer();
+    const vehicleId = createTestVehicle();
+
+    const rental = activateRental(
+      buildActivationInput(customerId, vehicleId, {
+        ...rentalWindow(0, 7),
+        dailyPrice: 100,
+      }),
+    );
+
+    const earlier = new Date(
+      new Date(rental.expectedReturnDatetime).getTime() - 2 * 24 * 3600 * 1000,
+    ).toISOString();
+
+    expect(() =>
+      extendRental({
+        rentalId: rental.id,
+        newExpectedReturnDatetime: earlier,
+        recordPayment: false,
+      }),
+    ).toThrow("New return date must be after the current return date");
+
+    // The whole transaction rolls back: shortening must not reprice anything
+    // and must not move the date it refused to move.
+    const dbRow = rentalRow(rental.id);
+    expect(dbRow.total_amount).toBe(700);
+
+    const stored = getSqliteDatabase()
+      .prepare("select expected_return_datetime from rentals where id = ?")
+      .get(rental.id) as { expected_return_datetime: string };
+
+    expect(stored.expected_return_datetime).toBe(rental.expectedReturnDatetime);
+  });
+
+  it("refuses a payment it was asked to record but given no amount for", () => {
+    const customerId = createTestCustomer();
+    const vehicleId = createTestVehicle();
+
+    const rental = activateRental(
+      buildActivationInput(customerId, vehicleId, {
+        ...rentalWindow(0, 7),
+        dailyPrice: 100,
+      }),
+    );
+
+    const later = new Date(
+      new Date(rental.startDatetime).getTime() + 14 * 24 * 3600 * 1000,
+    ).toISOString();
+
+    // Previously accepted, then silently ignored: the caller got success back
+    // with no payment attached and no way to tell.
+    expect(() =>
+      extendRental({
+        rentalId: rental.id,
+        newExpectedReturnDatetime: later,
+        recordPayment: true,
+      }),
+    ).toThrow();
+
+    const dbRow = rentalRow(rental.id);
+    expect(dbRow.total_amount).toBe(700);
   });
 });

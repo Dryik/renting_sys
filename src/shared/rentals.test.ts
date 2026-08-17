@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   calculateCancelledRentalBalance,
+  calculateExtensionSummary,
   calculateInitialRentalBalance,
   calculateLateDays,
   calculateRentalDays,
@@ -30,9 +31,17 @@ describe("rental calculations", () => {
   });
 
   it("rounds partial days up", () => {
+    // 49 hours is two full days and an hour, and the hour is charged as a day.
     expect(
       calculateRentalDays("2026-05-14T09:00:00.000Z", "2026-05-16T10:00:00.000Z"),
     ).toBe(3);
+    // Whole days stay whole: no phantom extra day from rounding.
+    expect(
+      calculateRentalDays("2026-05-14", "2026-05-17"),
+    ).toBe(3);
+    expect(
+      calculateRentalDays("2026-05-14T09:00:00.000Z", "2026-05-16T09:00:00.000Z"),
+    ).toBe(2);
   });
 
   it("calculates total from days and daily price", () => {
@@ -285,5 +294,24 @@ describe("rental calculations", () => {
   it("formats money with a symbol fallback", () => {
     expect(formatMoney(12.5, "$")).toBe("$12.50");
     expect(formatMoney(1250, "LYD", "ar-LY-u-nu-latn")).toBe("1,250.00 د.ل");
+  });
+
+  it("calculates extension summary correctly for added rental days", () => {
+    const summary = calculateExtensionSummary({
+      startDatetime: "2026-05-01",
+      currentExpectedReturnDatetime: "2026-05-31", // 30 days
+      newExpectedReturnDatetime: "2026-06-07", // 37 days (+7 days)
+      dailyPrice: 100,
+      accessoryCharges: 50,
+      paidAmount: 3050, // paid full original total
+    });
+
+    expect(summary.currentDays).toBe(30);
+    expect(summary.newDays).toBe(37);
+    expect(summary.addedDays).toBe(7);
+    expect(summary.currentTotalAmount).toBe(3050); // 30*100 + 50
+    expect(summary.newTotalAmount).toBe(3750); // 37*100 + 50
+    expect(summary.addedRentAmount).toBe(700); // 7 * 100
+    expect(summary.newRemainingAmount).toBe(700); // 3750 - 3050
   });
 });

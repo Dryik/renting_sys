@@ -41,6 +41,7 @@ import {
   activateRental,
   cancelRental,
   createDraftRental,
+  extendRental,
   findOpenRentalByPlate,
   getRentalFormOptions,
   listRentals,
@@ -703,6 +704,9 @@ app.whenReady().then(() => {
   handle("rentals:update-active", (_event, input: unknown) =>
     (guard("rentals.editActive"), updateActiveRental(input)),
   );
+  handle("rentals:extend", (_event, input: unknown) =>
+    (guard("rentals.editActive"), extendRental(input)),
+  );
   handle("rentals:return", (_event, input: unknown) =>
     (guard("rentals.return"), returnRental(input)),
   );
@@ -859,8 +863,8 @@ app.whenReady().then(() => {
   handle("reports:export", (_event, request: unknown) =>
     (guard("reports.export"), exportReport(request as ReportExportRequest)),
   );
-  handle("rentals:print-contract", (_event, rentalId: unknown, printToPDF: unknown, language: unknown) =>
-    (guard("rentals.view"), printRentalContract(Number(rentalId), Boolean(printToPDF), language as "ar" | "en" | "both" | undefined)),
+  handle("rentals:print-contract", (_event, rentalId: unknown, printToPDF: unknown, language: unknown, firstPageOnly: unknown) =>
+    (guard("rentals.view"), printRentalContract(Number(rentalId), Boolean(printToPDF), language as "ar" | "en" | "both" | undefined, Boolean(firstPageOnly))),
   );
   handle("payments:print-receipt", (_event, paymentId: unknown, printToPDF: unknown, language: unknown) =>
     (guard("payments.view"), printPaymentReceipt(Number(paymentId), Boolean(printToPDF), language as "ar" | "en" | "both" | undefined)),

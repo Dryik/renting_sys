@@ -67,12 +67,13 @@ const api: RentalAppApi = {
     updateDraft: (id, input) => ipcRenderer.invoke("rentals:update-draft", id, input),
     activateDraft: (id) => ipcRenderer.invoke("rentals:activate-draft", id),
     updateActive: (input) => ipcRenderer.invoke("rentals:update-active", input),
+    extend: (input) => ipcRenderer.invoke("rentals:extend", input),
     return: (input) => ipcRenderer.invoke("rentals:return", input),
     returnWithPayment: (input) => ipcRenderer.invoke("rentals:return-with-payment", input),
     cancel: (rentalId) => ipcRenderer.invoke("rentals:cancel", rentalId),
     findOpenByPlate: (plateNumber) => ipcRenderer.invoke("rentals:find-open-by-plate", plateNumber),
-    printContract: (rentalId, printToPDF, language) =>
-      ipcRenderer.invoke("rentals:print-contract", rentalId, printToPDF, language),
+    printContract: (rentalId, printToPDF, language, firstPageOnly) =>
+      ipcRenderer.invoke("rentals:print-contract", rentalId, printToPDF, language, firstPageOnly),
   },
   payments: {
     list: (request) => ipcRenderer.invoke("payments:list", request),

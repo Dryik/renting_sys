@@ -14,12 +14,13 @@ type SidePanelProps = {
   onClose: () => void;
   open: boolean;
   title: string;
-  width?: "md" | "lg";
+  width?: "md" | "lg" | "xl";
 };
 
 const widthClass: Record<NonNullable<SidePanelProps["width"]>, string> = {
   md: "max-w-xl",
   lg: "max-w-5xl",
+  xl: "max-w-6xl",
 };
 
 export function SidePanel({

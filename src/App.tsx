@@ -36,7 +36,11 @@ import { LicensePage } from "@/features/license/LicensePage";
 import { UsersPage } from "@/features/users/UsersPage";
 import { useI18n } from "@/hooks/useI18n";
 import { AuthProvider } from "@/hooks/AuthProvider";
-import { rentalAppApi, getUpdatesApi } from "@/data/rental-app-api";
+import {
+  rentalAppApi,
+  getUpdatesApi,
+  isDesktopBridgeAvailable,
+} from "@/data/rental-app-api";
 import { useRendererSession } from "@/data/session-context";
 import { useCommandMutation } from "@/data/hooks";
 import { type AuthState, type Permission } from "@/shared/auth";
@@ -384,6 +388,27 @@ export default function App() {
       theme={colorTheme}
     />
   );
+
+  if (!isDesktopBridgeAvailable()) {
+    return (
+      <main
+        dir={dir}
+        className="flex min-h-screen flex-col items-center justify-center p-6 text-center bg-background text-foreground"
+      >
+        <div className="max-w-md rounded-2xl border border-border p-6 shadow-xl bg-card">
+          <h2 className="text-xl font-bold mb-2">{t("Desktop Application")}</h2>
+          <p className="text-sm text-muted-foreground leading-relaxed mb-4">
+            {t(
+              "This is a local desktop application built for Electron. Please switch to the running Electron app window on your Windows taskbar.",
+            )}
+          </p>
+          <div className="text-xs font-mono bg-muted p-2.5 rounded text-muted-foreground border border-border">
+            ARAK Rental Desk Desktop Window
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   if (!authState || !licenseStatus) {
     return (

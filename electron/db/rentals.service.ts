@@ -14,9 +14,11 @@ import {
   calculateReturnSummaryMinor,
   calculateRentalSummaryMinor,
   getOpenRentalStatusForExpectedReturn,
+  normalizeToCalendarDate,
   validateMileageProgression,
   type RentalActivationInput,
   type RentalActiveUpdateInput,
+  type RentalExtendInput,
   type RentalCollateralInput,
   type RentalCollateralRecord,
   type RentalCollateralReturnInput,
@@ -30,6 +32,7 @@ import {
   type RentalReturnWithPaymentInput,
   rentalActivationInputSchema,
   rentalActiveUpdateInputSchema,
+  rentalExtendInputSchema,
   rentalCancelInputSchema,
   rentalReturnInputSchema,
   rentalReturnWithPaymentInputSchema,
@@ -213,6 +216,8 @@ export function listRentals(
 
   if (queue === "active") {
     conditions.push(inArray(rentals.status, ["active", "overdue"]));
+  } else if (queue === "draft") {
+    conditions.push(eq(rentals.status, "draft"));
   } else if (queue === "overdue") {
     conditions.push(effectiveOverdueRentalFilter(now));
   } else if (queue === "due_today") {
@@ -245,6 +250,7 @@ export function listRentals(
     .select({
       total: count(),
       active: sql<number>`sum(case when ${effectiveStatus} = 'active' then 1 else 0 end)`.mapWith(Number),
+      draft: sql<number>`sum(case when ${rentals.status} = 'draft' then 1 else 0 end)`.mapWith(Number),
       overdue: sql<number>`sum(case when ${effectiveStatus} = 'overdue' then 1 else 0 end)`.mapWith(Number),
       returned: sql<number>`sum(case when ${rentals.status} = 'returned' then 1 else 0 end)`.mapWith(Number),
       amount: sql<number>`coalesce(sum(${rentals.totalAmountMinor}), 0)`,
@@ -271,6 +277,7 @@ export function listRentals(
   return createPageResult(hydrateRentalRecords(rows), total, pageRequest, {
     total: summaryRow?.total ?? 0,
     active: summaryRow?.active ?? 0,
+    draft: summaryRow?.draft ?? 0,
     overdue: summaryRow?.overdue ?? 0,
     returned: summaryRow?.returned ?? 0,
     amount: fromMinorUnits(
@@ -993,6 +1000,196 @@ export function updateActiveRental(input: unknown): RentalListRecord {
     }
 
     return rental;
+  } catch (error) {
+    throw normalizeRentalServiceError(error);
+  }
+}
+
+export function extendRental(input: unknown): {
+  rental: RentalListRecord;
+  payment: PaymentRecord | null;
+} {
+  requirePermissionForCurrentSession("rentals.editActive");
+  const values: RentalExtendInput = rentalExtendInputSchema.parse(input);
+  const now = new Date().toISOString();
+  const actor = getCurrentUserForService();
+
+  try {
+    const result = getDatabase().transaction((tx) => {
+      const rental = tx
+        .select({
+          id: rentals.id,
+          contractNo: rentals.contractNo,
+          status: rentals.status,
+          startDatetime: rentals.startDatetime,
+          expectedReturnDatetime: rentals.expectedReturnDatetime,
+          dailyPriceMinor: rentals.dailyPriceMinor,
+          depositRequiredMinor: rentals.depositRequiredMinor,
+          accessoryChargesMinor: rentals.accessoryChargesMinor,
+          paidAmountMinor: rentals.paidAmountMinor,
+          notesOut: rentals.notesOut,
+        })
+        .from(rentals)
+        .where(eq(rentals.id, values.rentalId))
+        .get();
+
+      if (!rental) {
+        throw new Error("Rental was not found.");
+      }
+
+      if (rental.status !== "active" && rental.status !== "overdue") {
+        throw new Error("Only active or overdue rentals can be extended.");
+      }
+
+      if (
+        normalizeToCalendarDate(values.newExpectedReturnDatetime).getTime() <
+        normalizeToCalendarDate(rental.startDatetime).getTime()
+      ) {
+        throw new Error("New return date cannot be before the start date.");
+      }
+
+      // Extending only ever moves the return later. Bringing it forward lowers
+      // the total and can leave a paid-up rental with a negative balance and no
+      // refund recorded, while the audit log still reads "extended to". Handing
+      // a vehicle back early is the return flow's job, which settles the money
+      // properly.
+      if (
+        new Date(values.newExpectedReturnDatetime).getTime() <=
+        new Date(rental.expectedReturnDatetime).getTime()
+      ) {
+        throw new Error(
+          "New return date must be after the current return date. Use the return workflow to close a rental early.",
+        );
+      }
+
+      const effectiveDailyPriceMinor =
+        values.dailyPrice !== undefined
+          ? toMinorUnits(values.dailyPrice, "Daily price")
+          : columnToMinor(rental.dailyPriceMinor, "rentals.daily_price_minor");
+
+      const { totalAmountMinor } = calculateRentalSummaryMinor(
+        rental.startDatetime,
+        values.newExpectedReturnDatetime,
+        effectiveDailyPriceMinor,
+        columnToMinor(
+          rental.accessoryChargesMinor,
+          "rentals.accessory_charges_minor",
+        ),
+      );
+
+      const status = getOpenRentalStatusForExpectedReturn(
+        values.newExpectedReturnDatetime,
+        now,
+      );
+
+      let updatedNotes = rental.notesOut;
+      if (values.notes?.trim()) {
+        updatedNotes = updatedNotes
+          ? `${updatedNotes}\n[${toDateInputValue(new Date())}] ${values.notes.trim()}`
+          : values.notes.trim();
+      }
+
+      tx.update(rentals)
+        .set({
+          status,
+          expectedReturnDatetime: values.newExpectedReturnDatetime,
+          ...(values.dailyPrice !== undefined
+            ? moneyColumns("dailyPrice", effectiveDailyPriceMinor)
+            : {}),
+          notesOut: updatedNotes,
+          ...moneyColumns("totalAmount", totalAmountMinor),
+          ...moneyColumns(
+            "remainingAmount",
+            subtractMoney(
+              totalAmountMinor,
+              columnToMinor(rental.paidAmountMinor, "rentals.paid_amount_minor"),
+            ),
+          ),
+          updatedAt: now,
+        })
+        .where(eq(rentals.id, rental.id))
+        .run();
+
+      logAuditEvent(tx, {
+        action: "rental.extended",
+        entityType: "rental",
+        entityId: rental.id,
+        summaryAr: `تم تمديد العقد ${rental.contractNo} إلى ${toDateInputValue(new Date(values.newExpectedReturnDatetime))}`,
+        summaryEn: `Rental contract ${rental.contractNo} was extended to ${toDateInputValue(new Date(values.newExpectedReturnDatetime))}.`,
+        entityLabel: rental.contractNo,
+        before: rental,
+        after: {
+          ...rental,
+          expectedReturnDatetime: values.newExpectedReturnDatetime,
+          totalAmountMinor,
+        },
+        metadata: {
+          previousExpectedReturn: rental.expectedReturnDatetime,
+          newExpectedReturn: values.newExpectedReturnDatetime,
+        },
+      });
+
+      let paymentId: number | null = null;
+      if (values.recordPayment && values.paymentAmount && values.paymentAmount > 0) {
+        requirePermissionForCurrentSession("payments.create");
+        const receiptNo = getNextSequenceValue(tx, "receipt", "RCP");
+        const payment = tx
+          .insert(payments)
+          .values({
+            rentalId: rental.id,
+            type: "rent",
+            method: values.paymentMethod ?? "cash",
+            receiptNo,
+            ...moneyColumns(
+              "amount",
+              toMinorUnits(values.paymentAmount, "Payment amount"),
+            ),
+            paymentDate: now,
+            notes:
+              values.paymentNotes?.trim() ||
+              `Extension payment for contract ${rental.contractNo}`,
+            status: "posted",
+            createdByUserId: actor?.id ?? null,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning()
+          .get();
+
+        recalculateRentalPaymentState(
+          tx,
+          rental.id,
+          totalAmountMinor,
+          status,
+          now,
+        );
+
+        logAuditEvent(tx, {
+          action: "payment.created",
+          entityType: "payment",
+          entityId: payment.id,
+          summaryAr: `تم تسجيل دفعة تمديد للعقد ${rental.contractNo}`,
+          summaryEn: `Extension payment was recorded for contract ${rental.contractNo}.`,
+          entityLabel: payment.receiptNo,
+          after: payment,
+          metadata: { rentalId: rental.id },
+        });
+
+        paymentId = payment.id;
+      }
+
+      return { rentalId: rental.id, paymentId };
+    });
+
+    const updatedRental = getRentalById(result.rentalId);
+    if (!updatedRental) {
+      throw new Error("Rental was extended but could not be loaded.");
+    }
+
+    return {
+      rental: updatedRental,
+      payment: result.paymentId ? getPaymentById(result.paymentId) ?? null : null,
+    };
   } catch (error) {
     throw normalizeRentalServiceError(error);
   }
@@ -2134,6 +2331,7 @@ function parseRentalId(id: unknown): number {
 function isRentalQueue(value: unknown): value is RentalQueue {
   return (
     value === "active" ||
+    value === "draft" ||
     value === "overdue" ||
     value === "due_today" ||
     value === "returned" ||
