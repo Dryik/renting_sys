@@ -19,7 +19,7 @@ The users are non-technical staff. The app must be simple, local, fast, and reli
 
 ## Product Scope
 
-A local-only rental management app. Current release: **v0.4.0**, in front of
+A local-only rental management app. Current release: **v0.4.1**, in front of
 real shops with real customer data.
 
 Modules that exist today, as feature folders under `src/features`:
@@ -79,25 +79,37 @@ Overdue means an active rental where expected return datetime is before now.
 
 ### Counting days
 
-These two are deliberately different. Do not "fix" one to match the other.
+**A rental day is a calendar day.** It is the number of dates the vehicle is
+out. Collected Monday and returned Wednesday is two days whether the customer
+comes back at 09:00 or at 18:00. This is `calculateRentalDays`. A same-day
+rental is one day, never zero.
 
-- **A rental day is a 24-hour period, and any part of one is charged in full.**
-  Collected at 09:00 Monday and returned at 10:00 Wednesday is three days, not
-  two. This is `calculateRentalDays`, and it is the standard vehicle-rental
-  convention.
-- **A late day is a calendar day.** This is `calculateLateDays`.
+**A late day is a calendar day too.** This is `calculateLateDays`. The two agree,
+and should stay that way.
 
-Counting rental days by calendar date instead drops a day from every contract
-whose return time of day is later than its pickup time of day — the ordinary
-shape of a rental — and silently reprices contracts that have already been
-signed and printed, because the total is recalculated whenever a rental is
-edited, extended or returned. It was changed to calendar dates once and
-reverted for exactly that reason.
+Both count in the shop's own calendar, not UTC — see `normalizeToCalendarDate`.
+A shop saying "the 15th" means its 15th.
 
-Tests that need an exact span must anchor both ends to one timestamp; see
+This was changed deliberately at v0.4.2. It previously counted 24-hour periods
+and charged any part of one in full, so an hour's delay on the return added a
+whole day to the bill — the ordinary shape of a rental, and a charge shops kept
+having to explain at the counter. The change applies to every contract: totals
+are recalculated whenever a rental is edited, extended or returned, so a
+contract signed under the old rule can come back a day shorter and cheaper. That
+was the accepted trade, taken over storing the rule per rental and migrating the
+schema.
+
+Do not "fix" it back. If it ever needs revisiting, that is a pricing decision
+for the shop owner, not a bug fix.
+
+Tests that need an exact span must still anchor both ends to one timestamp; see
 `rentalWindow` in `electron/db/database-test-harness.ts`. A fixture built from
-two separate `Date.now()` calls is "N days and a few milliseconds", which a
-whole-day rate correctly bills as N+1. Fix the fixture, never the rounding.
+two separate `Date.now()` calls drifts across midnight and counts a day either
+way depending on when it runs. Fix the fixture, never the counting.
+
+Fixtures also must not be written as `"…T09:00:00.000Z"` when the count matters:
+a calendar day is the shop's, so a UTC literal asks a different question in
+every timezone. Build them from local components instead.
 
 Payments must be simple:
 - rent

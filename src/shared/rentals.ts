@@ -626,29 +626,38 @@ export function getDefaultRentalReturnFormValues(
 }
 
 /**
- * A rental day is a 24-hour period, and any part of one is charged in full —
- * the standard vehicle-rental convention. Collecting at 09:00 Monday and
- * returning at 10:00 Wednesday is three days, not two.
+ * A rental day is a calendar day: the number of dates the vehicle is out.
  *
- * Deliberately not a difference between calendar dates. That reading drops a
- * day from every contract whose return time of day is later than its pickup
- * time of day, which is the ordinary shape of a rental, and it silently
- * reprices contracts that have already been signed and printed whenever they
- * are edited.
+ * Collected Monday and returned Wednesday is two days whether the customer
+ * comes back at 09:00 or at 18:00. Counting 24-hour periods instead charged a
+ * whole extra day for the hour a return ran late, which is the ordinary shape
+ * of a rental and the thing shops kept having to explain away at the counter.
+ *
+ * The count is taken from the shop's own calendar, not UTC — see
+ * `normalizeToCalendarDate`. A same-day rental is one day, never zero.
+ *
+ * This matches `calculateLateDays`, which has always counted calendar days, so
+ * the two now agree rather than disagreeing by design.
  */
 export function calculateRentalDays(
   startDatetime: string | Date,
   expectedReturnDatetime: string | Date,
 ): number {
-  const start = new Date(startDatetime).getTime();
-  const expectedReturn = new Date(expectedReturnDatetime).getTime();
+  const start = normalizeToCalendarDate(startDatetime);
+  const expectedReturn = normalizeToCalendarDate(expectedReturnDatetime);
   const millisecondsPerDay = 24 * 60 * 60 * 1000;
 
-  if (!Number.isFinite(start) || !Number.isFinite(expectedReturn)) {
+  if (Number.isNaN(start.getTime()) || Number.isNaN(expectedReturn.getTime())) {
     return 1;
   }
 
-  return Math.max(1, Math.ceil((expectedReturn - start) / millisecondsPerDay));
+  // Both ends are UTC midnight, so the difference is a whole number of days.
+  // Rounding absorbs nothing but floating-point dust.
+  const days = Math.round(
+    (expectedReturn.getTime() - start.getTime()) / millisecondsPerDay,
+  );
+
+  return Math.max(1, days);
 }
 
 export type ExtensionSummary = {

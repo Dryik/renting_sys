@@ -32,18 +32,26 @@ describe("rental calculations", () => {
     ).toBe(1);
   });
 
-  it("rounds partial days up", () => {
-    // 49 hours is two full days and an hour, and the hour is charged as a day.
-    expect(
-      calculateRentalDays("2026-05-14T09:00:00.000Z", "2026-05-16T10:00:00.000Z"),
-    ).toBe(3);
-    // Whole days stay whole: no phantom extra day from rounding.
-    expect(
-      calculateRentalDays("2026-05-14", "2026-05-17"),
-    ).toBe(3);
-    expect(
-      calculateRentalDays("2026-05-14T09:00:00.000Z", "2026-05-16T09:00:00.000Z"),
-    ).toBe(2);
+  // Built from local components, never from a "Z" literal: a rental day is the
+  // shop's calendar day, so a fixture written in UTC would ask a different
+  // question in every timezone and pass or fail by accident.
+  const at = (year: number, month: number, day: number, hour: number) =>
+    new Date(year, month - 1, day, hour).toISOString();
+
+  it("counts calendar days, not 24-hour periods", () => {
+    // Out on the 14th, back on the 16th: two days, whatever the clock says.
+    expect(calculateRentalDays(at(2026, 5, 14, 9), at(2026, 5, 16, 10))).toBe(2);
+    expect(calculateRentalDays(at(2026, 5, 14, 9), at(2026, 5, 16, 9))).toBe(2);
+    // The hour a return runs late used to add a whole day. It no longer does.
+    expect(calculateRentalDays(at(2026, 5, 14, 8), at(2026, 5, 16, 23))).toBe(2);
+  });
+
+  it("charges a same-day rental one day, never zero", () => {
+    expect(calculateRentalDays(at(2026, 5, 14, 9), at(2026, 5, 14, 18))).toBe(1);
+  });
+
+  it("takes a date without a time literally", () => {
+    expect(calculateRentalDays("2026-05-14", "2026-05-17")).toBe(3);
   });
 
   it("calculates total from days and daily price", () => {
@@ -339,11 +347,16 @@ describe("rental calculations", () => {
 
   it("adds exactly the days asked for, in billable terms", () => {
     const start = "2026-05-14T09:00:00.000Z";
-    const current = "2026-05-16T10:00:00.000Z"; // 49h, billed as 3 days
+    const current = "2026-05-16T10:00:00.000Z";
     const extended = extendedReturnDatetime(current, "2026-05-23");
 
-    expect(calculateRentalDays(start, current)).toBe(3);
-    expect(calculateRentalDays(start, extended)).toBe(10);
+    // Asserted as a difference on purpose. What the two spans count is the day
+    // rule's business; what this guards is that asking for seven more days adds
+    // seven billable days and not six or eight, which has to hold whichever way
+    // the rule counts and in whatever timezone the shop runs.
+    expect(
+      calculateRentalDays(start, extended) - calculateRentalDays(start, current),
+    ).toBe(7);
   });
 
   it("calculates extension summary correctly for added rental days", () => {
