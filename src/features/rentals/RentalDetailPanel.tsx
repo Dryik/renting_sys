@@ -1,4 +1,4 @@
-import { Bike, CalendarPlus, CheckCircle2, CreditCard, FileDown, Loader2, Pencil, Printer, XCircle } from "lucide-react";
+import { Bike, CalendarPlus, CheckCircle2, CreditCard, FileDown, Loader2, Pencil, Printer, Trash2, XCircle } from "lucide-react";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
 import { MoneyText } from "@/components/ui/money-text";
@@ -6,7 +6,12 @@ import { formatCollateralType } from "@/shared/rentals";
 import type { PaymentRecord } from "@/shared/payments";
 import type { RentalListRecord } from "@/shared/rentals";
 import { RentalStatusBadge } from "./RentalStatusBadge";
-import { canOperateRental, type PrintAction } from "./rental-panel-helpers";
+import {
+  canCancelRental,
+  canDeleteRental,
+  canOperateRental,
+  type PrintAction,
+} from "./rental-panel-helpers";
 import type { ReactNode } from "react";
 
 /**
@@ -25,6 +30,7 @@ export function RentalDetailPanel({
   isSaving,
   onActivateDraft,
   onCancelRental,
+  onDeleteRental,
   onEditDraft,
   onExtendRental,
   onPrintContract,
@@ -46,6 +52,7 @@ export function RentalDetailPanel({
   isSaving: boolean;
   onActivateDraft?: () => void;
   onCancelRental?: () => void;
+  onDeleteRental?: () => void;
   onEditDraft?: () => void;
   onExtendRental?: () => void;
   onPrintContract: (printToPDF: boolean) => void;
@@ -317,8 +324,19 @@ export function RentalDetailPanel({
             {t("PDF")}
           </Button>
         </div>
-        <div className="flex justify-start sm:justify-end">
-          {canOperate && onCancelRental ? (
+        <div className="flex justify-start gap-2 sm:justify-end">
+          {canDeleteRental(rental, payments.length) && onDeleteRental ? (
+            <Button
+              className="border-destructive/35 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              disabled={isSaving}
+              variant="outline"
+              onClick={onDeleteRental}
+            >
+              <Trash2 data-icon="inline-start" />
+              {t("Delete Rental")}
+            </Button>
+          ) : null}
+          {canCancelRental(rental) && onCancelRental ? (
             <Button
               className="border-destructive/35 text-destructive hover:bg-destructive/10 hover:text-destructive"
               disabled={isSaving}

@@ -2,6 +2,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowRight, Bike, Loader2, Wrench } from "lucide-react";
 import { useEffect, useId, useMemo, useRef } from "react";
 import { useForm, useWatch } from "react-hook-form";
+import { createPortal } from "react-dom";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -200,7 +201,7 @@ export function ReplaceVehicleDialog({
     return null;
   }
 
-  return (
+  const dialog = (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 px-4 py-6 backdrop-blur-[1px] overflow-y-auto"
       data-motion="overlay"
@@ -594,4 +595,10 @@ export function ReplaceVehicleDialog({
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") {
+    return dialog;
+  }
+
+  return createPortal(dialog, document.body);
 }

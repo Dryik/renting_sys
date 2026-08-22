@@ -33,6 +33,7 @@ const {
   activateRental,
   cancelRental,
   createDraftRental,
+  deleteRental,
   extendRental,
   listRentals,
   replaceRentalVehicle,
@@ -694,6 +695,16 @@ describe("replacing the vehicle on an open contract", () => {
       .all(rentalId) as never;
   }
 
+  /** A fixed local hour on a day relative to today, so a fixture never drifts
+   * across midnight with the clock. */
+  function atLocalHour(dayOffset: number, hour: number): string {
+    const day = new Date();
+    day.setDate(day.getDate() + dayOffset);
+    day.setHours(hour, 0, 0, 0);
+
+    return day.toISOString();
+  }
+
   function buildReplaceInput(
     rentalId: number,
     replacementVehicleId: number,
@@ -819,6 +830,67 @@ describe("replacing the vehicle on an open contract", () => {
     });
   });
 
+  it("allows the same contract to replace its vehicle more than once", () => {
+    const customerId = createTestCustomer();
+    const firstVehicleId = createTestVehicle({ mileage: 1000 });
+    const secondVehicleId = createTestVehicle({ mileage: 1000 });
+    const thirdVehicleId = createTestVehicle({ mileage: 1000 });
+    const rental = activateRental(
+      buildActivationInput(customerId, firstVehicleId, {
+        startDatetime: atLocalHour(-3, 9),
+        expectedReturnDatetime: atLocalHour(1, 9),
+      }),
+    );
+    const firstReplacementAt = atLocalHour(-2, 9);
+    const secondReplacementAt = atLocalHour(-1, 9);
+
+    const onceReplaced = replaceRentalVehicle(
+      buildReplaceInput(rental.id, secondVehicleId, {
+        replacedAtDatetime: firstReplacementAt,
+        outgoingVehicleStatus: "available",
+        maintenanceTitle: null,
+        incomingMileageOut: 1000,
+        reason: "First replacement.",
+      }),
+    );
+    const twiceReplaced = replaceRentalVehicle(
+      buildReplaceInput(onceReplaced.id, thirdVehicleId, {
+        replacedAtDatetime: secondReplacementAt,
+        outgoingVehicleStatus: "available",
+        maintenanceTitle: null,
+        incomingMileageOut: 1000,
+        reason: "Second replacement.",
+      }),
+    );
+
+    expect(twiceReplaced.id).toBe(rental.id);
+    expect(twiceReplaced.contractNo).toBe(rental.contractNo);
+    expect(twiceReplaced.vehicleId).toBe(thirdVehicleId);
+    expect(twiceReplaced.status).toBe("active");
+    expect(segmentRows(rental.id)).toMatchObject([
+      {
+        sequence: 1,
+        vehicle_id: firstVehicleId,
+        end_datetime: firstReplacementAt,
+      },
+      {
+        sequence: 2,
+        vehicle_id: secondVehicleId,
+        end_datetime: secondReplacementAt,
+        reason: "First replacement.",
+      },
+      {
+        sequence: 3,
+        vehicle_id: thirdVehicleId,
+        end_datetime: null,
+        reason: "Second replacement.",
+      },
+    ]);
+    expect(vehicleStatus(firstVehicleId)).toBe("available");
+    expect(vehicleStatus(secondVehicleId)).toBe("available");
+    expect(vehicleStatus(thirdVehicleId)).toBe("rented");
+  });
+
   /**
    * The money question the whole feature turns on. A three-day contract that
    * changes bikes on day two is still a three-day contract; what changes is
@@ -858,17 +930,21 @@ describe("replacing the vehicle on an open contract", () => {
     const customerId = createTestCustomer();
     const brokenVehicleId = createTestVehicle();
     const replacementVehicleId = createTestVehicle();
-    const window = rentalWindow(0, 3);
+    // The time of day is pinned, not taken from the clock. "An hour after the
+    // start" is only the same calendar day if the start is not near midnight,
+    // and `rentalWindow` anchors on `Date.now()`.
     const rental = activateRental(
       buildActivationInput(customerId, brokenVehicleId, {
-        ...window,
+        startDatetime: atLocalHour(-3, 9),
+        expectedReturnDatetime: atLocalHour(0, 9),
         dailyPrice: 100,
       }),
     );
 
     const updated = replaceRentalVehicle(
       buildReplaceInput(rental.id, replacementVehicleId, {
-        replacedAtDatetime: new Date(Date.parse(window.startDatetime) + 60 * 60 * 1000).toISOString(),
+        // An hour into the day the bike went out.
+        replacedAtDatetime: atLocalHour(-3, 10),
         newDailyPrice: 100,
       }),
     );
@@ -1180,6 +1256,28 @@ describe("replacing the vehicle on an open contract", () => {
     );
   });
 
+  it("closes the vehicle period when a contract is cancelled", () => {
+    const customerId = createTestCustomer();
+    const vehicleId = createTestVehicle();
+    const rental = activateRental(buildActivationInput(customerId, vehicleId));
+
+    cancelRental({
+      rentalId: rental.id,
+      reason: "Customer changed his mind half an hour in.",
+    });
+
+    // A cancelled contract is not still out on a vehicle. Leaving the period
+    // open leaves the history claiming the bike is on hire, and the panel
+    // showing its end date as "now", forever.
+    const open = getSqliteDatabase()
+      .prepare(
+        "select count(*) as count from rental_vehicle_segments where rental_id = ? and end_datetime is null",
+      )
+      .get(rental.id) as { count: number };
+
+    expect(open.count).toBe(0);
+  });
+
   it("writes an audit entry naming both vehicles and the reason", () => {
     const customerId = createTestCustomer();
     const brokenVehicleId = createTestVehicle();
@@ -1215,7 +1313,14 @@ describe("replacing the vehicle on an open contract", () => {
  * whether a bike pays for itself is reading another bike's takings.
  */
 describe("vehicle income after a replacement", () => {
-  const today = () => new Date().toISOString().slice(0, 10);
+  const today = () => {
+    const now = new Date();
+    const pad = (value: number) => String(value).padStart(2, "0");
+
+    // Local components, not an ISO slice: the report ranges over the shop's
+    // own day, and a UTC slice reads as yesterday just after local midnight.
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  };
 
   function incomeFor(vehicleId: number): {
     totalIncome: number;
@@ -1348,5 +1453,147 @@ describe("vehicle income after a replacement", () => {
     // The odd cent follows the larger share rather than being dropped.
     expect(broken).toBe(33.33);
     expect(replacement).toBe(66.67);
+  });
+});
+
+/**
+ * Getting rid of a contract that never happened.
+ *
+ * Two everyday cases: a draft raised by mistake, and a customer who took the
+ * bike, changed his mind half an hour later and paid nothing. Neither is a
+ * record worth keeping, and both otherwise sit in the list forever.
+ */
+describe("cancelling and deleting contracts that took no money", () => {
+  function paymentCount(rentalId: number): number {
+    return countRows("payments", "rental_id = ?", rentalId);
+  }
+
+  it("cancels a draft, which could not be cancelled at all before", () => {
+    const customerId = createTestCustomer();
+    const vehicleId = createTestVehicle();
+    const draft = createDraftRental(buildActivationInput(customerId, vehicleId));
+
+    const cancelled = cancelRental({
+      rentalId: draft.id,
+      reason: "Raised by mistake.",
+    });
+
+    expect(cancelled.status).toBe("cancelled");
+  });
+
+  it("leaves a vehicle alone when the cancelled contract never held it", () => {
+    const customerId = createTestCustomer();
+    const vehicleId = createTestVehicle();
+    // The vehicle is out on a real contract while a draft names it too.
+    const draft = createDraftRental(buildActivationInput(customerId, vehicleId));
+    activateRental(buildActivationInput(customerId, vehicleId));
+
+    cancelRental({ rentalId: draft.id, reason: "Raised by mistake." });
+
+    // Cancelling the draft must not hand back a bike somebody is riding.
+    expect(vehicleStatus(vehicleId)).toBe("rented");
+  });
+
+  it("deletes a cancelled contract that never took a payment", () => {
+    const customerId = createTestCustomer();
+    const vehicleId = createTestVehicle();
+    const rental = activateRental(buildActivationInput(customerId, vehicleId));
+    cancelRental({
+      rentalId: rental.id,
+      reason: "Customer changed his mind half an hour in.",
+    });
+
+    deleteRental({ rentalId: rental.id, reason: "Nothing was ever taken." });
+
+    expect(countRows("rentals", "id = ?", rental.id)).toBe(0);
+    expect(countRows("rental_vehicle_segments", "rental_id = ?", rental.id)).toBe(0);
+    expect(countRows("vehicle_mileage_events", "rental_id = ?", rental.id)).toBe(0);
+    // The bike was already freed by the cancel and stays free.
+    expect(vehicleStatus(vehicleId)).toBe("available");
+  });
+
+  it("keeps a contract that took money, however small", () => {
+    const customerId = createTestCustomer();
+    const vehicleId = createTestVehicle();
+    const rental = activateRental(buildActivationInput(customerId, vehicleId));
+    createPayment({
+      rentalId: rental.id,
+      type: "rent",
+      method: "cash",
+      amount: 25,
+      paymentDate: new Date().toISOString(),
+      notes: null,
+    });
+    cancelRental({ rentalId: rental.id, reason: "Customer changed his mind." });
+
+    expect(paymentCount(rental.id)).toBe(1);
+    expect(() =>
+      deleteRental({ rentalId: rental.id, reason: "Tidying up." }),
+    ).toThrow(/payments recorded/i);
+
+    expect(countRows("rentals", "id = ?", rental.id)).toBe(1);
+  });
+
+  it("refuses to delete a contract that is still open", () => {
+    const customerId = createTestCustomer();
+    const vehicleId = createTestVehicle();
+    const rental = activateRental(buildActivationInput(customerId, vehicleId));
+
+    expect(() =>
+      deleteRental({ rentalId: rental.id, reason: "Tidying up." }),
+    ).toThrow(/cancelled/i);
+
+    expect(countRows("rentals", "id = ?", rental.id)).toBe(1);
+    expect(vehicleStatus(vehicleId)).toBe("rented");
+  });
+
+  it("records what was deleted in the audit log, which keeps it", () => {
+    const customerId = createTestCustomer();
+    const vehicleId = createTestVehicle();
+    const rental = activateRental(buildActivationInput(customerId, vehicleId));
+    cancelRental({ rentalId: rental.id, reason: "Customer changed his mind." });
+
+    deleteRental({ rentalId: rental.id, reason: "Nothing was ever taken." });
+
+    const entry = getSqliteDatabase()
+      .prepare(
+        `select reason, entity_label, before_json from audit_events
+         where action = 'rental.deleted' and entity_id = ?`,
+      )
+      .get(rental.id) as
+      | { reason: string; entity_label: string; before_json: string }
+      | undefined;
+
+    expect(entry?.reason).toBe("Nothing was ever taken.");
+    expect(entry?.entity_label).toBe(rental.contractNo);
+    // The snapshot outlives the contract it describes.
+    expect(JSON.parse(entry?.before_json ?? "{}")).toMatchObject({
+      contractNo: rental.contractNo,
+    });
+  });
+
+  it("deletes a cancelled draft, accessories and collateral with it", () => {
+    const customerId = createTestCustomer();
+    const vehicleId = createTestVehicle();
+    const draft = createDraftRental(
+      buildActivationInput(customerId, vehicleId, {
+        collateralItems: [
+          {
+            type: "passport",
+            description: "Customer passport",
+            referenceNumber: "P12345",
+            estimatedValue: null,
+            currency: null,
+            notes: null,
+          },
+        ],
+      }),
+    );
+    cancelRental({ rentalId: draft.id, reason: "Raised by mistake." });
+
+    deleteRental({ rentalId: draft.id, reason: "Nothing was ever taken." });
+
+    expect(countRows("rentals", "id = ?", draft.id)).toBe(0);
+    expect(countRows("rental_collateral_items", "rental_id = ?", draft.id)).toBe(0);
   });
 });

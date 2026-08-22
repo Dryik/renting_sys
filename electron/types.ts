@@ -33,6 +33,7 @@ import type {
   RentalActivationInput,
   RentalActiveUpdateInput,
   RentalExtendInput,
+  RentalDeleteInput,
   RentalVehicleReplaceInput,
   RentalCancelInput,
   RentalFormOptions,
@@ -195,6 +196,7 @@ export type RentalAppApi = {
       payment: PaymentRecord | null;
     }>;
     cancel: (input: number | RentalCancelInput) => Promise<RentalListRecord>;
+    delete: (input: RentalDeleteInput) => Promise<void>;
     findOpenByPlate: (plateNumber: string) => Promise<RentalListRecord>;
     printContract: (rentalId: number, printToPDF: boolean, language?: "ar" | "en" | "both", firstPageOnly?: boolean) => Promise<PrintDocumentResult>;
   };

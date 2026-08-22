@@ -125,6 +125,7 @@ export function RentalsPage({
   const [returnByPlateError, setReturnByPlateError] = useState<string | null>(null);
   const [isFindingByPlate, setIsFindingByPlate] = useState(false);
   const [rentalToCancel, setRentalToCancel] = useState<RentalListRecord | null>(null);
+  const [rentalToDelete, setRentalToDelete] = useState<RentalListRecord | null>(null);
   const [rentalToActivate, setRentalToActivate] = useState<RentalListRecord | null>(null);
   const [rentalToExtend, setRentalToExtend] = useState<RentalListRecord | null>(null);
   const [rentalToReplaceVehicle, setRentalToReplaceVehicle] =
@@ -219,6 +220,10 @@ export function RentalsPage({
   const extendRental = useBusinessMutation(
     (input: Parameters<typeof rentalAppApi.rentals.extend>[0]) =>
       rentalAppApi.rentals.extend(input),
+  );
+  const deleteRental = useBusinessMutation(
+    (input: Parameters<typeof rentalAppApi.rentals.delete>[0]) =>
+      rentalAppApi.rentals.delete(input),
   );
   const replaceRentalVehicle = useBusinessMutation(
     (input: Parameters<typeof rentalAppApi.rentals.replaceVehicle>[0]) =>
@@ -458,6 +463,28 @@ export function RentalsPage({
     }
   }
 
+  async function handleDeleteRental(
+    rental: RentalListRecord,
+    values: { approvalToken?: string; reason?: string },
+  ) {
+    setIsSaving(true);
+    setActionListError(null);
+
+    try {
+      await deleteRental.mutateAsync({
+        approvalToken: values.approvalToken,
+        rentalId: rental.id,
+        reason: values.reason ?? "",
+      });
+      setPanelState(null);
+    } catch (error) {
+      setActionListError(getErrorMessage(error, t("Rental could not be deleted.")));
+    } finally {
+      setIsSaving(false);
+      setRentalToDelete(null);
+    }
+  }
+
   async function handleCreatePayment(input: PaymentInput) {
     setIsSaving(true);
     setActionPaymentError(null);
@@ -689,6 +716,11 @@ export function RentalsPage({
                 : undefined
             }
             onCancelRental={can("rentals.cancel") ? () => setRentalToCancel(panelState.rental) : undefined}
+            onDeleteRental={
+              can("rentals.cancel")
+                ? () => setRentalToDelete(panelState.rental)
+                : undefined
+            }
             onEditDraft={
               can("rentals.create")
                 ? () => void openEditDraftForm(panelState.rental)
@@ -916,6 +948,25 @@ export function RentalsPage({
         onConfirm={(values) => {
           if (rentalToCancel) {
             void handleCancelRental(rentalToCancel, values);
+          }
+        }}
+      />
+
+      <SensitiveActionDialog
+        action="rentals.cancel"
+        open={Boolean(rentalToDelete)}
+        title={t("Delete rental?")}
+        description={t("Delete rental confirmation")}
+        ownerPinRequired={settings.ownerPinEnabled}
+        reasonLabel={t("Reason")}
+        cancelLabel={t("Keep Rental")}
+        confirmLabel={t("Delete Rental")}
+        variant="destructive"
+        isBusy={isSaving}
+        onCancel={() => setRentalToDelete(null)}
+        onConfirm={(values) => {
+          if (rentalToDelete) {
+            void handleDeleteRental(rentalToDelete, values);
           }
         }}
       />

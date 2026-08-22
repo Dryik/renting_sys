@@ -45,6 +45,7 @@ export const ipcAccessPolicy = {
   "rentals:return": { requiresWriteAccess: true },
   "rentals:return-with-payment": { requiresWriteAccess: true },
   "rentals:cancel": { requiresWriteAccess: true },
+  "rentals:delete": { requiresWriteAccess: true },
   "rentals:find-open-by-plate": { requiresWriteAccess: false },
   "rentals:print-contract": { requiresWriteAccess: false },
   "payments:list": { requiresWriteAccess: false },

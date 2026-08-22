@@ -561,6 +561,16 @@ const ar: Record<string, string> = {
   "Recalculate rent for actual days ({{days}} days)": "إعادة احتساب الإيجار للأيام الفعلية ({{days}} يوم)",
   "Extend Rental": "تمديد العقد",
   "Replace Vehicle": "استبدال المركبة",
+  "Delete Rental": "حذف العقد",
+  "Delete rental?": "حذف العقد؟",
+  "Delete rental confirmation":
+    "سيُحذف هذا العقد نهائيًا. هذا متاح فقط للعقود الملغاة التي لم تُسجل عليها أي دفعة.",
+  "Rental could not be deleted.": "تعذر حذف العقد.",
+  "Only a cancelled rental can be deleted.": "لا يمكن حذف إلا عقد ملغى.",
+  "Only draft, active or overdue rentals can be cancelled.":
+    "يمكن إلغاء العقود المسودة أو النشطة أو المتأخرة فقط.",
+  "This rental has payments recorded and cannot be deleted. Cancelled rentals with payments are kept.":
+    "توجد دفعات مسجلة على هذا العقد ولا يمكن حذفه. تُحفظ العقود الملغاة التي عليها دفعات.",
   "Give the customer a different vehicle. The contract stays open under the same number.":
     "تسليم العميل مركبة أخرى مع بقاء العقد مفتوحًا بنفس الرقم.",
   "Current Vehicle": "المركبة الحالية",
@@ -1329,6 +1339,7 @@ const ar: Record<string, string> = {
   "rental.updated": "تحديث عقد",
   "rental.returned": "إرجاع مركبة",
   "rental.cancelled": "إلغاء عقد",
+  "rental.deleted": "حذف عقد",
   "rental.vehicle.replaced": "استبدال مركبة العقد",
   "payment.created": "تسجيل دفعة",
   "payment.refunded": "تسجيل استرجاع",

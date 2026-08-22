@@ -231,25 +231,25 @@ function logPrintEvent(
   outcome: string,
   reason?: string,
 ): void {
-  const entry = {
-    timestamp: new Date().toISOString(),
-    documentType,
-    outcome,
-    reason,
-    appVersion: app.getVersion(),
-    electronVersion: process.versions.electron,
-    os: `${process.platform} ${os.release()}`,
-    packaged: app.isPackaged,
-    pageSize: "A4",
-  };
-  const line = JSON.stringify(entry);
-  console.info("Print event:", line);
   try {
+    const entry = {
+      timestamp: new Date().toISOString(),
+      documentType,
+      outcome,
+      reason,
+      appVersion: app.getVersion(),
+      electronVersion: process.versions.electron,
+      os: `${process.platform} ${os.release()}`,
+      packaged: app.isPackaged,
+      pageSize: "A4",
+    };
+    const line = JSON.stringify(entry);
     const logsDirectory = app.getPath("logs");
     fs.mkdirSync(logsDirectory, { recursive: true });
     fs.appendFileSync(path.join(logsDirectory, "printing.jsonl"), `${line}\n`, "utf8");
-  } catch (error) {
-    console.error("Failed to write print diagnostics:", error);
+  } catch {
+    // Diagnostics must never interrupt a completed contract action or print.
+    // In particular, development launches can outlive their stdout pipe.
   }
 }
 

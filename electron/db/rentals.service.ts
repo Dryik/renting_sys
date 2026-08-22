@@ -31,6 +31,7 @@ import {
   type RentalInitialBalanceMinor,
   type RentalListSummary,
   type RentalQueue,
+  type RentalDeleteInput,
   type RentalReturnInput,
   type RentalReturnWithPaymentInput,
   type RentalVehicleReplaceInput,
@@ -40,6 +41,7 @@ import {
   rentalActiveUpdateInputSchema,
   rentalExtendInputSchema,
   rentalCancelInputSchema,
+  rentalDeleteInputSchema,
   rentalReturnInputSchema,
   rentalReturnWithPaymentInputSchema,
   rentalVehicleReplaceInputSchema,
@@ -1838,9 +1840,18 @@ export function cancelRental(input: unknown): RentalListRecord {
         throw new Error("Rental was not found.");
       }
 
-      if (rental.status !== "active" && rental.status !== "overdue") {
-        throw new Error("Only active or overdue rentals can be cancelled.");
+      // A draft cancels too. Nothing has happened on it, which is exactly why
+      // staff want it out of the way.
+      if (
+        rental.status !== "active" &&
+        rental.status !== "overdue" &&
+        rental.status !== "draft"
+      ) {
+        throw new Error("Only draft, active or overdue rentals can be cancelled.");
       }
+
+      const wasHoldingVehicle =
+        rental.status === "active" || rental.status === "overdue";
 
       tx.update(rentals)
         .set({
@@ -1857,13 +1868,23 @@ export function cancelRental(input: unknown): RentalListRecord {
         .where(eq(rentals.id, rentalId))
         .run();
 
-      tx.update(vehicles)
-        .set({
-          status: "available",
-          updatedAt: now,
-        })
-        .where(eq(vehicles.id, rental.vehicleId))
-        .run();
+      // The contract stops being out on a vehicle when it is cancelled, the
+      // same as when it is returned. An open period would leave the history
+      // claiming the bike is still on hire.
+      closeOpenRentalSegment(tx, rental.id, now, null, null, now);
+
+      // Only when this contract was the one holding it. A draft never marked
+      // the vehicle rented, and freeing it here would release a bike that is
+      // out on somebody else's contract.
+      if (wasHoldingVehicle) {
+        tx.update(vehicles)
+          .set({
+            status: "available",
+            updatedAt: now,
+          })
+          .where(eq(vehicles.id, rental.vehicleId))
+          .run();
+      }
 
       recordAppEvent(tx, {
         eventType: "rental_cancelled",
@@ -1895,6 +1916,101 @@ export function cancelRental(input: unknown): RentalListRecord {
     }
 
     return rental;
+  } catch (error) {
+    throw normalizeRentalServiceError(error);
+  }
+}
+
+/**
+ * Removes a cancelled contract that never took any money.
+ *
+ * The two guards are the whole rule. The contract must already be cancelled,
+ * so nothing is deleted out from under a customer who still has a bike; and it
+ * must have no payment against it at all, so nothing that touched the till can
+ * ever be removed. A contract failing either is kept, cancelled, as before.
+ *
+ * The audit entry is written before the row goes, carrying a snapshot of it.
+ * The log is append-only, so what was deleted, by whom and why survives even
+ * though the contract does not.
+ */
+export function deleteRental(input: unknown): void {
+  requirePermissionForCurrentSession("rentals.cancel");
+  const values: RentalDeleteInput = rentalDeleteInputSchema.parse(input);
+  requireSensitiveApproval("rentals.cancel", values.approvalToken);
+
+  try {
+    getDatabase().transaction((tx) => {
+      const rental = tx
+        .select()
+        .from(rentals)
+        .where(eq(rentals.id, values.rentalId))
+        .get();
+
+      if (!rental) {
+        throw new Error("Rental was not found.");
+      }
+
+      if (rental.status !== "cancelled") {
+        throw new Error("Only a cancelled rental can be deleted.");
+      }
+
+      // Every payment row, whatever its status. A voided payment still means
+      // money was taken and given back, which is exactly the history this
+      // refuses to erase.
+      const paymentCount = tx
+        .select({ value: count() })
+        .from(payments)
+        .where(eq(payments.rentalId, rental.id))
+        .get();
+
+      if ((paymentCount?.value ?? 0) > 0) {
+        throw new Error(
+          "This rental has payments recorded and cannot be deleted. Cancelled rentals with payments are kept.",
+        );
+      }
+
+      // The snapshot goes into the append-only log before anything is removed,
+      // so a deleted contract is still accounted for.
+      logAuditEvent(tx, {
+        action: "rental.deleted",
+        entityType: "rental",
+        entityId: rental.id,
+        entityLabel: rental.contractNo,
+        summaryAr: `تم حذف العقد ${rental.contractNo}`,
+        summaryEn: `Rental contract ${rental.contractNo} was deleted.`,
+        before: rental,
+        metadata: {
+          vehicleId: rental.vehicleId,
+          customerId: rental.customerId,
+          contractNo: rental.contractNo,
+        },
+        reason: values.reason,
+      });
+      recordAppEvent(tx, {
+        eventType: "rental_deleted",
+        entityType: "rental",
+        entityId: rental.id,
+        severity: "warning",
+        message: "Rental was deleted.",
+        details: { contractNo: rental.contractNo, reason: values.reason },
+      });
+
+      // The children first: SQLite has foreign keys on, so the contract row
+      // cannot go while anything still points at it.
+      tx.delete(rentalVehicleSegments)
+        .where(eq(rentalVehicleSegments.rentalId, rental.id))
+        .run();
+      tx.delete(rentalAccessories)
+        .where(eq(rentalAccessories.rentalId, rental.id))
+        .run();
+      tx.delete(rentalCollateralItems)
+        .where(eq(rentalCollateralItems.rentalId, rental.id))
+        .run();
+      tx.delete(vehicleMileageEvents)
+        .where(eq(vehicleMileageEvents.rentalId, rental.id))
+        .run();
+      tx.delete(rentals).where(eq(rentals.id, rental.id)).run();
+    });
   } catch (error) {
     throw normalizeRentalServiceError(error);
   }

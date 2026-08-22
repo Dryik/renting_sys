@@ -47,6 +47,7 @@ import {
   listRentals,
   returnRental,
   returnRentalWithPayment,
+  deleteRental,
   replaceRentalVehicle,
   updateActiveRental,
   updateDraftRental,
@@ -719,6 +720,9 @@ app.whenReady().then(() => {
   );
   handle("rentals:cancel", (_event, input: unknown) =>
     (guard("rentals.cancel"), cancelRental(input)),
+  );
+  handle("rentals:delete", (_event, input: unknown) =>
+    (guard("rentals.cancel"), deleteRental(input)),
   );
   handle("rentals:find-open-by-plate", (_event, plateNumber: unknown) =>
     (guard("rentals.return"), findOpenRentalByPlate(plateNumber)),

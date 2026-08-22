@@ -8,6 +8,7 @@ import {
   Pencil,
 } from "lucide-react";
 import { useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
 import { useModalBehavior } from "@/hooks/useModalBehavior";
@@ -59,7 +60,7 @@ export function ActivateDraftDialog({
   // Check if start datetime is scheduled for a future date (more than 1 day ahead)
   const isStartDateInFuture = startTime > mountTimestamp + 24 * 60 * 60 * 1000;
 
-  return (
+  const dialog = (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 px-4 backdrop-blur-[1px]"
       data-motion="overlay"
@@ -215,4 +216,10 @@ export function ActivateDraftDialog({
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") {
+    return dialog;
+  }
+
+  return createPortal(dialog, document.body);
 }

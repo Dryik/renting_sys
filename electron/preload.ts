@@ -72,6 +72,7 @@ const api: RentalAppApi = {
     return: (input) => ipcRenderer.invoke("rentals:return", input),
     returnWithPayment: (input) => ipcRenderer.invoke("rentals:return-with-payment", input),
     cancel: (rentalId) => ipcRenderer.invoke("rentals:cancel", rentalId),
+    delete: (input) => ipcRenderer.invoke("rentals:delete", input),
     findOpenByPlate: (plateNumber) => ipcRenderer.invoke("rentals:find-open-by-plate", plateNumber),
     printContract: (rentalId, printToPDF, language, firstPageOnly) =>
       ipcRenderer.invoke("rentals:print-contract", rentalId, printToPDF, language, firstPageOnly),

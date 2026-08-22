@@ -642,6 +642,23 @@ export const rentalCancelInputSchema = z.object({
 
 export type RentalCancelInput = z.infer<typeof rentalCancelInputSchema>;
 
+/**
+ * Removing a cancelled contract that never took any money.
+ *
+ * The everyday case is a mistake: a contract raised in error, or one the
+ * customer walked away from before paying anything. Nothing financial ever
+ * happened, so there is no history worth keeping and the shop would rather not
+ * scroll past it forever. A contract that took so much as one payment is not
+ * eligible — that is a record, and records are kept.
+ */
+export const rentalDeleteInputSchema = z.object({
+  rentalId: z.number().int().positive("Rental is required."),
+  reason: z.string().trim().min(1, "Reason is required.").max(500),
+  approvalToken: approvalTokenSchema.optional(),
+});
+
+export type RentalDeleteInput = z.infer<typeof rentalDeleteInputSchema>;
+
 export const rentalReturnWithPaymentInputSchema = z.object({
   returnInput: rentalReturnInputSchema,
   paymentInput: paymentInputSchema.nullable(),
