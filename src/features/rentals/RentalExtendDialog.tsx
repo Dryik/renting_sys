@@ -23,6 +23,7 @@ import {
   type RentalExtendFormInput,
   type RentalExtendFormValues,
   type RentalExtendInput,
+  toRentSegmentPeriods,
   type RentalListRecord,
 } from "@/shared/rentals";
 
@@ -102,6 +103,14 @@ export function RentalExtendDialog({
   // The contract's own rate: extending moves the date, it does not reprice.
   const dailyPriceNum = rental?.dailyPrice ?? 0;
 
+  // Present only after a mid-contract replacement. Without it the preview
+  // would price every day at the current vehicle's rate and disagree with the
+  // total the service goes on to write.
+  const segments = useMemo(
+    () => toRentSegmentPeriods(rental?.vehicleSegments),
+    [rental],
+  );
+
   const summary = useMemo(() => {
     if (!rental || !newReturnDate) {
       return null;
@@ -112,10 +121,11 @@ export function RentalExtendDialog({
       currentExpectedReturnDatetime: rental.expectedReturnDatetime,
       newExpectedReturnDatetime: newReturnDate,
       dailyPrice: dailyPriceNum,
+      segments,
       accessoryCharges: rental.accessoryCharges,
       paidAmount: rental.paidAmount,
     });
-  }, [rental, newReturnDate, dailyPriceNum]);
+  }, [rental, newReturnDate, dailyPriceNum, segments]);
 
   function handleQuickAddDays(days: number) {
     if (!rental) return;
@@ -136,6 +146,7 @@ export function RentalExtendDialog({
       currentExpectedReturnDatetime: rental.expectedReturnDatetime,
       newExpectedReturnDatetime: updatedDateStr,
       dailyPrice: dailyPriceNum,
+      segments,
       accessoryCharges: rental.accessoryCharges,
       paidAmount: rental.paidAmount,
     });

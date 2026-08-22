@@ -338,18 +338,18 @@ async function main() {
     const after = readManifest(databasePath, uploadsPath, expectedMoneyPairs);
     report.after = after;
 
-    check("the database is at schema version 12", after.schemaVersion, 12);
+    check("the database is at schema version 13", after.schemaVersion, 13);
     check("integrity_check reports ok", after.integrity.integrityCheck, ["ok"]);
     check("foreign_key_check returns no rows", after.integrity.foreignKeyViolations, []);
     check(
-      "all 29 minor-unit columns exist, exactly the expected ones",
+      "all 30 minor-unit columns exist, exactly the expected ones",
       after.minorColumns.slice().sort(),
       expectedMoneyPairs
         .map((pair) => `${pair.table}.${pair.minorColumn}`)
         .sort(),
     );
     check(
-      "all 58 mirror triggers exist, exactly the expected ones",
+      "all 60 mirror triggers exist, exactly the expected ones",
       after.mirrorTriggers.slice().sort(),
       expectedTriggerNameList.slice().sort(),
     );
@@ -533,7 +533,7 @@ function compareUploads(before, after) {
 }
 
 /**
- * The exhaustive money proof, over all 29 pairs and every row in them.
+ * The exhaustive money proof, over all 30 pairs and every row in them.
  *
  * Three separate claims, because they fail for different reasons:
  *

@@ -11,6 +11,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { formatMoney } from "@/shared/money";
 import {
   calculateReturnSummary,
+  toRentSegmentPeriods,
   formatCollateralType,
   getDefaultRentalReturnFormValues,
   type RentalListRecord,
@@ -90,6 +91,9 @@ export function RentalReturnForm({
     expectedReturnDatetime: rental.expectedReturnDatetime,
     actualReturnDatetime,
     dailyPrice: rental.dailyPrice,
+    // Present only after a mid-contract replacement, so an early return is
+    // previewed at the rates the customer actually rode on.
+    segments: toRentSegmentPeriods(rental.vehicleSegments),
     accessoryCharges: rental.accessoryCharges,
     recalculateForActualDays: Boolean(recalculateForActualDays),
     baseTotalAmount: rental.totalAmount,

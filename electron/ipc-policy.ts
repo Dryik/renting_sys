@@ -41,6 +41,7 @@ export const ipcAccessPolicy = {
   "rentals:activate-draft": { requiresWriteAccess: true },
   "rentals:update-active": { requiresWriteAccess: true },
   "rentals:extend": { requiresWriteAccess: true },
+  "rentals:replace-vehicle": { requiresWriteAccess: true },
   "rentals:return": { requiresWriteAccess: true },
   "rentals:return-with-payment": { requiresWriteAccess: true },
   "rentals:cancel": { requiresWriteAccess: true },

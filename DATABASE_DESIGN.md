@@ -1,10 +1,11 @@
 # Database Design
 
 SQLite through Drizzle ORM, in the Electron `userData` directory. WAL mode,
-foreign keys on. **Schema version 12** as of v0.4.0.
+foreign keys on. **Schema version 13**; 12 was the last version shipped in
+v0.4.0.
 
 > An earlier version of this document listed six tables for a much smaller
-> product. There are 26 today. It was rewritten at v0.4.0. The authoritative
+> product. There are 27 today. It was rewritten at v0.4.0. The authoritative
 > definition is [`electron/db/schema.ts`](electron/db/schema.ts); if this file
 > disagrees with it, the schema wins.
 
@@ -21,7 +22,8 @@ foreign keys on. **Schema version 12** as of v0.4.0.
 ## Tables
 
 **Rental core** — `vehicles`, `customers`, `rentals`, `payments`,
-`rental_accessories`, `rental_collateral_items`, `accessories`
+`rental_accessories`, `rental_collateral_items`, `rental_vehicle_segments`,
+`accessories`
 
 **Fleet upkeep** — `maintenance_records`, `maintenance_reminders`,
 `vehicle_mileage_events`, `vehicle_sales`
@@ -41,9 +43,14 @@ This is the single most important invariant in the database, and the easiest to
 break by accident.
 
 Every monetary column exists as a **pair**: the original `REAL` column and an
-integer `_minor` column beside it. There are **29 pairs** and **58 triggers**
+integer `_minor` column beside it. There are **30 pairs** and **60 triggers**
 (an insert and an update check for each), and both counts are asserted by the
 test suite and by the upgrade rehearsal.
+
+Each pair records the schema version that introduced it. Migration 12 converted
+everything that existed then and must keep converting exactly that set — it
+cannot add a column to a table version 13 introduces — so it asks
+`moneyColumnPairsUpTo(12)` rather than reading the registry as it stands today.
 
 Rules:
 

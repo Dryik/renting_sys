@@ -69,6 +69,15 @@ A vehicle cannot be rented if its status is not available.
 
 A vehicle cannot have two active rentals at the same time.
 
+A contract's vehicle can be replaced mid-hire without ending the contract —
+the everyday breakdown. `rental_vehicle_segments` holds one row per vehicle the
+contract ran on, each keeping the rate agreed for its own days, and the rent is
+the sum over them. **A replacement never changes how many days the contract
+bills**; it only moves days between vehicles, so a bike that fails an hour into
+a hire costs the customer nothing and the shop does not charge a day for its
+own breakdown. The row with no end recorded is the vehicle the customer holds,
+and always agrees with `rentals.vehicle_id`.
+
 When a rental becomes active, the vehicle status becomes rented.
 
 When a rental is returned, the vehicle status becomes available unless the user marks it for maintenance.
@@ -222,14 +231,17 @@ sandboxed preload/IPC → permission-guarded services in `electron/db/*.service.
 components must never touch SQLite or `ipcRenderer` directly.
 
 **Money is stored as integer minor units.** Every monetary column is a pair: the
-original `REAL` column and an integer `_minor` column beside it — 29 pairs and
-58 database triggers, both asserted by tests. Conversion is half away from zero
+original `REAL` column and an integer `_minor` column beside it — 30 pairs and
+60 database triggers, both asserted by tests. A pair records the schema version
+that introduced it, because a migration must keep describing the database as it
+was when it ran; `moneyColumnPairsUpTo` hands each one the inventory of its own
+moment. Conversion is half away from zero
 (`src/shared/money.ts`). Migration 12 deliberately leaves historical `REAL`
 values alone, so `legacy === minor / 100` is **false** for old rows and must
 never be asserted. Details in `DATABASE_DESIGN.md`.
 
 **Migrations write a verified safety backup first** and refuse to run if it
-cannot be written. Schema version is 12.
+cannot be written. Schema version is 13.
 
 **The audit log is append-only.** Rows may be added; existing rows must survive
 every upgrade.

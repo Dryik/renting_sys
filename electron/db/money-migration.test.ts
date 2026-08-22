@@ -805,7 +805,7 @@ describe("schema drift", { timeout: DB_INTEGRATION_TEST_TIMEOUT_MS }, () => {
       );
 
       expect(triggerDefinitions(upgraded)).toEqual(triggerDefinitions(fresh));
-      expect(triggerDefinitions(fresh)).toHaveLength(58);
+      expect(triggerDefinitions(fresh)).toHaveLength(60);
     } finally {
       upgraded.close();
       fresh.close();

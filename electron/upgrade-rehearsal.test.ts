@@ -234,18 +234,18 @@ describe("the rehearsal's restatement of the money column inventory", () => {
     expect(rehearsal).toEqual(production);
   });
 
-  it("counts 29 pairs", () => {
-    expect(expectedMoneyPairs).toHaveLength(29);
-    expect(moneyColumnPairs).toHaveLength(29);
+  it("counts 30 pairs", () => {
+    expect(expectedMoneyPairs).toHaveLength(30);
+    expect(moneyColumnPairs).toHaveLength(30);
   });
 
-  it("expects exactly the 58 trigger names production generates", () => {
+  it("expects exactly the 60 trigger names production generates", () => {
     const production = moneyColumnPairs
       .flatMap((pair) => [triggerName(pair, "insert"), triggerName(pair, "update")])
       .sort();
 
     expect(expectedTriggerNameList.slice().sort()).toEqual(production);
-    expect(expectedTriggerNameList).toHaveLength(58);
+    expect(expectedTriggerNameList).toHaveLength(60);
   });
 });
 

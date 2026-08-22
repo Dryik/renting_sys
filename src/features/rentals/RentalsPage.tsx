@@ -37,6 +37,7 @@ import { ActivateDraftDialog } from "./ActivateDraftDialog";
 import { FinalPaymentDialog } from "./FinalPaymentDialog";
 import { RentalDetailPanel } from "./RentalDetailPanel";
 import { RentalExtendDialog } from "./RentalExtendDialog";
+import { ReplaceVehicleDialog } from "./ReplaceVehicleDialog";
 import { ReturnByPlateDialog } from "./ReturnByPlateDialog";
 import {
   canOperateRental,
@@ -126,6 +127,8 @@ export function RentalsPage({
   const [rentalToCancel, setRentalToCancel] = useState<RentalListRecord | null>(null);
   const [rentalToActivate, setRentalToActivate] = useState<RentalListRecord | null>(null);
   const [rentalToExtend, setRentalToExtend] = useState<RentalListRecord | null>(null);
+  const [rentalToReplaceVehicle, setRentalToReplaceVehicle] =
+    useState<RentalListRecord | null>(null);
   const [paymentToVoid, setPaymentToVoid] = useState<PendingVoidPayment>(null);
   const handledWorkflowRequestKey = useRef<string | number | null>(null);
 
@@ -216,6 +219,10 @@ export function RentalsPage({
   const extendRental = useBusinessMutation(
     (input: Parameters<typeof rentalAppApi.rentals.extend>[0]) =>
       rentalAppApi.rentals.extend(input),
+  );
+  const replaceRentalVehicle = useBusinessMutation(
+    (input: Parameters<typeof rentalAppApi.rentals.replaceVehicle>[0]) =>
+      rentalAppApi.rentals.replaceVehicle(input),
   );
   const createPayment = useBusinessMutation((input: PaymentInput) =>
     rentalAppApi.payments.create(input),
@@ -692,6 +699,16 @@ export function RentalsPage({
                 ? () => setRentalToExtend(panelState.rental)
                 : undefined
             }
+            onReplaceVehicle={
+              can("rentals.editActive")
+                ? () => {
+                    // The picker needs the available-vehicle list, which is
+                    // fetched only once a form asks for it.
+                    setNeedsFormOptions(true);
+                    setRentalToReplaceVehicle(panelState.rental);
+                  }
+                : undefined
+            }
             onPrintContract={(printToPDF) =>
               void handlePrintContract(panelState.rental.id, printToPDF)
             }
@@ -1004,6 +1021,44 @@ export function RentalsPage({
         open={Boolean(rentalToExtend)}
         rental={rentalToExtend}
         t={t}
+      />
+
+      <ReplaceVehicleDialog
+        formatCurrency={formatCurrency}
+        formatDateTime={formatDateTime}
+        isBusy={replaceRentalVehicle.isPending}
+        onCancel={() => setRentalToReplaceVehicle(null)}
+        onConfirm={async (input, printContract) => {
+          setActionListError(null);
+          try {
+            const updated = await replaceRentalVehicle.mutateAsync(input);
+            setRentalToReplaceVehicle(null);
+            if (
+              panelState?.mode === "detail" &&
+              panelState.rental.id === input.rentalId
+            ) {
+              setPanelState({ mode: "detail", rental: updated });
+              setPanelNotice(t("Vehicle replaced successfully"));
+            }
+            if (printContract) {
+              try {
+                await rentalAppApi.rentals.printContract(updated.id, false);
+              } catch (error) {
+                console.error("Failed to print updated contract:", error);
+              }
+            }
+            return true;
+          } catch (error) {
+            setActionListError(
+              getErrorMessage(error, t("The vehicle could not be replaced.")),
+            );
+            return false;
+          }
+        }}
+        open={Boolean(rentalToReplaceVehicle)}
+        rental={rentalToReplaceVehicle}
+        t={t}
+        vehicles={options.vehicles}
       />
 
       <ConfirmDialog

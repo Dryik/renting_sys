@@ -13,8 +13,11 @@ import {
   calculateRentalDays,
   calculateReturnSummaryMinor,
   calculateRentalSummaryMinor,
+  calculateSegmentedRentMinor,
+  calculateSegmentedRentalSummaryMinor,
   getOpenRentalStatusForExpectedReturn,
   normalizeToCalendarDate,
+  shiftRentalWindowToActualHandover,
   validateMileageProgression,
   type RentalActivationInput,
   type RentalActiveUpdateInput,
@@ -30,18 +33,23 @@ import {
   type RentalQueue,
   type RentalReturnInput,
   type RentalReturnWithPaymentInput,
+  type RentalVehicleReplaceInput,
+  type RentalVehicleSegmentRecord,
+  type RentSegmentPeriod,
   rentalActivationInputSchema,
   rentalActiveUpdateInputSchema,
   rentalExtendInputSchema,
   rentalCancelInputSchema,
   rentalReturnInputSchema,
   rentalReturnWithPaymentInputSchema,
+  rentalVehicleReplaceInputSchema,
 } from "../../src/shared/rentals";
 import { paymentInputSchema, type PaymentRecord } from "../../src/shared/payments";
 import {
   MONEY_MINOR_ZERO,
   fromMinorUnits,
   fromMinorUnitsOrNull,
+  multiplyMoney,
   subtractMoney,
   toMinorUnits,
   toMinorUnitsOrNull,
@@ -62,6 +70,7 @@ import {
   payments,
   rentalAccessories,
   rentalCollateralItems,
+  rentalVehicleSegments,
   rentals,
   users,
   vehicleMileageEvents,
@@ -174,6 +183,135 @@ function toRentalListRecord(row: RentalListRow): RentalListRecord {
 
 function rentalMoney(value: number, column: string): number {
   return fromMinorUnits(columnToMinor(value, `rentals.${column}`));
+}
+
+/**
+ * The vehicles a contract ran on, oldest first, ready to price with.
+ *
+ * Every contract has at least one: created with the rental, and backfilled by
+ * migration 13 for everything that predates replacement. An empty history
+ * means the row was written by something that bypassed this module, and
+ * pricing it would silently bill zero, so it fails instead.
+ */
+function loadRentalSegments(tx: RentalTx, rentalId: number): RentSegmentPeriod[] {
+  const rows = tx
+    .select({
+      startDatetime: rentalVehicleSegments.startDatetime,
+      endDatetime: rentalVehicleSegments.endDatetime,
+      dailyPriceMinor: rentalVehicleSegments.dailyPriceMinor,
+    })
+    .from(rentalVehicleSegments)
+    .where(eq(rentalVehicleSegments.rentalId, rentalId))
+    .orderBy(asc(rentalVehicleSegments.sequence))
+    .all();
+
+  if (rows.length === 0) {
+    throw new Error("This contract has no vehicle history recorded.");
+  }
+
+  return rows.map((row) => ({
+    startDatetime: row.startDatetime,
+    endDatetime: row.endDatetime,
+    dailyPriceMinor: columnToMinor(
+      row.dailyPriceMinor,
+      "rental_vehicle_segments.daily_price_minor",
+    ),
+  }));
+}
+
+/** The period the contract is currently on — the one with no end recorded. */
+function getOpenRentalSegment(tx: RentalTx, rentalId: number) {
+  return tx
+    .select()
+    .from(rentalVehicleSegments)
+    .where(
+      and(
+        eq(rentalVehicleSegments.rentalId, rentalId),
+        isNull(rentalVehicleSegments.endDatetime),
+      ),
+    )
+    .get();
+}
+
+type NewRentalSegment = {
+  rentalId: number;
+  vehicleId: number;
+  sequence: number;
+  startDatetime: string;
+  dailyPriceMinor: MoneyMinor;
+  mileageOut: number | null;
+  fuelOut: string | null;
+  reason: string | null;
+  actorId: number | null;
+  now: string;
+};
+
+function insertRentalSegment(tx: RentalTx, segment: NewRentalSegment): void {
+  tx.insert(rentalVehicleSegments)
+    .values({
+      rentalId: segment.rentalId,
+      vehicleId: segment.vehicleId,
+      sequence: segment.sequence,
+      startDatetime: segment.startDatetime,
+      endDatetime: null,
+      ...moneyColumns("dailyPrice", segment.dailyPriceMinor),
+      mileageOut: segment.mileageOut,
+      mileageIn: null,
+      fuelOut: segment.fuelOut,
+      fuelIn: null,
+      reason: segment.reason,
+      createdByUserId: segment.actorId,
+      createdAt: segment.now,
+      updatedAt: segment.now,
+    })
+    .run();
+}
+
+/** Closes the open period, which is what ending or replacing a vehicle does. */
+function closeOpenRentalSegment(
+  tx: RentalTx,
+  rentalId: number,
+  closedAt: string,
+  mileageIn: number | null,
+  fuelIn: string | null,
+  now: string,
+): void {
+  const open = getOpenRentalSegment(tx, rentalId);
+
+  if (!open) {
+    throw new Error("This contract has no vehicle history recorded.");
+  }
+
+  tx.update(rentalVehicleSegments)
+    .set({
+      // Never before its own start: a period of negative length would take
+      // days off the vehicles around it.
+      endDatetime:
+        new Date(closedAt).getTime() < new Date(open.startDatetime).getTime()
+          ? open.startDatetime
+          : closedAt,
+      mileageIn,
+      fuelIn,
+      updatedAt: now,
+    })
+    .where(eq(rentalVehicleSegments.id, open.id))
+    .run();
+}
+
+/** A contract's total: every vehicle's days at its own rate, plus accessories. */
+function calculateSegmentedTotalMinor(
+  tx: RentalTx,
+  rentalId: number,
+  startDatetime: string,
+  endDatetime: string,
+  accessoryChargesMinor: MoneyMinor,
+): MoneyMinor {
+  return calculateSegmentedRentalSummaryMinor(
+    startDatetime,
+    endDatetime,
+    loadRentalSegments(tx, rentalId),
+    accessoryChargesMinor,
+  ).totalAmountMinor;
 }
 
 function assertVehicleHasNoPostedSale(tx: RentalTx, vehicleId: number): void {
@@ -449,6 +587,21 @@ export function activateRental(input: unknown): RentalListRecord {
 
       insertRentalAccessories(tx, insertedRental.id, values.accessories, now);
       insertRentalCollateralItems(tx, insertedRental.id, values.collateralItems, now);
+      // The contract's first — and, unless a vehicle is replaced, only —
+      // vehicle period. Written for every rental so nothing downstream has to
+      // ask whether a contract has a history.
+      insertRentalSegment(tx, {
+        rentalId: insertedRental.id,
+        vehicleId: values.vehicleId,
+        sequence: 1,
+        startDatetime: values.startDatetime,
+        dailyPriceMinor: toMinorUnits(values.dailyPrice, "Daily price"),
+        mileageOut: values.mileageOut,
+        fuelOut: values.fuelOut,
+        reason: null,
+        actorId: actor?.id ?? null,
+        now,
+      });
 
       if (values.depositPaid > 0) {
         const receiptNo = getNextSequenceValue(tx, "receipt", "RCP");
@@ -619,6 +772,21 @@ export function createDraftRental(input: unknown): RentalListRecord {
 
       insertRentalAccessories(tx, insertedRental.id, values.accessories, now);
       insertRentalCollateralItems(tx, insertedRental.id, values.collateralItems, now);
+      // The contract's first — and, unless a vehicle is replaced, only —
+      // vehicle period. Written for every rental so nothing downstream has to
+      // ask whether a contract has a history.
+      insertRentalSegment(tx, {
+        rentalId: insertedRental.id,
+        vehicleId: values.vehicleId,
+        sequence: 1,
+        startDatetime: values.startDatetime,
+        dailyPriceMinor: toMinorUnits(values.dailyPrice, "Daily price"),
+        mileageOut: values.mileageOut,
+        fuelOut: values.fuelOut,
+        reason: null,
+        actorId: actor?.id ?? null,
+        now,
+      });
 
       recordAppEvent(tx, {
         eventType: "rental_draft_created",
@@ -718,6 +886,19 @@ export function updateDraftRental(id: unknown, input: unknown): RentalListRecord
 
       replaceRentalAccessories(tx, rentalId, values.accessories, now);
       replaceRentalCollateralItems(tx, rentalId, values.collateralItems, now);
+      // A draft has one open period and no history worth keeping, so it is
+      // updated in place rather than closed and reopened.
+      tx.update(rentalVehicleSegments)
+        .set({
+          vehicleId: values.vehicleId,
+          startDatetime: values.startDatetime,
+          ...moneyColumns("dailyPrice", toMinorUnits(values.dailyPrice, "Daily price")),
+          mileageOut: values.mileageOut,
+          fuelOut: values.fuelOut,
+          updatedAt: now,
+        })
+        .where(eq(rentalVehicleSegments.rentalId, rentalId))
+        .run();
 
       recordAppEvent(tx, {
         eventType: "rental_draft_updated",
@@ -931,10 +1112,27 @@ export function updateActiveRental(input: unknown): RentalListRecord {
         throw new Error("Expected return must be after the start date and time.");
       }
 
-      const { totalAmountMinor } = calculateRentalSummaryMinor(
+      // Editing "the daily price" changes the rate of the vehicle the contract
+      // is on now, which is the open period. Days already ridden on a vehicle
+      // that has since been replaced keep the rate they were agreed at.
+      tx.update(rentalVehicleSegments)
+        .set({
+          ...moneyColumns("dailyPrice", toMinorUnits(values.dailyPrice, "Daily price")),
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(rentalVehicleSegments.rentalId, values.rentalId),
+            isNull(rentalVehicleSegments.endDatetime),
+          ),
+        )
+        .run();
+
+      const totalAmountMinor = calculateSegmentedTotalMinor(
+        tx,
+        values.rentalId,
         rental.startDatetime,
         values.expectedReturnDatetime,
-        toMinorUnits(values.dailyPrice, "Daily price"),
         columnToMinor(
           rental.accessoryChargesMinor,
           "rentals.accessory_charges_minor",
@@ -1062,18 +1260,15 @@ export function extendRental(input: unknown): {
         );
       }
 
-      // The contract's own rate, always. The total is recalculated over the
+      // The contract's own rates, always. The total is recalculated over the
       // whole period, so accepting a rate here would reprice days already paid
-      // for at the agreed one.
-      const effectiveDailyPriceMinor = columnToMinor(
-        rental.dailyPriceMinor,
-        "rentals.daily_price_minor",
-      );
-
-      const { totalAmountMinor } = calculateRentalSummaryMinor(
+      // for at the agreed one. The added days fall inside the open period, so
+      // they are charged at the rate of the vehicle the customer now holds.
+      const totalAmountMinor = calculateSegmentedTotalMinor(
+        tx,
+        rental.id,
         rental.startDatetime,
         values.newExpectedReturnDatetime,
-        effectiveDailyPriceMinor,
         columnToMinor(
           rental.accessoryChargesMinor,
           "rentals.accessory_charges_minor",
@@ -1190,6 +1385,433 @@ export function extendRental(input: unknown): {
       rental: updatedRental,
       payment: result.paymentId ? getPaymentById(result.paymentId) ?? null : null,
     };
+  } catch (error) {
+    throw normalizeRentalServiceError(error);
+  }
+}
+
+/**
+ * Moves an open contract onto a different vehicle.
+ *
+ * The contract keeps its number, its customer, its deposit, its collateral and
+ * its accessories; only the vehicle changes, from the moment of the swap. The
+ * days already ridden stay priced at the rate they were agreed at, and the
+ * replacement's rate applies from the swap day on — which is why the rate is
+ * stored per period rather than once on the contract.
+ *
+ * The outgoing vehicle goes wherever the counter says: back on the yard, or
+ * into maintenance with a record opened for it. Maintenance is the reason this
+ * exists — a rented vehicle cannot otherwise be marked for maintenance, so
+ * before this a broken bike could only be recorded by ending the contract.
+ */
+export function replaceRentalVehicle(input: unknown): RentalListRecord {
+  requirePermissionForCurrentSession("rentals.editActive");
+  const values: RentalVehicleReplaceInput =
+    rentalVehicleReplaceInputSchema.parse(input);
+  const now = new Date().toISOString();
+  const actor = getCurrentUserForService();
+
+  try {
+    const updatedRentalId = getDatabase().transaction((tx) => {
+      const rental = tx
+        .select({
+          id: rentals.id,
+          contractNo: rentals.contractNo,
+          status: rentals.status,
+          vehicleId: rentals.vehicleId,
+          startDatetime: rentals.startDatetime,
+          expectedReturnDatetime: rentals.expectedReturnDatetime,
+          accessoryChargesMinor: rentals.accessoryChargesMinor,
+          paidAmountMinor: rentals.paidAmountMinor,
+          notesOut: rentals.notesOut,
+        })
+        .from(rentals)
+        .where(eq(rentals.id, values.rentalId))
+        .get();
+
+      if (!rental) {
+        throw new Error("Rental was not found.");
+      }
+
+      if (rental.status !== "active" && rental.status !== "overdue") {
+        throw new Error(
+          "Only active or overdue rentals can have their vehicle replaced.",
+        );
+      }
+
+      if (rental.vehicleId === values.replacementVehicleId) {
+        throw new Error("The replacement must be a different vehicle.");
+      }
+
+      if (
+        new Date(values.replacedAtDatetime).getTime() <
+        new Date(rental.startDatetime).getTime()
+      ) {
+        throw new Error("A replacement cannot be recorded before the rental started.");
+      }
+
+      const outgoingVehicle = tx
+        .select({ id: vehicles.id, mileage: vehicles.mileage })
+        .from(vehicles)
+        .where(eq(vehicles.id, rental.vehicleId))
+        .get();
+
+      if (!outgoingVehicle) {
+        throw new Error("Vehicle was not found.");
+      }
+
+      const replacementVehicle = tx
+        .select({
+          id: vehicles.id,
+          status: vehicles.status,
+          mileage: vehicles.mileage,
+        })
+        .from(vehicles)
+        .where(eq(vehicles.id, values.replacementVehicleId))
+        .get();
+
+      if (!replacementVehicle) {
+        throw new Error("Replacement vehicle was not found.");
+      }
+
+      if (replacementVehicle.status !== "available") {
+        throw new Error("Vehicle is not available.");
+      }
+
+      assertVehicleHasNoPostedSale(tx, values.replacementVehicleId);
+
+      const existingActiveRental = tx
+        .select({ id: rentals.id })
+        .from(rentals)
+        .where(
+          and(
+            eq(rentals.vehicleId, values.replacementVehicleId),
+            inArray(rentals.status, [...activeRentalStatuses]),
+          ),
+        )
+        .get();
+
+      if (existingActiveRental) {
+        throw new Error("This vehicle already has an active rental.");
+      }
+
+      const openSegment = getOpenRentalSegment(tx, rental.id);
+
+      if (!openSegment) {
+        throw new Error("This contract has no vehicle history recorded.");
+      }
+
+      let contractStartDatetime = rental.startDatetime;
+      let contractExpectedReturnDatetime = rental.expectedReturnDatetime;
+
+      if (values.originalVehicleNotHandedOver) {
+        const recordedSegments = tx
+          .select({ id: rentalVehicleSegments.id })
+          .from(rentalVehicleSegments)
+          .where(eq(rentalVehicleSegments.rentalId, rental.id))
+          .all();
+
+        if (recordedSegments.length !== 1 || openSegment.sequence !== 1) {
+          throw new Error(
+            "The original handover can only be corrected before any earlier vehicle replacement.",
+          );
+        }
+
+        const correctedWindow = shiftRentalWindowToActualHandover(
+          rental.startDatetime,
+          rental.expectedReturnDatetime,
+          values.replacedAtDatetime,
+        );
+        contractStartDatetime = correctedWindow.startDatetime;
+        contractExpectedReturnDatetime = correctedWindow.expectedReturnDatetime;
+
+        // Keep the original vehicle in the contract history, but make the
+        // record truthful: it was associated with the issued contract and was
+        // never handed over, so it carries no mileage and no billed days.
+        tx.update(rentalVehicleSegments)
+          .set({
+            startDatetime: contractStartDatetime,
+            mileageOut: null,
+            fuelOut: null,
+            updatedAt: now,
+          })
+          .where(eq(rentalVehicleSegments.id, openSegment.id))
+          .run();
+
+        // Activation may have recorded an odometer reading. Retain it instead
+        // of deleting business history, but stop describing it as a handover.
+        tx.update(vehicleMileageEvents)
+          .set({
+            eventType: "manual_adjustment",
+            notes: "Mileage entry retained after correcting a vehicle that was not handed over.",
+          })
+          .where(
+            and(
+              eq(vehicleMileageEvents.rentalId, rental.id),
+              eq(vehicleMileageEvents.vehicleId, outgoingVehicle.id),
+              eq(vehicleMileageEvents.eventType, "rental_out"),
+            ),
+          )
+          .run();
+      }
+
+      const mileageError = values.originalVehicleNotHandedOver
+        ? null
+        : validateMileageProgression({
+            mileageIn: values.outgoingMileageIn,
+            mileageOut: openSegment.mileageOut,
+            currentVehicleMileage: outgoingVehicle.mileage,
+          });
+
+      if (mileageError) {
+        throw new Error(mileageError);
+      }
+
+      if (
+        values.incomingMileageOut !== null &&
+        replacementVehicle.mileage !== null &&
+        values.incomingMileageOut < replacementVehicle.mileage
+      ) {
+        throw new Error("Mileage out cannot be less than current vehicle mileage.");
+      }
+
+      // One instant ends the old period and begins the new one, so no day can
+      // fall between them or be counted by both.
+      const replacedAt =
+        new Date(values.replacedAtDatetime).getTime() <
+        new Date(openSegment.startDatetime).getTime()
+          ? openSegment.startDatetime
+          : values.replacedAtDatetime;
+
+      closeOpenRentalSegment(
+        tx,
+        rental.id,
+        replacedAt,
+        values.originalVehicleNotHandedOver ? null : values.outgoingMileageIn,
+        values.originalVehicleNotHandedOver ? null : values.outgoingFuelIn,
+        now,
+      );
+      insertRentalSegment(tx, {
+        rentalId: rental.id,
+        vehicleId: replacementVehicle.id,
+        sequence: openSegment.sequence + 1,
+        startDatetime: replacedAt,
+        dailyPriceMinor: toMinorUnits(values.newDailyPrice, "Daily price"),
+        mileageOut: values.incomingMileageOut,
+        fuelOut: values.incomingFuelOut,
+        reason: values.reason,
+        actorId: actor?.id ?? null,
+        now,
+      });
+
+      const totalAmountMinor = calculateSegmentedTotalMinor(
+        tx,
+        rental.id,
+        contractStartDatetime,
+        contractExpectedReturnDatetime,
+        columnToMinor(
+          rental.accessoryChargesMinor,
+          "rentals.accessory_charges_minor",
+        ),
+      );
+
+      let updatedNotes = rental.notesOut;
+      if (values.notes?.trim()) {
+        updatedNotes = updatedNotes
+          ? `${updatedNotes}\n[${toDateInputValue(new Date())}] ${values.notes.trim()}`
+          : values.notes.trim();
+      }
+
+      tx.update(rentals)
+        .set({
+          vehicleId: replacementVehicle.id,
+          ...(values.originalVehicleNotHandedOver
+            ? {
+                startDatetime: contractStartDatetime,
+                expectedReturnDatetime: contractExpectedReturnDatetime,
+                status: getOpenRentalStatusForExpectedReturn(
+                  contractExpectedReturnDatetime,
+                  now,
+                ),
+              }
+            : {}),
+          // The contract's current rate is the replacement's, which is what the
+          // screens, the print and any later edit read.
+          ...moneyColumns(
+            "dailyPrice",
+            toMinorUnits(values.newDailyPrice, "Daily price"),
+          ),
+          mileageOut: values.incomingMileageOut,
+          fuelOut: values.incomingFuelOut,
+          notesOut: updatedNotes,
+          ...moneyColumns("totalAmount", totalAmountMinor),
+          ...moneyColumns(
+            "remainingAmount",
+            subtractMoney(
+              totalAmountMinor,
+              columnToMinor(rental.paidAmountMinor, "rentals.paid_amount_minor"),
+            ),
+          ),
+          lastUpdatedByUserId: actor?.id ?? null,
+          updatedAt: now,
+        })
+        .where(eq(rentals.id, rental.id))
+        .run();
+
+      if (
+        !values.originalVehicleNotHandedOver &&
+        values.outgoingMileageIn !== null
+      ) {
+        tx.insert(vehicleMileageEvents)
+          .values({
+            vehicleId: outgoingVehicle.id,
+            rentalId: rental.id,
+            maintenanceRecordId: null,
+            eventType: "rental_return",
+            mileage: values.outgoingMileageIn,
+            previousMileage: outgoingVehicle.mileage,
+            eventDatetime: replacedAt,
+            notes: "Mileage recorded when the vehicle was replaced.",
+            createdAt: now,
+          })
+          .run();
+      }
+
+      if (values.incomingMileageOut !== null) {
+        tx.insert(vehicleMileageEvents)
+          .values({
+            vehicleId: replacementVehicle.id,
+            rentalId: rental.id,
+            maintenanceRecordId: null,
+            eventType: "rental_out",
+            mileage: values.incomingMileageOut,
+            previousMileage: replacementVehicle.mileage,
+            eventDatetime: replacedAt,
+            notes: "Mileage recorded when the replacement was handed over.",
+            createdAt: now,
+          })
+          .run();
+      }
+
+      tx.update(vehicles)
+        .set({
+          status: values.outgoingVehicleStatus,
+          mileage: values.originalVehicleNotHandedOver
+            ? outgoingVehicle.mileage
+            : values.outgoingMileageIn ?? outgoingVehicle.mileage,
+          updatedAt: now,
+        })
+        .where(eq(vehicles.id, outgoingVehicle.id))
+        .run();
+
+      tx.update(vehicles)
+        .set({
+          status: "rented",
+          mileage: values.incomingMileageOut ?? replacementVehicle.mileage,
+          updatedAt: now,
+        })
+        .where(eq(vehicles.id, replacementVehicle.id))
+        .run();
+
+      let maintenanceRecordId: number | null = null;
+
+      if (values.outgoingVehicleStatus === "maintenance") {
+        const title = values.maintenanceTitle?.trim();
+
+        if (!title) {
+          throw new Error("Maintenance reason is required.");
+        }
+
+        const maintenanceRecord = tx
+          .insert(maintenanceRecords)
+          .values({
+            vehicleId: outgoingVehicle.id,
+            title,
+            description: values.maintenanceDescription?.trim() || values.reason,
+            ...moneyColumns("cost", MONEY_MINOR_ZERO),
+            startDate: toDateInputValue(new Date(replacedAt)),
+            endDate: null,
+            isArchived: false,
+            createdByUserId: actor?.id ?? null,
+            lastUpdatedByUserId: actor?.id ?? null,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning()
+          .get();
+
+        maintenanceRecordId = maintenanceRecord.id;
+        logAuditEvent(tx, {
+          action: "maintenance.created",
+          entityType: "maintenance",
+          entityId: maintenanceRecord.id,
+          entityLabel: maintenanceRecord.title,
+          summaryAr: `تم تسجيل صيانة ${maintenanceRecord.title}`,
+          summaryEn: `Maintenance ${maintenanceRecord.title} was created.`,
+          after: maintenanceRecord,
+          metadata: { rentalId: rental.id, vehicleId: outgoingVehicle.id },
+        });
+      }
+
+      recordAppEvent(tx, {
+        eventType: "rental_vehicle_replaced",
+        entityType: "rental",
+        entityId: rental.id,
+        severity: "warning",
+        message: "Rental vehicle was replaced.",
+        details: {
+          previousVehicleId: outgoingVehicle.id,
+          replacementVehicleId: replacementVehicle.id,
+          replacedAt,
+          originalVehicleNotHandedOver: values.originalVehicleNotHandedOver,
+          startDatetime: contractStartDatetime,
+          expectedReturnDatetime: contractExpectedReturnDatetime,
+          outgoingVehicleStatus: values.outgoingVehicleStatus,
+          maintenanceRecordId,
+          totalAmount: fromMinorUnits(totalAmountMinor),
+        },
+      });
+      logAuditEvent(tx, {
+        action: "rental.vehicle.replaced",
+        entityType: "rental",
+        entityId: rental.id,
+        entityLabel: rental.contractNo,
+        summaryAr: `تم استبدال مركبة العقد ${rental.contractNo}`,
+        summaryEn: `The vehicle on contract ${rental.contractNo} was replaced.`,
+        before: {
+          vehicleId: outgoingVehicle.id,
+          startDatetime: rental.startDatetime,
+          expectedReturnDatetime: rental.expectedReturnDatetime,
+        },
+        after: {
+          vehicleId: replacementVehicle.id,
+          replacedAt,
+          startDatetime: contractStartDatetime,
+          expectedReturnDatetime: contractExpectedReturnDatetime,
+          originalVehicleNotHandedOver: values.originalVehicleNotHandedOver,
+          dailyPrice: values.newDailyPrice,
+          totalAmount: fromMinorUnits(totalAmountMinor),
+        },
+        metadata: {
+          previousVehicleId: outgoingVehicle.id,
+          replacementVehicleId: replacementVehicle.id,
+          outgoingVehicleStatus: values.outgoingVehicleStatus,
+          maintenanceRecordId,
+          originalVehicleNotHandedOver: values.originalVehicleNotHandedOver,
+        },
+        reason: values.reason,
+      });
+
+      return rental.id;
+    });
+
+    const rental = getRentalById(updatedRentalId);
+
+    if (!rental) {
+      throw new Error("The vehicle was replaced but the rental could not be loaded.");
+    }
+
+    return rental;
   } catch (error) {
     throw normalizeRentalServiceError(error);
   }
@@ -1446,7 +2068,108 @@ function getRentalById(id: number): RentalListRecord | undefined {
     .where(eq(rentals.id, id))
     .get();
 
-  return rental ? hydrateRentalRecord(rental) : undefined;
+  if (!rental) {
+    return undefined;
+  }
+
+  const record = hydrateRentalRecord(rental);
+
+  return {
+    ...record,
+    vehicleSegments: loadRentalVehicleSegmentRecords(
+      record.id,
+      record.startDatetime,
+      record.actualReturnDatetime ?? record.expectedReturnDatetime,
+      record.status !== "cancelled",
+    ),
+  };
+}
+
+/**
+ * A contract's vehicle history as the screens and the contract print read it,
+ * with each vehicle's share of the contract's own day count worked out.
+ *
+ * The days come from the same split that priced the contract, so what a screen
+ * shows per vehicle always adds up to what the customer was billed.
+ */
+function loadRentalVehicleSegmentRecords(
+  rentalId: number,
+  startDatetime: string,
+  endDatetime: string,
+  earnsRent: boolean,
+): RentalVehicleSegmentRecord[] {
+  const rows = getDatabase()
+    .select({
+      id: rentalVehicleSegments.id,
+      rentalId: rentalVehicleSegments.rentalId,
+      vehicleId: rentalVehicleSegments.vehicleId,
+      vehiclePlateNumber: vehicles.plateNumber,
+      vehicleBrand: vehicles.brand,
+      vehicleModel: vehicles.model,
+      sequence: rentalVehicleSegments.sequence,
+      startDatetime: rentalVehicleSegments.startDatetime,
+      endDatetime: rentalVehicleSegments.endDatetime,
+      dailyPriceMinor: rentalVehicleSegments.dailyPriceMinor,
+      mileageOut: rentalVehicleSegments.mileageOut,
+      mileageIn: rentalVehicleSegments.mileageIn,
+      fuelOut: rentalVehicleSegments.fuelOut,
+      fuelIn: rentalVehicleSegments.fuelIn,
+      reason: rentalVehicleSegments.reason,
+      createdAt: rentalVehicleSegments.createdAt,
+    })
+    .from(rentalVehicleSegments)
+    .innerJoin(vehicles, eq(rentalVehicleSegments.vehicleId, vehicles.id))
+    .where(eq(rentalVehicleSegments.rentalId, rentalId))
+    .orderBy(asc(rentalVehicleSegments.sequence))
+    .all();
+
+  if (rows.length === 0) {
+    return [];
+  }
+
+  const prices = rows.map((row) =>
+    columnToMinor(row.dailyPriceMinor, "rental_vehicle_segments.daily_price_minor"),
+  );
+  // A cancelled contract earns nothing, so its vehicles are shown as history
+  // rather than as days billed.
+  const split = earnsRent
+    ? calculateSegmentedRentMinor(
+        startDatetime,
+        endDatetime,
+        rows.map((row, index) => ({
+          startDatetime: row.startDatetime,
+          endDatetime: row.endDatetime,
+          dailyPriceMinor: prices[index],
+        })),
+      )
+    : { segmentDays: rows.map(() => 0) };
+
+  return rows.map((row, index) => {
+    const days = split.segmentDays[index] ?? 0;
+
+    return {
+      id: row.id,
+      rentalId: row.rentalId,
+      vehicleId: row.vehicleId,
+      vehiclePlateNumber: row.vehiclePlateNumber,
+      vehicleBrand: row.vehicleBrand,
+      vehicleModel: row.vehicleModel,
+      sequence: row.sequence,
+      startDatetime: row.startDatetime,
+      endDatetime: row.endDatetime,
+      dailyPrice: fromMinorUnits(prices[index]),
+      days,
+      rentAmount: fromMinorUnits(
+        multiplyMoney(prices[index], days, "a vehicle's share of the rent"),
+      ),
+      mileageOut: row.mileageOut,
+      mileageIn: row.mileageIn,
+      fuelOut: row.fuelOut,
+      fuelIn: row.fuelIn,
+      reason: row.reason,
+      createdAt: row.createdAt,
+    };
+  });
 }
 
 function getPaymentById(id: number): PaymentRecord | undefined {
@@ -1994,6 +2717,9 @@ function returnRentalInTransaction(
     startDatetime: rental.startDatetime,
     expectedReturnDatetime: rental.expectedReturnDatetime,
     actualReturnDatetime: values.actualReturnDatetime,
+    // Every vehicle the contract ran on, so bringing it back early charges the
+    // days actually ridden on each at that vehicle's own rate.
+    segments: loadRentalSegments(tx, rental.id),
     dailyPriceMinor: columnToMinor(
       rental.dailyPriceMinor,
       "rentals.daily_price_minor",
@@ -2019,6 +2745,15 @@ function returnRentalInTransaction(
 
   applyRentalAccessoryReturns(tx, rental.id, values.accessoryReturns, now);
   applyRentalCollateralReturns(tx, rental.id, values.collateralReturns, now);
+  // The vehicle stops being out when the contract does.
+  closeOpenRentalSegment(
+    tx,
+    rental.id,
+    values.actualReturnDatetime,
+    values.mileageIn,
+    values.fuelIn,
+    now,
+  );
 
   const salesUserId = rental.salesUserId;
   const salesUserRow = salesUserId

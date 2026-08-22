@@ -47,6 +47,7 @@ import {
   listRentals,
   returnRental,
   returnRentalWithPayment,
+  replaceRentalVehicle,
   updateActiveRental,
   updateDraftRental,
 } from "./db/rentals.service";
@@ -706,6 +707,9 @@ app.whenReady().then(() => {
   );
   handle("rentals:extend", (_event, input: unknown) =>
     (guard("rentals.editActive"), extendRental(input)),
+  );
+  handle("rentals:replace-vehicle", (_event, input: unknown) =>
+    (guard("rentals.editActive"), replaceRentalVehicle(input)),
   );
   handle("rentals:return", (_event, input: unknown) =>
     (guard("rentals.return"), returnRental(input)),

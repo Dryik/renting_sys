@@ -376,7 +376,7 @@ describe("creating a fresh database", { timeout: DB_INTEGRATION_TEST_TIMEOUT_MS 
 
       expect(outcome).toEqual({ kind: "created", version: LATEST_SCHEMA_VERSION });
       expect(schemaVersion(database)).toBe(String(LATEST_SCHEMA_VERSION));
-      expect(tableNames(database)).toHaveLength(26);
+      expect(tableNames(database)).toHaveLength(27);
       expect(database.pragma("integrity_check", { simple: true })).toBe("ok");
       expect(database.pragma("foreign_key_check")).toHaveLength(0);
     } finally {
@@ -410,7 +410,7 @@ describe("upgrading from the released schemas", { timeout: DB_INTEGRATION_TEST_T
 
       expect(outcome).toMatchObject({ kind: "upgraded", fromVersion: 8 });
       expect(schemaVersion(database)).toBe(String(LATEST_SCHEMA_VERSION));
-      expect(tableNames(database)).toHaveLength(26);
+      expect(tableNames(database)).toHaveLength(27);
 
       const rental = database
         .prepare("select contract_no, total_amount, remaining_amount from rentals where id = 1")
@@ -672,7 +672,7 @@ describe("upgrading synthetic fixtures", { timeout: DB_INTEGRATION_TEST_TIMEOUT_
       const outcome = migrateDatabase(second, migrateOptions());
 
       expect(outcome).toEqual({ kind: "current", version: LATEST_SCHEMA_VERSION });
-      expect(tableNames(second)).toHaveLength(26);
+      expect(tableNames(second)).toHaveLength(27);
     } finally {
       second.close();
     }
@@ -1025,8 +1025,8 @@ describe("failure handling", { timeout: DB_INTEGRATION_TEST_TIMEOUT_MS }, () => 
 });
 
 /**
- * A database that records version 12 has told every future reader that its
- * amounts live in the `*_minor` columns. If it could ever reach that state
+ * A database that records version 12 or later has told every future reader
+ * that its amounts live in the `*_minor` columns. If it could ever reach that state
  * without the mirror triggers, an older installed build could open it and write
  * REAL-only amounts that nothing would catch. These tests break the upgrade at
  * each point where that gap could open and show the guards are already there.
@@ -1034,7 +1034,7 @@ describe("failure handling", { timeout: DB_INTEGRATION_TEST_TIMEOUT_MS }, () => 
 describe("money mirror triggers arriving with the version stamp", { timeout: DB_INTEGRATION_TEST_TIMEOUT_MS }, () => {
   function assertGuarded(database: Database.Database): void {
     expect(schemaVersion(database)).toBe(String(LATEST_SCHEMA_VERSION));
-    expect(mirrorTriggerCount(database)).toBe(58);
+    expect(mirrorTriggerCount(database)).toBe(60);
 
     // The guards are not merely present, they bite: this is what an old build's
     // write looks like.
@@ -1043,7 +1043,7 @@ describe("money mirror triggers arriving with the version stamp", { timeout: DB_
     ).toThrow(/payments\.amount and payments\.amount_minor disagree/);
   }
 
-  it("has all 58 triggers when a later migration fails after version 12 commits", () => {
+  it("has all 60 triggers when a later migration fails after version 12 commits", () => {
     const failing: Migration = {
       version: LATEST_SCHEMA_VERSION + 1,
       name: "failing test migration",
@@ -1072,7 +1072,7 @@ describe("money mirror triggers arriving with the version stamp", { timeout: DB_
     }
   });
 
-  it("has all 58 triggers when schema finishing fails after a v11 upgrade", () => {
+  it("has all 60 triggers when schema finishing fails after a v11 upgrade", () => {
     const database = openDatabaseFile();
 
     try {
@@ -1090,7 +1090,7 @@ describe("money mirror triggers arriving with the version stamp", { timeout: DB_
     }
   });
 
-  it("has all 58 triggers when schema finishing fails after a v8 upgrade", () => {
+  it("has all 60 triggers when schema finishing fails after a v8 upgrade", () => {
     const database = openDatabaseFile();
 
     try {
@@ -1122,20 +1122,20 @@ describe("money mirror triggers arriving with the version stamp", { timeout: DB_
       );
 
       expect(schemaVersion(database)).toBe(String(LATEST_SCHEMA_VERSION));
-      expect(mirrorTriggerCount(database)).toBe(58);
+      expect(mirrorTriggerCount(database)).toBe(60);
     } finally {
       database.close();
     }
   });
 
-  it("creates a fresh database at version 12 with its guards live", () => {
+  it("creates a fresh database at the latest version with its guards live", () => {
     const database = openDatabaseFile();
 
     try {
       migrateDatabase(database, migrateOptions());
 
       expect(schemaVersion(database)).toBe(String(LATEST_SCHEMA_VERSION));
-      expect(mirrorTriggerCount(database)).toBe(58);
+      expect(mirrorTriggerCount(database)).toBe(60);
       expect(() =>
         database
           .prepare(
@@ -1206,3 +1206,190 @@ function breakSchemaFinishing(database: Database.Database): void {
     end;
   `);
 }
+
+/**
+ * Migration 13 gives every contract that already exists the one-vehicle
+ * history it always had, so nothing downstream has to ask whether a rental
+ * predates vehicle replacement. A contract left without a segment would price
+ * at zero, which is the failure this backfill exists to prevent.
+ */
+describe("migration 13: the vehicle history of contracts that predate it", { timeout: DB_INTEGRATION_TEST_TIMEOUT_MS }, () => {
+  function seedV11Rentals(database: Database.Database): void {
+    const now = "2026-02-02T00:00:00.000Z";
+    database
+      .prepare(
+        `insert into vehicles (type, brand, model, plate_number, daily_price, deposit_amount, status, created_at, updated_at)
+         values ('motorcycle', 'Honda', 'CG', 'SEG-1', 55.5, 20, 'rented', ?, ?)`,
+      )
+      .run(now, now);
+    database
+      .prepare(
+        `insert into vehicles (type, brand, model, plate_number, daily_price, deposit_amount, status, created_at, updated_at)
+         values ('motorcycle', 'Honda', 'CB', 'SEG-2', 40, 20, 'available', ?, ?)`,
+      )
+      .run(now, now);
+    database
+      .prepare(
+        `insert into customers (full_name, phone, created_at, updated_at)
+         values ('Segment Customer', '0921111111', ?, ?)`,
+      )
+      .run(now, now);
+    // Still out: no actual return, so its one period must stay open.
+    database
+      .prepare(
+        `insert into rentals (contract_no, customer_id, vehicle_id, status, start_datetime,
+           expected_return_datetime, actual_return_datetime, daily_price, mileage_out, fuel_out,
+           total_amount, paid_amount, remaining_amount, created_at, updated_at)
+         values ('CNT-OPEN', 1, 1, 'active', '2026-02-01T09:00:00.000Z', '2026-02-08T09:00:00.000Z',
+           null, 55.5, 1200, 'full', 388.5, 0, 388.5, ?, ?)`,
+      )
+      .run(now, now);
+    // Returned, and priced at a half cent — a value migration 12 deliberately
+    // leaves unconverted in the REAL column.
+    database
+      .prepare(
+        `insert into rentals (contract_no, customer_id, vehicle_id, status, start_datetime,
+           expected_return_datetime, actual_return_datetime, daily_price, mileage_out, mileage_in,
+           fuel_out, fuel_in, total_amount, paid_amount, remaining_amount, created_at, updated_at)
+         values ('CNT-CLOSED', 1, 2, 'returned', '2026-01-01T09:00:00.000Z', '2026-01-04T09:00:00.000Z',
+           '2026-01-04T10:00:00.000Z', 100.005, 500, 800, 'full', 'half', 300.015, 300.015, 0, ?, ?)`,
+      )
+      .run(now, now);
+  }
+
+  it("gives every existing contract exactly one period, on the vehicle it ran on", () => {
+    const database = openDatabaseFile();
+
+    try {
+      database.exec(releasedV11Sql);
+      seedV11Rentals(database);
+
+      migrateDatabase(database, migrateOptions());
+
+      const segments = database
+        .prepare(
+          `select s.rental_id, s.vehicle_id, s.sequence, s.start_datetime, s.end_datetime,
+                  s.mileage_out, s.mileage_in, s.fuel_out, s.fuel_in, s.reason
+           from rental_vehicle_segments s order by s.rental_id`,
+        )
+        .all();
+
+      expect(segments).toEqual([
+        {
+          rental_id: 1,
+          vehicle_id: 1,
+          sequence: 1,
+          start_datetime: "2026-02-01T09:00:00.000Z",
+          end_datetime: null,
+          mileage_out: 1200,
+          mileage_in: null,
+          fuel_out: "full",
+          fuel_in: null,
+          reason: null,
+        },
+        {
+          rental_id: 2,
+          vehicle_id: 2,
+          sequence: 1,
+          start_datetime: "2026-01-01T09:00:00.000Z",
+          end_datetime: "2026-01-04T10:00:00.000Z",
+          mileage_out: 500,
+          mileage_in: 800,
+          fuel_out: "full",
+          fuel_in: "half",
+          reason: null,
+        },
+      ]);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("carries the rate over from the minor column, not from the historical mirror", () => {
+    const database = openDatabaseFile();
+
+    try {
+      database.exec(releasedV11Sql);
+      seedV11Rentals(database);
+
+      migrateDatabase(database, migrateOptions());
+
+      const row = database
+        .prepare(
+          `select r.daily_price as rental_legacy, r.daily_price_minor as rental_minor,
+                  s.daily_price as segment_legacy, s.daily_price_minor as segment_minor
+           from rentals r join rental_vehicle_segments s on s.rental_id = r.id
+           where r.contract_no = 'CNT-CLOSED'`,
+        )
+        .get() as Record<string, number>;
+
+      // What migration 12 left behind: the shop's original REAL untouched,
+      // beside the integer the app calculates with.
+      expect(row.rental_legacy).toBe(100.005);
+      expect(row.rental_minor).toBe(10001);
+
+      // The segment takes the integer. Copying the mirror instead would carry
+      // a half cent into a brand-new row and price the contract from it.
+      expect(row.segment_minor).toBe(10001);
+      expect(row.segment_legacy).toBe(100.01);
+      expect(row.segment_legacy).not.toBe(row.rental_legacy);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("guards the new pair as tightly as every other money column", () => {
+    const database = openDatabaseFile();
+
+    try {
+      database.exec(releasedV11Sql);
+      seedV11Rentals(database);
+      migrateDatabase(database, migrateOptions());
+
+      expect(() =>
+        database
+          .prepare(
+            "update rental_vehicle_segments set daily_price = 999 where rental_id = 1",
+          )
+          .run(),
+      ).toThrow(
+        /rental_vehicle_segments\.daily_price and rental_vehicle_segments\.daily_price_minor disagree/,
+      );
+    } finally {
+      database.close();
+    }
+  });
+
+  it("leaves exactly one open period per contract still out", () => {
+    const database = openDatabaseFile();
+
+    try {
+      database.exec(releasedV11Sql);
+      seedV11Rentals(database);
+      migrateDatabase(database, migrateOptions());
+
+      const open = database
+        .prepare(
+          "select rental_id from rental_vehicle_segments where end_datetime is null",
+        )
+        .all();
+
+      expect(open).toEqual([{ rental_id: 1 }]);
+
+      // The partial unique index is what keeps it that way once the app starts
+      // opening periods of its own.
+      expect(() =>
+        database
+          .prepare(
+            `insert into rental_vehicle_segments
+               (rental_id, vehicle_id, sequence, start_datetime, end_datetime,
+                daily_price, daily_price_minor, created_at, updated_at)
+             values (1, 2, 2, '2026-02-03T09:00:00.000Z', null, 40, 4000, '', '')`,
+          )
+          .run(),
+      ).toThrow(/UNIQUE constraint failed/);
+    } finally {
+      database.close();
+    }
+  });
+});

@@ -892,6 +892,63 @@ export const vehicleSalesRelations = relations(vehicleSales, ({ one }) => ({
   }),
 }));
 
+/**
+ * The vehicles a contract ran on, in order.
+ *
+ * Exactly one row per contract until a vehicle is replaced mid-contract. The
+ * row with a null `endDatetime` is the vehicle the customer holds now and
+ * always agrees with `rentals.vehicleId`; a partial unique index enforces that
+ * only one stays open. Each row keeps the rate agreed for its own days, so
+ * replacing a bike with a dearer one never reprices the days already ridden.
+ */
+export const rentalVehicleSegments = sqliteTable(
+  "rental_vehicle_segments",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    rentalId: integer("rental_id")
+      .notNull()
+      .references(() => rentals.id),
+    vehicleId: integer("vehicle_id")
+      .notNull()
+      .references(() => vehicles.id),
+    sequence: integer("sequence").notNull(),
+    startDatetime: text("start_datetime").notNull(),
+    endDatetime: text("end_datetime"),
+    dailyPriceLegacy: real("daily_price").notNull().default(0),
+    dailyPriceMinor: integer("daily_price_minor").notNull().default(0),
+    mileageOut: integer("mileage_out"),
+    mileageIn: integer("mileage_in"),
+    fuelOut: text("fuel_out"),
+    fuelIn: text("fuel_in"),
+    reason: text("reason"),
+    createdByUserId: integer("created_by_user_id").references(() => users.id),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    rentalIdx: index("rental_vehicle_segments_rental_id_idx").on(table.rentalId),
+    vehicleIdx: index("rental_vehicle_segments_vehicle_id_idx").on(table.vehicleId),
+    rentalSequenceIdx: uniqueIndex("rental_vehicle_segments_rental_sequence_idx").on(
+      table.rentalId,
+      table.sequence,
+    ),
+  }),
+);
+
+export const rentalVehicleSegmentsRelations = relations(
+  rentalVehicleSegments,
+  ({ one }) => ({
+    rental: one(rentals, {
+      fields: [rentalVehicleSegments.rentalId],
+      references: [rentals.id],
+    }),
+    vehicle: one(vehicles, {
+      fields: [rentalVehicleSegments.vehicleId],
+      references: [vehicles.id],
+    }),
+  }),
+);
+
 export const rentalsRelations = relations(rentals, ({ one, many }) => ({
   customer: one(customers, {
     fields: [rentals.customerId],
@@ -908,6 +965,7 @@ export const rentalsRelations = relations(rentals, ({ one, many }) => ({
   payments: many(payments),
   accessories: many(rentalAccessories),
   collateralItems: many(rentalCollateralItems),
+  vehicleSegments: many(rentalVehicleSegments),
 }));
 
 export const accessoriesRelations = relations(accessories, ({ many }) => ({

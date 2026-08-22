@@ -1,4 +1,4 @@
-import { CalendarPlus, CheckCircle2, CreditCard, FileDown, Loader2, Pencil, Printer, XCircle } from "lucide-react";
+import { Bike, CalendarPlus, CheckCircle2, CreditCard, FileDown, Loader2, Pencil, Printer, XCircle } from "lucide-react";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
 import { MoneyText } from "@/components/ui/money-text";
@@ -29,6 +29,7 @@ export function RentalDetailPanel({
   onExtendRental,
   onPrintContract,
   onRecordPayment,
+  onReplaceVehicle,
   onReturnVehicle,
   panelError,
   panelNotice,
@@ -49,6 +50,7 @@ export function RentalDetailPanel({
   onExtendRental?: () => void;
   onPrintContract: (printToPDF: boolean) => void;
   onRecordPayment?: () => void;
+  onReplaceVehicle?: () => void;
   onReturnVehicle?: () => void;
   panelError: string | null;
   panelNotice: string | null;
@@ -212,6 +214,46 @@ export function RentalDetailPanel({
         </div>
       </div>
 
+      {(rental.vehicleSegments?.length ?? 0) > 1 ? (
+        <div className="rounded-lg border">
+          <h3 className="border-b px-4 py-3 font-medium">{t("Vehicles on this contract")}</h3>
+          {rental.vehicleSegments?.map((segment) => (
+            <div
+              key={segment.id}
+              className="grid gap-2 border-t px-4 py-3 first:border-t-0 sm:grid-cols-[1fr_auto]"
+            >
+              <div className="min-w-0">
+                <BidiValue className="font-medium" value={segment.vehiclePlateNumber} />
+                <div className="text-xs text-muted-foreground">
+                  {segment.vehicleBrand} {segment.vehicleModel}
+                </div>
+                <BidiValue
+                  className="text-xs text-muted-foreground"
+                  value={`${formatDate(segment.startDatetime)} — ${
+                    segment.endDatetime ? formatDate(segment.endDatetime) : t("Now")
+                  }`}
+                />
+                {segment.reason ? (
+                  <div className="mt-1 text-xs text-muted-foreground">{segment.reason}</div>
+                ) : null}
+              </div>
+              <div className="text-end">
+                <BidiValue
+                  className="font-semibold"
+                  value={formatCurrency(segment.rentAmount)}
+                />
+                <div className="text-xs text-muted-foreground">
+                  {t("{days} day(s) at {rate}", {
+                    days: segment.days,
+                    rate: formatCurrency(segment.dailyPrice),
+                  })}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
       <div className="sticky bottom-0 z-10 -mx-5 -mb-5 flex flex-col gap-3 border-t bg-card px-5 py-4 shadow-[0_-8px_20px_rgba(15,23,42,0.04)] sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap gap-2">
           {canOperate && onReturnVehicle ? (
@@ -224,6 +266,12 @@ export function RentalDetailPanel({
             <Button variant="outline" disabled={isSaving} onClick={onExtendRental}>
               <CalendarPlus data-icon="inline-start" />
               {t("Extend Rental")}
+            </Button>
+          ) : null}
+          {canOperate && onReplaceVehicle ? (
+            <Button variant="outline" disabled={isSaving} onClick={onReplaceVehicle}>
+              <Bike data-icon="inline-start" />
+              {t("Replace Vehicle")}
             </Button>
           ) : null}
           {rental.status === "draft" && onEditDraft ? (

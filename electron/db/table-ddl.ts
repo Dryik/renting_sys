@@ -534,6 +534,42 @@ export const rentalCollateralItemsTableSql = `
   );
 `;
 
+// --- Version 13: the vehicles a contract ran on ---------------------------
+
+/**
+ * One row per stretch of a contract spent on a single vehicle.
+ *
+ * A contract that was never swapped has exactly one, which is what migration
+ * 13 backfills for every rental that already existed. The open row — the one
+ * with a null `end_datetime` — is the vehicle the customer currently holds,
+ * and always agrees with `rentals.vehicle_id`.
+ *
+ * The rate lives here rather than only on the rental because a replacement
+ * vehicle may cost more or less than the one it replaced, and the days already
+ * ridden must keep the price they were agreed at. `rentals.daily_price` stays
+ * the current rate, which is the open row's.
+ */
+export const rentalVehicleSegmentsTableSql = `
+  create table if not exists rental_vehicle_segments (
+    id integer primary key autoincrement,
+    rental_id integer not null references rentals(id),
+    vehicle_id integer not null references vehicles(id),
+    sequence integer not null,
+    start_datetime text not null,
+    end_datetime text,
+    daily_price real not null default 0,
+    daily_price_minor integer not null default 0,
+    mileage_out integer,
+    mileage_in integer,
+    fuel_out text,
+    fuel_in text,
+    reason text,
+    created_by_user_id integer references users(id),
+    created_at text not null,
+    updated_at text not null
+  );
+`;
+
 /**
  * Every index, applied after tables exist on both the fresh and upgrade paths.
  * All are `if not exists`, so this is idempotent and does not need versioning.
@@ -590,6 +626,16 @@ export const allIndexSql = `
   create index if not exists rental_accessories_accessory_id_idx on rental_accessories(accessory_id);
   create index if not exists rental_collateral_items_rental_id_idx on rental_collateral_items(rental_id);
   create index if not exists rental_collateral_items_status_idx on rental_collateral_items(status);
+
+  create index if not exists rental_vehicle_segments_rental_id_idx on rental_vehicle_segments(rental_id);
+  create index if not exists rental_vehicle_segments_vehicle_id_idx on rental_vehicle_segments(vehicle_id);
+  create unique index if not exists rental_vehicle_segments_rental_sequence_idx
+    on rental_vehicle_segments(rental_id, sequence);
+  -- A contract is on exactly one vehicle at a time. This is what stops a
+  -- second swap from opening a period while one is still open.
+  create unique index if not exists rental_vehicle_segments_one_open_idx
+    on rental_vehicle_segments(rental_id)
+    where end_datetime is null;
 
   create unique index if not exists payments_receipt_no_idx on payments(receipt_no);
   create index if not exists payments_payment_date_idx on payments(payment_date);
@@ -680,4 +726,5 @@ export const allTableSql = [
   accessoriesTableSql,
   rentalAccessoriesTableSql,
   rentalCollateralItemsTableSql,
+  rentalVehicleSegmentsTableSql,
 ].join("\n");

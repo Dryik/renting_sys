@@ -33,6 +33,7 @@ import type {
   RentalActivationInput,
   RentalActiveUpdateInput,
   RentalExtendInput,
+  RentalVehicleReplaceInput,
   RentalCancelInput,
   RentalFormOptions,
   RentalListRequest,
@@ -185,6 +186,9 @@ export type RentalAppApi = {
       rental: RentalListRecord;
       payment: PaymentRecord | null;
     }>;
+    replaceVehicle: (
+      input: RentalVehicleReplaceInput,
+    ) => Promise<RentalListRecord>;
     return: (input: RentalReturnInput) => Promise<RentalListRecord>;
     returnWithPayment: (input: RentalReturnWithPaymentInput) => Promise<{
       rental: RentalListRecord;

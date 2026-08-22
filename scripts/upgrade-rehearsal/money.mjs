@@ -107,6 +107,7 @@ export const expectedMoneyPairs = Object.freeze([
   { table: "accessories", legacyColumn: "default_charge", nullable: false },
   { table: "rental_accessories", legacyColumn: "unit_charge", nullable: false },
   { table: "rental_collateral_items", legacyColumn: "estimated_value", nullable: true },
+  { table: "rental_vehicle_segments", legacyColumn: "daily_price", nullable: false },
 
   { table: "payments", legacyColumn: "amount", nullable: false },
   { table: "expenses", legacyColumn: "amount", nullable: false },

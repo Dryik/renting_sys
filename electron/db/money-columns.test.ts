@@ -35,6 +35,7 @@ const expectedPairs: Array<[table: string, legacy: string, nullable: boolean]> =
   ["accessories", "default_charge", false],
   ["rental_accessories", "unit_charge", false],
   ["rental_collateral_items", "estimated_value", true],
+  ["rental_vehicle_segments", "daily_price", false],
   ["payments", "amount", false],
   ["expenses", "amount", false],
   ["cash_movements", "amount", false],
@@ -51,9 +52,9 @@ const expectedPairs: Array<[table: string, legacy: string, nullable: boolean]> =
 const key = (pair: MoneyColumnPair): string => `${pair.table}.${pair.legacyColumn}`;
 
 describe("the money column registry", () => {
-  it("holds exactly the 29 audited pairs", () => {
-    expect(moneyColumnPairs).toHaveLength(29);
-    expect(expectedPairs).toHaveLength(29);
+  it("holds exactly the 30 audited pairs", () => {
+    expect(moneyColumnPairs).toHaveLength(30);
+    expect(expectedPairs).toHaveLength(30);
     expect(moneyColumnPairs.map(key).sort()).toEqual(
       expectedPairs.map(([table, legacy]) => `${table}.${legacy}`).sort(),
     );
@@ -111,7 +112,7 @@ describe("the fresh schema", () => {
       (match) => match[1],
     );
 
-    expect(realColumns).toHaveLength(29);
+    expect(realColumns).toHaveLength(30);
 
     for (const column of realColumns) {
       expect(moneyColumnPairs.some((pair) => pair.legacyColumn === column)).toBe(true);
@@ -165,6 +166,6 @@ describe("the mirror trigger definitions", () => {
       triggerName(pair, "update"),
     ]);
 
-    expect(new Set(names).size).toBe(58);
+    expect(new Set(names).size).toBe(60);
   });
 });

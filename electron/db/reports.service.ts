@@ -1,5 +1,9 @@
-import { and, count, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
-import { calculateRentalDays, type RentalListRecord } from "../../src/shared/rentals";
+import { and, asc, count, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import {
+  calculateRentalDays,
+  calculateSegmentedRentMinor,
+  type RentalListRecord,
+} from "../../src/shared/rentals";
 import type { PageResult } from "../../src/shared/pagination";
 import type {
   CommissionReportRecord,
@@ -25,6 +29,7 @@ import type {
 } from "../../src/shared/reports";
 import {
   MONEY_MINOR_ZERO,
+  allocateMinorByWeights,
   fromMinorUnits,
   maxMoney,
   subtractMoney,
@@ -35,7 +40,16 @@ import {
 import { getDatabase, getSqliteDatabase } from "./database";
 import { createPageResult, normalizePageRequest, type NormalizedPageRequest } from "./listing";
 import { columnToMinor, sumToMinor } from "./money-write";
-import { customers, maintenanceRecords, payments, rentals, users, vehicleSales, vehicles } from "./schema";
+import {
+  customers,
+  maintenanceRecords,
+  payments,
+  rentalVehicleSegments,
+  rentals,
+  users,
+  vehicleSales,
+  vehicles,
+} from "./schema";
 import { getShopSettings } from "./settings.service";
 import { requirePermissionForCurrentSession } from "./auth.service";
 import { isWriteAccessAllowed } from "../licensing/service";
@@ -296,25 +310,36 @@ export function getDailyPayments(
   );
 }
 
+/**
+ * What each vehicle earned in a period.
+ *
+ * A contract can run on more than one vehicle — a breakdown mid-hire moves the
+ * customer onto another bike without ending the contract — so its money cannot
+ * simply be credited to whichever vehicle it happens to be on now. The money a
+ * contract took in the period is split across the vehicles that carried it, in
+ * proportion to what each one earned: its own days at its own rate. Nothing is
+ * lost in the split; the parts always add back to the contract's own total.
+ *
+ * An unswapped contract has exactly one vehicle, gets one share, and reads
+ * exactly as it always did.
+ */
 export function getVehicleIncome(
   startDate: string,
   endDate: string,
 ): VehicleIncomeRecord[] {
   const range = getLocalDateRange(startDate, endDate);
-  const netIncomeSql = netPaymentTotalSql();
 
-  const results = getDatabase()
+  const rentalTotals = getDatabase()
     .select({
-      vehicleId: vehicles.id,
-      plateNumber: vehicles.plateNumber,
-      brand: vehicles.brand,
-      model: vehicles.model,
-      totalIncome: netIncomeSql,
-      rentalCount: sql<number>`count(distinct ${rentals.id})`.mapWith(Number),
+      rentalId: rentals.id,
+      status: rentals.status,
+      startDatetime: rentals.startDatetime,
+      expectedReturnDatetime: rentals.expectedReturnDatetime,
+      actualReturnDatetime: rentals.actualReturnDatetime,
+      netIncome: netPaymentTotalSql(),
     })
     .from(payments)
     .innerJoin(rentals, eq(payments.rentalId, rentals.id))
-    .innerJoin(vehicles, eq(rentals.vehicleId, vehicles.id))
     .where(
       and(
         eq(payments.status, "posted"),
@@ -322,20 +347,142 @@ export function getVehicleIncome(
         lt(payments.paymentDate, range.end),
       ),
     )
-    .groupBy(vehicles.id, vehicles.plateNumber, vehicles.brand, vehicles.model)
-    .orderBy(desc(netPaymentTotalSql()))
+    .groupBy(rentals.id)
     .all();
 
-  return results.map((r) => ({
-    vehicleId: r.vehicleId,
-    plateNumber: r.plateNumber,
-    brand: r.brand,
-    model: r.model,
-    totalIncome: fromMinorUnits(
-      sumToMinor(r.totalIncome, `Vehicle ${r.plateNumber} income`),
-    ),
-    rentalCount: r.rentalCount || 0,
-  }));
+  if (rentalTotals.length === 0) {
+    return [];
+  }
+
+  const segmentsByRental = loadSegmentsForRentals(
+    rentalTotals.map((row) => row.rentalId),
+  );
+  const perVehicle = new Map<
+    number,
+    { incomeMinor: MoneyMinor; rentalIds: Set<number> }
+  >();
+
+  for (const rental of rentalTotals) {
+    const segments = segmentsByRental.get(rental.rentalId) ?? [];
+
+    if (segments.length === 0) {
+      continue;
+    }
+
+    const netIncomeMinor = sumToMinor(
+      rental.netIncome,
+      `Rental ${rental.rentalId} income`,
+    );
+    // A cancelled contract earned no days; whatever it holds is settled
+    // against the vehicle it was on, not spread over a hire that never ran.
+    const split =
+      rental.status === "cancelled"
+        ? { segmentDays: segments.map(() => 0) }
+        : calculateSegmentedRentMinor(
+            rental.startDatetime,
+            rental.actualReturnDatetime ?? rental.expectedReturnDatetime,
+            segments.map((segment) => ({
+              startDatetime: segment.startDatetime,
+              endDatetime: segment.endDatetime,
+              dailyPriceMinor: segment.dailyPriceMinor,
+            })),
+          );
+    const weights = segments.map((segment, index) =>
+      Math.max(0, split.segmentDays[index] ?? 0) *
+      Math.max(0, segment.dailyPriceMinor),
+    );
+    const shares = allocateMinorByWeights(netIncomeMinor, weights);
+
+    segments.forEach((segment, index) => {
+      const entry = perVehicle.get(segment.vehicleId) ?? {
+        incomeMinor: MONEY_MINOR_ZERO,
+        rentalIds: new Set<number>(),
+      };
+      entry.incomeMinor = sumMoney(
+        [entry.incomeMinor, shares[index] ?? MONEY_MINOR_ZERO],
+        `Vehicle ${segment.vehicleId} income`,
+      );
+
+      // A vehicle counts the contract when it actually carried it, or when it
+      // was given a share of the money.
+      if ((split.segmentDays[index] ?? 0) > 0 || shares[index] !== 0) {
+        entry.rentalIds.add(rental.rentalId);
+      }
+
+      perVehicle.set(segment.vehicleId, entry);
+    });
+  }
+
+  if (perVehicle.size === 0) {
+    return [];
+  }
+
+  const vehicleRows = getDatabase()
+    .select({
+      vehicleId: vehicles.id,
+      plateNumber: vehicles.plateNumber,
+      brand: vehicles.brand,
+      model: vehicles.model,
+    })
+    .from(vehicles)
+    .where(inArray(vehicles.id, [...perVehicle.keys()]))
+    .all();
+
+  return vehicleRows
+    .map((vehicle) => {
+      const entry = perVehicle.get(vehicle.vehicleId);
+
+      return {
+        vehicleId: vehicle.vehicleId,
+        plateNumber: vehicle.plateNumber,
+        brand: vehicle.brand,
+        model: vehicle.model,
+        totalIncome: fromMinorUnits(entry?.incomeMinor ?? MONEY_MINOR_ZERO),
+        rentalCount: entry?.rentalIds.size ?? 0,
+      };
+    })
+    .sort((left, right) => right.totalIncome - left.totalIncome);
+}
+
+type RentalSegmentRow = {
+  vehicleId: number;
+  startDatetime: string;
+  endDatetime: string | null;
+  dailyPriceMinor: MoneyMinor;
+};
+
+function loadSegmentsForRentals(
+  rentalIds: number[],
+): Map<number, RentalSegmentRow[]> {
+  const rows = getDatabase()
+    .select({
+      rentalId: rentalVehicleSegments.rentalId,
+      vehicleId: rentalVehicleSegments.vehicleId,
+      startDatetime: rentalVehicleSegments.startDatetime,
+      endDatetime: rentalVehicleSegments.endDatetime,
+      dailyPriceMinor: rentalVehicleSegments.dailyPriceMinor,
+    })
+    .from(rentalVehicleSegments)
+    .where(inArray(rentalVehicleSegments.rentalId, rentalIds))
+    .orderBy(asc(rentalVehicleSegments.sequence))
+    .all();
+  const grouped = new Map<number, RentalSegmentRow[]>();
+
+  for (const row of rows) {
+    const list = grouped.get(row.rentalId) ?? [];
+    list.push({
+      vehicleId: row.vehicleId,
+      startDatetime: row.startDatetime,
+      endDatetime: row.endDatetime,
+      dailyPriceMinor: columnToMinor(
+        row.dailyPriceMinor,
+        "rental_vehicle_segments.daily_price_minor",
+      ),
+    });
+    grouped.set(row.rentalId, list);
+  }
+
+  return grouped;
 }
 
 export function getOutstandingBalances(): OutstandingBalanceRecord[] {
