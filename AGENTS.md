@@ -19,7 +19,7 @@ The users are non-technical staff. The app must be simple, local, fast, and reli
 
 ## Product Scope
 
-A local-only rental management app. Current release: **v0.4.1**, in front of
+A local-only rental management app. Current release: **v0.4.3**, in front of
 real shops with real customer data.
 
 Modules that exist today, as feature folders under `src/features`:

@@ -1,6 +1,6 @@
 # Tasks
 
-Current release: **v0.4.0**, published from `main`.
+Current release: **v0.4.3**, published from the release branch.
 
 > This file used to be a milestone checklist for the original v1 build, with
 > every box ticked. It stopped tracking reality several releases ago and was
