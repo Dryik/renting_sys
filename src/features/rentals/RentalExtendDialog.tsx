@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { useModalBehavior } from "@/hooks/useModalBehavior";
 import {
   calculateExtensionSummary,
+  extendedReturnDatetime,
   getDefaultRentalExtendFormValues,
   normalizeToCalendarDate,
   rentalExtendFormSchema,
@@ -73,8 +74,7 @@ export function RentalExtendDialog({
       ? getDefaultRentalExtendFormValues(rental, 7)
       : {
           newExpectedReturnDatetime: "",
-          dailyPrice: "",
-          recordPayment: true,
+          recordPayment: false,
           paymentAmount: "0",
           paymentMethod: "cash",
           paymentNotes: "",
@@ -93,14 +93,14 @@ export function RentalExtendDialog({
     control,
     name: "newExpectedReturnDatetime",
   });
-  const dailyPriceValue = useWatch({ control, name: "dailyPrice" });
   const recordPayment = useWatch({ control, name: "recordPayment" });
   const printFirstPageOnly = useWatch({
     control,
     name: "printFirstPageOnly",
   });
 
-  const dailyPriceNum = Number(dailyPriceValue) || rental?.dailyPrice || 0;
+  // The contract's own rate: extending moves the date, it does not reprice.
+  const dailyPriceNum = rental?.dailyPrice ?? 0;
 
   const summary = useMemo(() => {
     if (!rental || !newReturnDate) {
@@ -152,8 +152,12 @@ export function RentalExtendDialog({
 
     const input: RentalExtendInput = {
       rentalId: rental.id,
-      newExpectedReturnDatetime: data.newExpectedReturnDatetime,
-      dailyPrice: data.dailyPrice,
+      // Staff pick a date; the contract keeps its own time of day, so
+      // extending by N days adds exactly N billable days.
+      newExpectedReturnDatetime: extendedReturnDatetime(
+        rental.expectedReturnDatetime,
+        data.newExpectedReturnDatetime,
+      ),
       recordPayment: data.recordPayment,
       paymentAmount: data.recordPayment ? data.paymentAmount : undefined,
       paymentMethod: data.recordPayment ? data.paymentMethod : undefined,
@@ -293,26 +297,6 @@ export function RentalExtendDialog({
               </div>
             </div>
 
-            {/* Daily Price Field */}
-            <div>
-              <label className="text-sm font-medium">
-                {t("Daily Price")}
-              </label>
-              <div className="mt-1">
-                <Input
-                  data-ltr="true"
-                  inputMode="decimal"
-                  placeholder="50"
-                  aria-invalid={Boolean(errors.dailyPrice)}
-                  {...register("dailyPrice")}
-                />
-              </div>
-              {errors.dailyPrice ? (
-                <p className="mt-1 text-xs text-destructive">
-                  {errors.dailyPrice.message}
-                </p>
-              ) : null}
-            </div>
           </div>
 
           {/* Live Extension Summary Card */}

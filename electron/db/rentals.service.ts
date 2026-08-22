@@ -1062,10 +1062,13 @@ export function extendRental(input: unknown): {
         );
       }
 
-      const effectiveDailyPriceMinor =
-        values.dailyPrice !== undefined
-          ? toMinorUnits(values.dailyPrice, "Daily price")
-          : columnToMinor(rental.dailyPriceMinor, "rentals.daily_price_minor");
+      // The contract's own rate, always. The total is recalculated over the
+      // whole period, so accepting a rate here would reprice days already paid
+      // for at the agreed one.
+      const effectiveDailyPriceMinor = columnToMinor(
+        rental.dailyPriceMinor,
+        "rentals.daily_price_minor",
+      );
 
       const { totalAmountMinor } = calculateRentalSummaryMinor(
         rental.startDatetime,
@@ -1093,9 +1096,6 @@ export function extendRental(input: unknown): {
         .set({
           status,
           expectedReturnDatetime: values.newExpectedReturnDatetime,
-          ...(values.dailyPrice !== undefined
-            ? moneyColumns("dailyPrice", effectiveDailyPriceMinor)
-            : {}),
           notesOut: updatedNotes,
           ...moneyColumns("totalAmount", totalAmountMinor),
           ...moneyColumns(
