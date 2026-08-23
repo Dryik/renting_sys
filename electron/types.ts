@@ -33,6 +33,8 @@ import type {
   RentalActivationInput,
   RentalActiveUpdateInput,
   RentalExtendInput,
+  RentalDeleteInput,
+  RentalVehicleReplaceInput,
   RentalCancelInput,
   RentalFormOptions,
   RentalListRequest,
@@ -185,12 +187,16 @@ export type RentalAppApi = {
       rental: RentalListRecord;
       payment: PaymentRecord | null;
     }>;
+    replaceVehicle: (
+      input: RentalVehicleReplaceInput,
+    ) => Promise<RentalListRecord>;
     return: (input: RentalReturnInput) => Promise<RentalListRecord>;
     returnWithPayment: (input: RentalReturnWithPaymentInput) => Promise<{
       rental: RentalListRecord;
       payment: PaymentRecord | null;
     }>;
     cancel: (input: number | RentalCancelInput) => Promise<RentalListRecord>;
+    delete: (input: RentalDeleteInput) => Promise<void>;
     findOpenByPlate: (plateNumber: string) => Promise<RentalListRecord>;
     printContract: (rentalId: number, printToPDF: boolean, language?: "ar" | "en" | "both", firstPageOnly?: boolean) => Promise<PrintDocumentResult>;
   };

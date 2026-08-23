@@ -47,6 +47,8 @@ import {
   listRentals,
   returnRental,
   returnRentalWithPayment,
+  deleteRental,
+  replaceRentalVehicle,
   updateActiveRental,
   updateDraftRental,
 } from "./db/rentals.service";
@@ -707,6 +709,9 @@ app.whenReady().then(() => {
   handle("rentals:extend", (_event, input: unknown) =>
     (guard("rentals.editActive"), extendRental(input)),
   );
+  handle("rentals:replace-vehicle", (_event, input: unknown) =>
+    (guard("rentals.editActive"), replaceRentalVehicle(input)),
+  );
   handle("rentals:return", (_event, input: unknown) =>
     (guard("rentals.return"), returnRental(input)),
   );
@@ -715,6 +720,9 @@ app.whenReady().then(() => {
   );
   handle("rentals:cancel", (_event, input: unknown) =>
     (guard("rentals.cancel"), cancelRental(input)),
+  );
+  handle("rentals:delete", (_event, input: unknown) =>
+    (guard("rentals.cancel"), deleteRental(input)),
   );
   handle("rentals:find-open-by-plate", (_event, plateNumber: unknown) =>
     (guard("rentals.return"), findOpenRentalByPlate(plateNumber)),

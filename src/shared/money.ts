@@ -176,6 +176,65 @@ export function multiplyMoney(
   return assertMoneyMinor(Number(product), context);
 }
 
+/**
+ * Splits an amount into parts weighted by `weights`, losing nothing.
+ *
+ * Used where one contract's money has to be attributed to more than one
+ * vehicle, because the customer was moved onto a replacement partway through.
+ * Plain proportional arithmetic leaves a minor unit stranded whenever the
+ * shares do not divide evenly — three equal parts of 100.00 are 33.33 each and
+ * a cent short — which would make a report quietly disagree with the contract
+ * it was built from. Whole units are handed out first and every remaining unit
+ * goes to the largest fraction, so the parts always add back up to the amount.
+ *
+ * Weights of zero overall mean nothing distinguishes the parts — a free
+ * contract, or one whose vehicles were all out for no days. The amount then
+ * goes to the last part, the vehicle the contract ended on, rather than
+ * vanishing.
+ */
+export function allocateMinorByWeights(
+  amountMinor: MoneyMinor,
+  weights: readonly number[],
+): MoneyMinor[] {
+  const amount = assertMoneyMinor(amountMinor, "an amount being split");
+
+  if (weights.length === 0) {
+    return [];
+  }
+
+  if (weights.some((weight) => !Number.isFinite(weight) || weight < 0)) {
+    throw new Error("A share of an amount cannot be negative or unknown.");
+  }
+
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+
+  if (totalWeight <= 0) {
+    return weights.map((_, index) =>
+      index === weights.length - 1 ? (amount as MoneyMinor) : MONEY_MINOR_ZERO,
+    );
+  }
+
+  const exact = weights.map((weight) => (amount * weight) / totalWeight);
+  const parts = exact.map((value) => Math.floor(value));
+  // Non-negative whether the amount is a charge or a refund: flooring can only
+  // ever take the running total further from the amount in one direction.
+  let remainder = amount - parts.reduce((sum, part) => sum + part, 0);
+  const byLargestFraction = exact
+    .map((value, index) => ({ index, fraction: value - Math.floor(value) }))
+    .sort((left, right) => right.fraction - left.fraction);
+
+  for (const entry of byLargestFraction) {
+    if (remainder <= 0) {
+      break;
+    }
+
+    parts[entry.index] += 1;
+    remainder -= 1;
+  }
+
+  return parts.map((part) => assertMoneyMinor(part, "a split amount"));
+}
+
 /** Largest of a set, for clamps like "never let a balance go below zero". */
 export function maxMoney(left: MoneyMinor, right: MoneyMinor): MoneyMinor {
   return assertMoneyMinor(left) >= assertMoneyMinor(right) ? left : right;

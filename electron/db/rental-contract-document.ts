@@ -72,6 +72,21 @@ export type RentalContractAccessory = {
   notes: string | null;
 };
 
+/**
+ * One vehicle's stretch of the contract, printed when a contract ran on more
+ * than one. A reissued contract shows the vehicle the customer holds now, and
+ * this is what tells them, and the shop, which bike earned which days.
+ */
+export type RentalContractVehiclePeriod = {
+  plateNumber: string;
+  brand: string;
+  model: string;
+  startDatetime: string;
+  endDatetime: string | null;
+  days: number;
+  reason: string | null;
+};
+
 export type RentalContractCollateral = {
   type: CollateralType;
   description: string;
@@ -87,6 +102,7 @@ export type RentalContractDocumentInput = {
   settings: ShopSettings;
   accessories: RentalContractAccessory[];
   collateralItems: RentalContractCollateral[];
+  vehiclePeriods?: RentalContractVehiclePeriod[];
   issuedByName: string | null;
   issuedByUsername: string | null;
   printedAt: string;
@@ -199,6 +215,7 @@ export function resolveContractPrintLanguage(
 
 export function buildRentalContractHtml(input: RentalContractDocumentInput): string {
   const { accessories, collateralItems, rental, settings } = input;
+  const vehiclePeriods = input.vehiclePeriods ?? [];
   const language = resolveContractPrintLanguage(settings, input.languageOverride);
   const primaryLanguage: LanguageCode = language === "en" ? "en" : "ar";
   const direction = getDirectionForLanguage(primaryLanguage);
@@ -240,6 +257,41 @@ export function buildRentalContractHtml(input: RentalContractDocumentInput): str
                 <td>${ltr(accessory.quantity)}</td>
                 ${rental.actualReturnDatetime ? `<td>${ltr(`${accessory.returnedQuantity} / ${accessory.missingQuantity}`)}</td>` : ""}
                 <td>${accessory.notes ? escapeHtml(accessory.notes) : escapeHtml(fallback)}</td>
+              </tr>`,
+            )
+            .join("")}</tbody>
+        </table>
+      </section>`
+    : "";
+
+  // Only when the contract actually changed vehicle. A contract that ran on
+  // one bike prints exactly as it always did.
+  const vehicleHistoryHtml = vehiclePeriods.length > 1
+    ? `
+      <section class="avoid-break">
+        <h2>${escapeHtml(tr("Vehicles on this contract"))}</h2>
+        <table>
+          <thead><tr>
+            <th>${escapeHtml(tr("Plate Number"))}</th>
+            <th>${escapeHtml(tr("Brand / Model"))}</th>
+            <th>${escapeHtml(tr("Period"))}</th>
+            <th>${escapeHtml(tr("Days"))}</th>
+            <th>${escapeHtml(tr("Reason"))}</th>
+          </tr></thead>
+          <tbody>${vehiclePeriods
+            .map(
+              (period) => `<tr>
+                <td>${ltr(period.plateNumber)}</td>
+                <td>${escapeHtml(`${period.brand} ${period.model}`)}</td>
+                <td>${ltr(
+                  `${formatDate(period.startDatetime, primaryLanguage, false)} - ${
+                    period.endDatetime
+                      ? formatDate(period.endDatetime, primaryLanguage, false)
+                      : tr("Now")
+                  }`,
+                )}</td>
+                <td>${ltr(period.days)}</td>
+                <td>${period.reason ? escapeHtml(period.reason) : escapeHtml(fallback)}</td>
               </tr>`,
             )
             .join("")}</tbody>
@@ -382,6 +434,8 @@ export function buildRentalContractHtml(input: RentalContractDocumentInput): str
           ${labelValue("Technical Inspection Expiry", dateOnly(rental.vehicleTechnicalInspectionExpiryDate))}
         </div>
       </section>
+
+      ${vehicleHistoryHtml}
 
       <section class="avoid-break">
         <h2>${escapeHtml(tr("Rental Period"))}</h2>

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { describe, expect, it } from "vitest";
 import { toMinorUnits, toMinorUnitsOrNull } from "../src/shared/money";
 import { moneyColumnPairs, triggerName } from "./db/money-columns";
+import { LATEST_SCHEMA_VERSION } from "./db/migrations";
 import {
   decideEnvironment,
   disposableMarker,
@@ -234,18 +235,18 @@ describe("the rehearsal's restatement of the money column inventory", () => {
     expect(rehearsal).toEqual(production);
   });
 
-  it("counts 29 pairs", () => {
-    expect(expectedMoneyPairs).toHaveLength(29);
-    expect(moneyColumnPairs).toHaveLength(29);
+  it("counts 30 pairs", () => {
+    expect(expectedMoneyPairs).toHaveLength(30);
+    expect(moneyColumnPairs).toHaveLength(30);
   });
 
-  it("expects exactly the 58 trigger names production generates", () => {
+  it("expects exactly the 60 trigger names production generates", () => {
     const production = moneyColumnPairs
       .flatMap((pair) => [triggerName(pair, "insert"), triggerName(pair, "update")])
       .sort();
 
     expect(expectedTriggerNameList.slice().sort()).toEqual(production);
-    expect(expectedTriggerNameList).toHaveLength(58);
+    expect(expectedTriggerNameList).toHaveLength(60);
   });
 });
 
@@ -386,6 +387,25 @@ describe("release invariants the updater depends on", () => {
 
     expect(orchestrator).toContain('fs.readFileSync(path.join(repositoryPath, "package.json"), "utf8"),\n  ).version');
     expect(orchestrator).not.toContain(packageJson.version);
+  });
+
+  /**
+   * The rehearsal is a dependency-free .mjs script, so it cannot import the
+   * migration ladder and writes the schema version it expects as a literal.
+   * Three of its checks compare against that number, and when migration 13
+   * landed they still read 12 — the run got twenty minutes in before failing
+   * on a stale constant rather than on a defect. This keeps the two in step
+   * from `npm test` instead.
+   */
+  it("expects the schema version the migration ladder actually produces", () => {
+    const orchestrator = fs.readFileSync(
+      "scripts/upgrade-rehearsal/index.mjs",
+      "utf8",
+    );
+    const declared = /const expectedSchemaVersion = (\d+);/.exec(orchestrator);
+
+    expect(declared).not.toBeNull();
+    expect(Number(declared![1])).toBe(LATEST_SCHEMA_VERSION);
   });
 
   it("exposes the rehearsal as its own command", () => {

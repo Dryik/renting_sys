@@ -19,7 +19,7 @@ The users are non-technical staff. The app must be simple, local, fast, and reli
 
 ## Product Scope
 
-A local-only rental management app. Current release: **v0.4.0**, in front of
+A local-only rental management app. Current release: **v0.4.3**, in front of
 real shops with real customer data.
 
 Modules that exist today, as feature folders under `src/features`:
@@ -69,6 +69,15 @@ A vehicle cannot be rented if its status is not available.
 
 A vehicle cannot have two active rentals at the same time.
 
+A contract's vehicle can be replaced mid-hire without ending the contract —
+the everyday breakdown. `rental_vehicle_segments` holds one row per vehicle the
+contract ran on, each keeping the rate agreed for its own days, and the rent is
+the sum over them. **A replacement never changes how many days the contract
+bills**; it only moves days between vehicles, so a bike that fails an hour into
+a hire costs the customer nothing and the shop does not charge a day for its
+own breakdown. The row with no end recorded is the vehicle the customer holds,
+and always agrees with `rentals.vehicle_id`.
+
 When a rental becomes active, the vehicle status becomes rented.
 
 When a rental is returned, the vehicle status becomes available unless the user marks it for maintenance.
@@ -79,25 +88,37 @@ Overdue means an active rental where expected return datetime is before now.
 
 ### Counting days
 
-These two are deliberately different. Do not "fix" one to match the other.
+**A rental day is a calendar day.** It is the number of dates the vehicle is
+out. Collected Monday and returned Wednesday is two days whether the customer
+comes back at 09:00 or at 18:00. This is `calculateRentalDays`. A same-day
+rental is one day, never zero.
 
-- **A rental day is a 24-hour period, and any part of one is charged in full.**
-  Collected at 09:00 Monday and returned at 10:00 Wednesday is three days, not
-  two. This is `calculateRentalDays`, and it is the standard vehicle-rental
-  convention.
-- **A late day is a calendar day.** This is `calculateLateDays`.
+**A late day is a calendar day too.** This is `calculateLateDays`. The two agree,
+and should stay that way.
 
-Counting rental days by calendar date instead drops a day from every contract
-whose return time of day is later than its pickup time of day — the ordinary
-shape of a rental — and silently reprices contracts that have already been
-signed and printed, because the total is recalculated whenever a rental is
-edited, extended or returned. It was changed to calendar dates once and
-reverted for exactly that reason.
+Both count in the shop's own calendar, not UTC — see `normalizeToCalendarDate`.
+A shop saying "the 15th" means its 15th.
 
-Tests that need an exact span must anchor both ends to one timestamp; see
+This was changed deliberately at v0.4.2. It previously counted 24-hour periods
+and charged any part of one in full, so an hour's delay on the return added a
+whole day to the bill — the ordinary shape of a rental, and a charge shops kept
+having to explain at the counter. The change applies to every contract: totals
+are recalculated whenever a rental is edited, extended or returned, so a
+contract signed under the old rule can come back a day shorter and cheaper. That
+was the accepted trade, taken over storing the rule per rental and migrating the
+schema.
+
+Do not "fix" it back. If it ever needs revisiting, that is a pricing decision
+for the shop owner, not a bug fix.
+
+Tests that need an exact span must still anchor both ends to one timestamp; see
 `rentalWindow` in `electron/db/database-test-harness.ts`. A fixture built from
-two separate `Date.now()` calls is "N days and a few milliseconds", which a
-whole-day rate correctly bills as N+1. Fix the fixture, never the rounding.
+two separate `Date.now()` calls drifts across midnight and counts a day either
+way depending on when it runs. Fix the fixture, never the counting.
+
+Fixtures also must not be written as `"…T09:00:00.000Z"` when the count matters:
+a calendar day is the shop's, so a UTC literal asks a different question in
+every timezone. Build them from local components instead.
 
 Payments must be simple:
 - rent
@@ -210,14 +231,17 @@ sandboxed preload/IPC → permission-guarded services in `electron/db/*.service.
 components must never touch SQLite or `ipcRenderer` directly.
 
 **Money is stored as integer minor units.** Every monetary column is a pair: the
-original `REAL` column and an integer `_minor` column beside it — 29 pairs and
-58 database triggers, both asserted by tests. Conversion is half away from zero
+original `REAL` column and an integer `_minor` column beside it — 30 pairs and
+60 database triggers, both asserted by tests. A pair records the schema version
+that introduced it, because a migration must keep describing the database as it
+was when it ran; `moneyColumnPairsUpTo` hands each one the inventory of its own
+moment. Conversion is half away from zero
 (`src/shared/money.ts`). Migration 12 deliberately leaves historical `REAL`
 values alone, so `legacy === minor / 100` is **false** for old rows and must
 never be asserted. Details in `DATABASE_DESIGN.md`.
 
 **Migrations write a verified safety backup first** and refuse to run if it
-cannot be written. Schema version is 12.
+cannot be written. Schema version is 13.
 
 **The audit log is append-only.** Rows may be added; existing rows must survive
 every upgrade.

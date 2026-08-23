@@ -33,13 +33,22 @@ const {
   activateRental,
   cancelRental,
   createDraftRental,
+  deleteRental,
   extendRental,
   listRentals,
+  replaceRentalVehicle,
   returnRental,
   returnRentalWithPayment,
   updateDraftRental,
 } = await import("./rentals.service");
 const { createVehicleSale } = await import("./vehicle-sales.service");
+const { createPayment } = await import("./payments.service");
+const { getVehicleIncome } = await import("./reports.service");
+const { calculateVehicleReplacementSummary } = await import(
+  "../../src/shared/rentals"
+);
+type RentalVehicleReplaceInput =
+  import("../../src/shared/rentals").RentalVehicleReplaceInput;
 
 type TestDatabase = ReturnType<typeof startTestDatabase>;
 
@@ -55,6 +64,8 @@ function vehicleStatus(vehicleId: number): string {
 
 function rentalRow(rentalId: number): {
   status: string;
+  start_datetime: string;
+  expected_return_datetime: string;
   actual_return_datetime: string | null;
   total_amount: number;
   paid_amount: number;
@@ -62,7 +73,9 @@ function rentalRow(rentalId: number): {
 } {
   return getSqliteDatabase()
     .prepare(
-      "select status, actual_return_datetime, total_amount, paid_amount, remaining_amount from rentals where id = ?",
+      `select status, start_datetime, expected_return_datetime,
+              actual_return_datetime, total_amount, paid_amount, remaining_amount
+       from rentals where id = ?`,
     )
     .get(rentalId) as never;
 }
@@ -651,5 +664,936 @@ describe("extending active and overdue rentals", () => {
 
     const dbRow = rentalRow(rental.id);
     expect(dbRow.total_amount).toBe(700);
+  });
+});
+
+/**
+ * Replacing the vehicle on a live contract.
+ *
+ * The shape of the day: a bike breaks, the customer is put on another, and the
+ * contract carries on under its own number. What must hold is that the shop
+ * bills the days the customer actually had — each at the rate of the bike they
+ * had it on — and that a breakdown never adds a day to the bill.
+ */
+describe("replacing the vehicle on an open contract", () => {
+  function segmentRows(rentalId: number): Array<{
+    sequence: number;
+    vehicle_id: number;
+    start_datetime: string;
+    end_datetime: string | null;
+    daily_price_minor: number;
+    mileage_out: number | null;
+    mileage_in: number | null;
+    reason: string | null;
+  }> {
+    return getSqliteDatabase()
+      .prepare(
+        `select sequence, vehicle_id, start_datetime, end_datetime, daily_price_minor,
+                mileage_out, mileage_in, reason
+         from rental_vehicle_segments where rental_id = ? order by sequence`,
+      )
+      .all(rentalId) as never;
+  }
+
+  /** A fixed local hour on a day relative to today, so a fixture never drifts
+   * across midnight with the clock. */
+  function atLocalHour(dayOffset: number, hour: number): string {
+    const day = new Date();
+    day.setDate(day.getDate() + dayOffset);
+    day.setHours(hour, 0, 0, 0);
+
+    return day.toISOString();
+  }
+
+  function buildReplaceInput(
+    rentalId: number,
+    replacementVehicleId: number,
+    overrides: Partial<RentalVehicleReplaceInput> = {},
+  ): RentalVehicleReplaceInput {
+    return {
+      rentalId,
+      replacementVehicleId,
+      replacedAtDatetime: new Date(Date.now() - 1000).toISOString(),
+      newDailyPrice: 100,
+      reason: "Engine failure on the original bike.",
+      outgoingMileageIn: 1200,
+      outgoingFuelIn: "half",
+      outgoingVehicleStatus: "maintenance",
+      maintenanceTitle: "Engine failure",
+      maintenanceDescription: null,
+      // Matches the test vehicle's own reading; mileage may never go backwards.
+      incomingMileageOut: 1000,
+      incomingFuelOut: "full",
+      notes: null,
+      originalVehicleNotHandedOver: false,
+      ...overrides,
+    };
+  }
+
+  it("moves the contract onto the new vehicle without ending it", () => {
+    const customerId = createTestCustomer();
+    const brokenVehicleId = createTestVehicle({ mileage: 1000 });
+    const replacementVehicleId = createTestVehicle({ mileage: 500 });
+    const rental = activateRental(
+      buildActivationInput(customerId, brokenVehicleId),
+    );
+
+    const updated = replaceRentalVehicle(
+      buildReplaceInput(rental.id, replacementVehicleId),
+    );
+
+    // The contract itself is untouched: same row, same number, still open.
+    expect(updated.id).toBe(rental.id);
+    expect(updated.contractNo).toBe(rental.contractNo);
+    expect(updated.status).toBe("active");
+    expect(updated.vehicleId).toBe(replacementVehicleId);
+    expect(vehicleStatus(brokenVehicleId)).toBe("maintenance");
+    expect(vehicleStatus(replacementVehicleId)).toBe("rented");
+  });
+
+  it("opens a maintenance record for a vehicle that could not be flagged while rented", () => {
+    const customerId = createTestCustomer();
+    const brokenVehicleId = createTestVehicle();
+    const replacementVehicleId = createTestVehicle();
+    const rental = activateRental(
+      buildActivationInput(customerId, brokenVehicleId),
+    );
+
+    replaceRentalVehicle(
+      buildReplaceInput(rental.id, replacementVehicleId, {
+        maintenanceTitle: "Engine failure",
+      }),
+    );
+
+    expect(
+      countRows(
+        "maintenance_records",
+        "vehicle_id = ? and end_date is null",
+        brokenVehicleId,
+      ),
+    ).toBe(1);
+  });
+
+  it("hands the broken vehicle back to the yard when nothing is wrong with it", () => {
+    const customerId = createTestCustomer();
+    const originalVehicleId = createTestVehicle();
+    const replacementVehicleId = createTestVehicle();
+    const rental = activateRental(
+      buildActivationInput(customerId, originalVehicleId),
+    );
+
+    replaceRentalVehicle(
+      buildReplaceInput(rental.id, replacementVehicleId, {
+        outgoingVehicleStatus: "available",
+        maintenanceTitle: null,
+        reason: "Customer asked for a larger bike.",
+      }),
+    );
+
+    expect(vehicleStatus(originalVehicleId)).toBe("available");
+    expect(countRows("maintenance_records", "vehicle_id = ?", originalVehicleId)).toBe(0);
+  });
+
+  it("records one closed period and one open period", () => {
+    const customerId = createTestCustomer();
+    const brokenVehicleId = createTestVehicle({ mileage: 1000 });
+    const replacementVehicleId = createTestVehicle({ mileage: 500 });
+    const rental = activateRental(
+      buildActivationInput(customerId, brokenVehicleId),
+    );
+    const replacedAt = new Date(Date.now() - 1000).toISOString();
+
+    replaceRentalVehicle(
+      buildReplaceInput(rental.id, replacementVehicleId, {
+        replacedAtDatetime: replacedAt,
+        incomingMileageOut: 500,
+      }),
+    );
+
+    const segments = segmentRows(rental.id);
+
+    expect(segments).toHaveLength(2);
+    expect(segments[0]).toMatchObject({
+      sequence: 1,
+      vehicle_id: brokenVehicleId,
+      end_datetime: replacedAt,
+      mileage_in: 1200,
+      reason: null,
+    });
+    expect(segments[1]).toMatchObject({
+      sequence: 2,
+      vehicle_id: replacementVehicleId,
+      start_datetime: replacedAt,
+      end_datetime: null,
+      mileage_out: 500,
+      reason: "Engine failure on the original bike.",
+    });
+  });
+
+  it("allows the same contract to replace its vehicle more than once", () => {
+    const customerId = createTestCustomer();
+    const firstVehicleId = createTestVehicle({ mileage: 1000 });
+    const secondVehicleId = createTestVehicle({ mileage: 1000 });
+    const thirdVehicleId = createTestVehicle({ mileage: 1000 });
+    const rental = activateRental(
+      buildActivationInput(customerId, firstVehicleId, {
+        startDatetime: atLocalHour(-3, 9),
+        expectedReturnDatetime: atLocalHour(1, 9),
+      }),
+    );
+    const firstReplacementAt = atLocalHour(-2, 9);
+    const secondReplacementAt = atLocalHour(-1, 9);
+
+    const onceReplaced = replaceRentalVehicle(
+      buildReplaceInput(rental.id, secondVehicleId, {
+        replacedAtDatetime: firstReplacementAt,
+        outgoingVehicleStatus: "available",
+        maintenanceTitle: null,
+        incomingMileageOut: 1000,
+        reason: "First replacement.",
+      }),
+    );
+    const twiceReplaced = replaceRentalVehicle(
+      buildReplaceInput(onceReplaced.id, thirdVehicleId, {
+        replacedAtDatetime: secondReplacementAt,
+        outgoingVehicleStatus: "available",
+        maintenanceTitle: null,
+        incomingMileageOut: 1000,
+        reason: "Second replacement.",
+      }),
+    );
+
+    expect(twiceReplaced.id).toBe(rental.id);
+    expect(twiceReplaced.contractNo).toBe(rental.contractNo);
+    expect(twiceReplaced.vehicleId).toBe(thirdVehicleId);
+    expect(twiceReplaced.status).toBe("active");
+    expect(segmentRows(rental.id)).toMatchObject([
+      {
+        sequence: 1,
+        vehicle_id: firstVehicleId,
+        end_datetime: firstReplacementAt,
+      },
+      {
+        sequence: 2,
+        vehicle_id: secondVehicleId,
+        end_datetime: secondReplacementAt,
+        reason: "First replacement.",
+      },
+      {
+        sequence: 3,
+        vehicle_id: thirdVehicleId,
+        end_datetime: null,
+        reason: "Second replacement.",
+      },
+    ]);
+    expect(vehicleStatus(firstVehicleId)).toBe("available");
+    expect(vehicleStatus(secondVehicleId)).toBe("available");
+    expect(vehicleStatus(thirdVehicleId)).toBe("rented");
+  });
+
+  /**
+   * The money question the whole feature turns on. A three-day contract that
+   * changes bikes on day two is still a three-day contract; what changes is
+   * which bike earns which day.
+   */
+  it("charges each vehicle its own rate for its own days, without adding a day", () => {
+    const customerId = createTestCustomer();
+    const brokenVehicleId = createTestVehicle();
+    const replacementVehicleId = createTestVehicle();
+    const window = rentalWindow(-3, 0);
+    const rental = activateRental(
+      buildActivationInput(customerId, brokenVehicleId, {
+        ...window,
+        dailyPrice: 100,
+      }),
+    );
+
+    expect(rental.totalAmount).toBe(300);
+
+    // Swapped one day in: one day on the old bike, two on the replacement.
+    const updated = replaceRentalVehicle(
+      buildReplaceInput(rental.id, replacementVehicleId, {
+        replacedAtDatetime: new Date(Date.parse(window.startDatetime) + 24 * 60 * 60 * 1000).toISOString(),
+        newDailyPrice: 200,
+      }),
+    );
+
+    expect(updated.totalAmount).toBe(100 + 400);
+    expect(updated.dailyPrice).toBe(200);
+
+    const days = (updated.vehicleSegments ?? []).map((segment) => segment.days);
+    expect(days).toEqual([1, 2]);
+    expect(days.reduce((sum, value) => sum + value, 0)).toBe(3);
+  });
+
+  it("charges nothing for a vehicle that failed on the day it went out", () => {
+    const customerId = createTestCustomer();
+    const brokenVehicleId = createTestVehicle();
+    const replacementVehicleId = createTestVehicle();
+    // The time of day is pinned, not taken from the clock. "An hour after the
+    // start" is only the same calendar day if the start is not near midnight,
+    // and `rentalWindow` anchors on `Date.now()`.
+    const rental = activateRental(
+      buildActivationInput(customerId, brokenVehicleId, {
+        startDatetime: atLocalHour(-3, 9),
+        expectedReturnDatetime: atLocalHour(0, 9),
+        dailyPrice: 100,
+      }),
+    );
+
+    const updated = replaceRentalVehicle(
+      buildReplaceInput(rental.id, replacementVehicleId, {
+        // An hour into the day the bike went out.
+        replacedAtDatetime: atLocalHour(-3, 10),
+        newDailyPrice: 100,
+      }),
+    );
+
+    // Three days billed, all of them on the bike the customer actually rode.
+    expect(updated.totalAmount).toBe(300);
+    expect((updated.vehicleSegments ?? []).map((segment) => segment.days)).toEqual([0, 3]);
+  });
+
+  it("moves the contract window when the original vehicle was never handed over", () => {
+    const customerId = createTestCustomer();
+    const unavailableVehicleId = createTestVehicle({ mileage: 1000 });
+    const replacementVehicleId = createTestVehicle({ mileage: 500 });
+    const window = rentalWindow(-6, 4);
+    const rental = activateRental(
+      buildActivationInput(customerId, unavailableVehicleId, {
+        ...window,
+        dailyPrice: 100,
+        mileageOut: 1000,
+      }),
+    );
+    const handoverAt = new Date(
+      Date.parse(window.startDatetime) + 3 * 24 * 60 * 60 * 1000 + 5 * 60 * 60 * 1000,
+    ).toISOString();
+    const promisedDuration =
+      Date.parse(window.expectedReturnDatetime) - Date.parse(window.startDatetime);
+
+    const updated = replaceRentalVehicle(
+      buildReplaceInput(rental.id, replacementVehicleId, {
+        replacedAtDatetime: handoverAt,
+        newDailyPrice: 100,
+        originalVehicleNotHandedOver: true,
+        // These are deliberately populated to prove the correction ignores a
+        // return reading for a vehicle the customer never received.
+        outgoingMileageIn: 1200,
+        outgoingFuelIn: "half",
+      }),
+    );
+
+    const stored = rentalRow(rental.id);
+    expect(updated.startDatetime).toBe(handoverAt);
+    expect(stored.start_datetime).toBe(handoverAt);
+    expect(Date.parse(updated.expectedReturnDatetime) - Date.parse(handoverAt)).toBe(
+      promisedDuration,
+    );
+    expect(stored.expected_return_datetime).toBe(updated.expectedReturnDatetime);
+    expect(updated.totalAmount).toBe(rental.totalAmount);
+    expect((updated.vehicleSegments ?? []).map((segment) => segment.days)).toEqual([0, 10]);
+
+    const segments = segmentRows(rental.id);
+    expect(segments[0]).toMatchObject({
+      start_datetime: handoverAt,
+      end_datetime: handoverAt,
+      mileage_out: null,
+      mileage_in: null,
+    });
+    expect(
+      countRows(
+        "vehicle_mileage_events",
+        "rental_id = ? and vehicle_id = ? and event_type = 'rental_return'",
+        rental.id,
+        unavailableVehicleId,
+      ),
+    ).toBe(0);
+    expect(
+      countRows(
+        "vehicle_mileage_events",
+        "rental_id = ? and vehicle_id = ? and event_type = 'manual_adjustment'",
+        rental.id,
+        unavailableVehicleId,
+      ),
+    ).toBe(1);
+  });
+
+  it("refuses a no-handover correction after vehicle history already exists", () => {
+    const customerId = createTestCustomer();
+    const firstVehicleId = createTestVehicle();
+    const secondVehicleId = createTestVehicle();
+    const thirdVehicleId = createTestVehicle();
+    const rental = activateRental(buildActivationInput(customerId, firstVehicleId));
+
+    const onceReplaced = replaceRentalVehicle(
+      buildReplaceInput(rental.id, secondVehicleId, {
+        outgoingVehicleStatus: "available",
+        maintenanceTitle: null,
+      }),
+    );
+
+    expect(() =>
+      replaceRentalVehicle(
+        buildReplaceInput(onceReplaced.id, thirdVehicleId, {
+          originalVehicleNotHandedOver: true,
+        }),
+      ),
+    ).toThrow(/before any earlier vehicle replacement/i);
+    expect(segmentRows(rental.id)).toHaveLength(2);
+    expect(vehicleStatus(secondVehicleId)).toBe("rented");
+    expect(vehicleStatus(thirdVehicleId)).toBe("available");
+  });
+
+  it("leaves the deposit, the payments and the balance where they were", () => {
+    const customerId = createTestCustomer();
+    const brokenVehicleId = createTestVehicle();
+    const replacementVehicleId = createTestVehicle();
+    const rental = activateRental(
+      buildActivationInput(customerId, brokenVehicleId, {
+        depositRequired: 50,
+        depositPaid: 50,
+      }),
+    );
+    const paymentsBefore = countRows("payments", "rental_id = ?", rental.id);
+
+    const updated = replaceRentalVehicle(
+      buildReplaceInput(rental.id, replacementVehicleId, { newDailyPrice: 100 }),
+    );
+
+    expect(updated.depositPaid).toBe(rental.depositPaid);
+    expect(updated.paidAmount).toBe(rental.paidAmount);
+    expect(countRows("payments", "rental_id = ?", rental.id)).toBe(paymentsBefore);
+    expect(updated.remainingAmount).toBe(updated.totalAmount - updated.paidAmount);
+  });
+
+  it("refuses a replacement vehicle that is not available", () => {
+    const customerId = createTestCustomer();
+    const brokenVehicleId = createTestVehicle();
+    const busyVehicleId = createTestVehicle({ status: "maintenance" });
+    const rental = activateRental(
+      buildActivationInput(customerId, brokenVehicleId),
+    );
+
+    expect(() =>
+      replaceRentalVehicle(buildReplaceInput(rental.id, busyVehicleId)),
+    ).toThrow(/not available/i);
+
+    expect(segmentRows(rental.id)).toHaveLength(1);
+    expect(vehicleStatus(brokenVehicleId)).toBe("rented");
+  });
+
+  it("refuses to replace a vehicle with itself", () => {
+    const customerId = createTestCustomer();
+    const vehicleId = createTestVehicle();
+    const rental = activateRental(buildActivationInput(customerId, vehicleId));
+
+    expect(() =>
+      replaceRentalVehicle(buildReplaceInput(rental.id, vehicleId)),
+    ).toThrow(/different vehicle/i);
+  });
+
+  it("refuses to touch a contract that is already closed", () => {
+    const customerId = createTestCustomer();
+    const vehicleId = createTestVehicle();
+    const replacementVehicleId = createTestVehicle();
+    const rental = activateRental(buildActivationInput(customerId, vehicleId));
+    returnRental(buildReturnInput(rental.id));
+
+    expect(() =>
+      replaceRentalVehicle(buildReplaceInput(rental.id, replacementVehicleId)),
+    ).toThrow(/active or overdue/i);
+  });
+
+  it("rolls everything back when the replacement is rejected partway", () => {
+    const customerId = createTestCustomer();
+    const brokenVehicleId = createTestVehicle({ mileage: 1000 });
+    const replacementVehicleId = createTestVehicle({ mileage: 5000 });
+    const rental = activateRental(
+      buildActivationInput(customerId, brokenVehicleId),
+    );
+
+    // Mileage out below the vehicle's own reading is refused, after the
+    // periods and the vehicle rows would otherwise have been written.
+    expect(() =>
+      replaceRentalVehicle(
+        buildReplaceInput(rental.id, replacementVehicleId, {
+          incomingMileageOut: 10,
+        }),
+      ),
+    ).toThrow(/mileage/i);
+
+    expect(segmentRows(rental.id)).toHaveLength(1);
+    expect(segmentRows(rental.id)[0].end_datetime).toBeNull();
+    expect(vehicleStatus(brokenVehicleId)).toBe("rented");
+    expect(vehicleStatus(replacementVehicleId)).toBe("available");
+  });
+
+  it("closes the replacement's period, not the broken vehicle's, on return", () => {
+    const customerId = createTestCustomer();
+    const brokenVehicleId = createTestVehicle();
+    const replacementVehicleId = createTestVehicle();
+    const rental = activateRental(
+      buildActivationInput(customerId, brokenVehicleId),
+    );
+    replaceRentalVehicle(buildReplaceInput(rental.id, replacementVehicleId));
+
+    returnRental(buildReturnInput(rental.id, { mileageIn: 1100 }));
+
+    const segments = segmentRows(rental.id);
+    expect(segments.every((segment) => segment.end_datetime !== null)).toBe(true);
+    expect(segments[1].mileage_in).toBe(1100);
+    expect(vehicleStatus(replacementVehicleId)).toBe("available");
+    // The broken bike stays where the replacement put it.
+    expect(vehicleStatus(brokenVehicleId)).toBe("maintenance");
+  });
+
+  it("reprices an early return over the days ridden on each vehicle", () => {
+    const customerId = createTestCustomer();
+    const brokenVehicleId = createTestVehicle();
+    const replacementVehicleId = createTestVehicle();
+    const window = rentalWindow(-4, 4);
+    const rental = activateRental(
+      buildActivationInput(customerId, brokenVehicleId, {
+        ...window,
+        dailyPrice: 100,
+      }),
+    );
+    replaceRentalVehicle(
+      buildReplaceInput(rental.id, replacementVehicleId, {
+        replacedAtDatetime: new Date(
+          Date.parse(window.startDatetime) + 2 * 24 * 60 * 60 * 1000,
+        ).toISOString(),
+        newDailyPrice: 200,
+      }),
+    );
+
+    // Brought back four days in: two on the old bike, two on the replacement.
+    const returned = returnRental(
+      buildReturnInput(rental.id, { recalculateForActualDays: true }),
+    );
+
+    expect(returned.totalAmount).toBe(2 * 100 + 2 * 200);
+  });
+
+  it("charges extension days at the replacement's rate", () => {
+    const customerId = createTestCustomer();
+    const brokenVehicleId = createTestVehicle();
+    const replacementVehicleId = createTestVehicle();
+    const window = rentalWindow(-2, 1);
+    const rental = activateRental(
+      buildActivationInput(customerId, brokenVehicleId, {
+        ...window,
+        dailyPrice: 100,
+      }),
+    );
+    replaceRentalVehicle(
+      buildReplaceInput(rental.id, replacementVehicleId, {
+        replacedAtDatetime: new Date(
+          Date.parse(window.startDatetime) + 24 * 60 * 60 * 1000,
+        ).toISOString(),
+        newDailyPrice: 300,
+      }),
+    );
+
+    const { rental: extended } = extendRental({
+      rentalId: rental.id,
+      newExpectedReturnDatetime: new Date(
+        Date.parse(window.expectedReturnDatetime) + 2 * 24 * 60 * 60 * 1000,
+      ).toISOString(),
+      recordPayment: false,
+    });
+
+    // One day at 100, then four at 300 — the two added days go to the bike the
+    // customer is holding, not to the rate the contract started on.
+    expect(extended.totalAmount).toBe(100 + 4 * 300);
+  });
+
+  /**
+   * The counter agrees a price with the customer from what the dialog shows.
+   * If that number and the one the service writes could drift apart, the shop
+   * would be quoting one figure and billing another.
+   */
+  it("bills exactly what the dialog previewed", () => {
+    const customerId = createTestCustomer();
+    const brokenVehicleId = createTestVehicle();
+    const replacementVehicleId = createTestVehicle();
+    const window = rentalWindow(-3, 4);
+    const rental = activateRental(
+      buildActivationInput(customerId, brokenVehicleId, {
+        ...window,
+        dailyPrice: 90,
+      }),
+    );
+    const replacedAt = new Date(
+      Date.parse(window.startDatetime) + 2 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+
+    // Exactly what the dialog computes before the counter presses Replace.
+    const preview = calculateVehicleReplacementSummary({
+      startDatetime: rental.startDatetime,
+      expectedReturnDatetime: rental.expectedReturnDatetime,
+      segments: rental.vehicleSegments,
+      replacedAtDatetime: replacedAt,
+      newDailyPrice: 145,
+      accessoryCharges: rental.accessoryCharges,
+      currentTotalAmount: rental.totalAmount,
+      paidAmount: rental.paidAmount,
+    });
+
+    const updated = replaceRentalVehicle(
+      buildReplaceInput(rental.id, replacementVehicleId, {
+        replacedAtDatetime: replacedAt,
+        newDailyPrice: 145,
+      }),
+    );
+
+    expect(preview).not.toBeNull();
+    expect(preview?.newTotalAmount).toBe(updated.totalAmount);
+    expect(preview?.newRemainingAmount).toBe(updated.remainingAmount);
+    expect([preview?.outgoingDays, preview?.incomingDays]).toEqual(
+      (updated.vehicleSegments ?? []).map((segment) => segment.days),
+    );
+  });
+
+  it("closes the vehicle period when a contract is cancelled", () => {
+    const customerId = createTestCustomer();
+    const vehicleId = createTestVehicle();
+    const rental = activateRental(buildActivationInput(customerId, vehicleId));
+
+    cancelRental({
+      rentalId: rental.id,
+      reason: "Customer changed his mind half an hour in.",
+    });
+
+    // A cancelled contract is not still out on a vehicle. Leaving the period
+    // open leaves the history claiming the bike is on hire, and the panel
+    // showing its end date as "now", forever.
+    const open = getSqliteDatabase()
+      .prepare(
+        "select count(*) as count from rental_vehicle_segments where rental_id = ? and end_datetime is null",
+      )
+      .get(rental.id) as { count: number };
+
+    expect(open.count).toBe(0);
+  });
+
+  it("writes an audit entry naming both vehicles and the reason", () => {
+    const customerId = createTestCustomer();
+    const brokenVehicleId = createTestVehicle();
+    const replacementVehicleId = createTestVehicle();
+    const rental = activateRental(
+      buildActivationInput(customerId, brokenVehicleId),
+    );
+
+    replaceRentalVehicle(
+      buildReplaceInput(rental.id, replacementVehicleId, {
+        reason: "Engine seized on the highway.",
+      }),
+    );
+
+    const entry = getSqliteDatabase()
+      .prepare(
+        `select reason, metadata_json from audit_events
+         where action = 'rental.vehicle.replaced' and entity_id = ?`,
+      )
+      .get(rental.id) as { reason: string; metadata_json: string } | undefined;
+
+    expect(entry?.reason).toBe("Engine seized on the highway.");
+    expect(JSON.parse(entry?.metadata_json ?? "{}")).toMatchObject({
+      previousVehicleId: brokenVehicleId,
+      replacementVehicleId,
+    });
+  });
+});
+
+/**
+ * A contract that ran on two vehicles took money for both of them. The vehicle
+ * income report has to say which vehicle earned what, or a shop deciding
+ * whether a bike pays for itself is reading another bike's takings.
+ */
+describe("vehicle income after a replacement", () => {
+  const today = () => {
+    const now = new Date();
+    const pad = (value: number) => String(value).padStart(2, "0");
+
+    // Local components, not an ISO slice: the report ranges over the shop's
+    // own day, and a UTC slice reads as yesterday just after local midnight.
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  };
+
+  function incomeFor(vehicleId: number): {
+    totalIncome: number;
+    rentalCount: number;
+  } {
+    const row = getVehicleIncome(today(), today()).find(
+      (record) => record.vehicleId === vehicleId,
+    );
+
+    return {
+      totalIncome: row?.totalIncome ?? 0,
+      rentalCount: row?.rentalCount ?? 0,
+    };
+  }
+
+  it("credits an unswapped contract entirely to its one vehicle", () => {
+    const customerId = createTestCustomer();
+    const vehicleId = createTestVehicle();
+    const rental = activateRental(
+      buildActivationInput(customerId, vehicleId, {
+        ...rentalWindow(-3, 0),
+        dailyPrice: 100,
+      }),
+    );
+    createPayment({
+      rentalId: rental.id,
+      type: "rent",
+      method: "cash",
+      amount: 300,
+      paymentDate: new Date().toISOString(),
+      notes: null,
+    });
+
+    expect(incomeFor(vehicleId)).toEqual({ totalIncome: 300, rentalCount: 1 });
+  });
+
+  it("splits one contract's takings across the vehicles that earned them", () => {
+    const customerId = createTestCustomer();
+    const brokenVehicleId = createTestVehicle();
+    const replacementVehicleId = createTestVehicle();
+    const window = rentalWindow(-3, 0);
+    const rental = activateRental(
+      buildActivationInput(customerId, brokenVehicleId, {
+        ...window,
+        dailyPrice: 100,
+      }),
+    );
+    replaceRentalVehicle({
+      rentalId: rental.id,
+      replacementVehicleId,
+      replacedAtDatetime: new Date(
+        Date.parse(window.startDatetime) + 24 * 60 * 60 * 1000,
+      ).toISOString(),
+      newDailyPrice: 200,
+      reason: "Engine failure on the original bike.",
+      outgoingMileageIn: 1200,
+      outgoingFuelIn: "half",
+      outgoingVehicleStatus: "maintenance",
+      maintenanceTitle: "Engine failure",
+      maintenanceDescription: null,
+      incomingMileageOut: 1000,
+      incomingFuelOut: "full",
+      notes: null,
+    });
+
+    // One day at 100 on the broken bike, two at 200 on the replacement.
+    createPayment({
+      rentalId: rental.id,
+      type: "rent",
+      method: "cash",
+      amount: 500,
+      paymentDate: new Date().toISOString(),
+      notes: null,
+    });
+
+    expect(incomeFor(brokenVehicleId)).toEqual({
+      totalIncome: 100,
+      rentalCount: 1,
+    });
+    expect(incomeFor(replacementVehicleId)).toEqual({
+      totalIncome: 400,
+      rentalCount: 1,
+    });
+  });
+
+  it("loses nothing in the split when the shares do not divide evenly", () => {
+    const customerId = createTestCustomer();
+    const brokenVehicleId = createTestVehicle();
+    const replacementVehicleId = createTestVehicle();
+    const window = rentalWindow(-3, 0);
+    const rental = activateRental(
+      buildActivationInput(customerId, brokenVehicleId, {
+        ...window,
+        dailyPrice: 100,
+      }),
+    );
+    replaceRentalVehicle({
+      rentalId: rental.id,
+      replacementVehicleId,
+      replacedAtDatetime: new Date(
+        Date.parse(window.startDatetime) + 24 * 60 * 60 * 1000,
+      ).toISOString(),
+      newDailyPrice: 100,
+      reason: "Engine failure on the original bike.",
+      outgoingMileageIn: 1200,
+      outgoingFuelIn: "half",
+      outgoingVehicleStatus: "available",
+      maintenanceTitle: null,
+      maintenanceDescription: null,
+      incomingMileageOut: 1000,
+      incomingFuelOut: "full",
+      notes: null,
+    });
+
+    // A part payment that splits one third to two thirds and cannot divide
+    // into whole cents.
+    createPayment({
+      rentalId: rental.id,
+      type: "rent",
+      method: "cash",
+      amount: 100,
+      paymentDate: new Date().toISOString(),
+      notes: null,
+    });
+
+    const broken = incomeFor(brokenVehicleId).totalIncome;
+    const replacement = incomeFor(replacementVehicleId).totalIncome;
+
+    expect(broken + replacement).toBe(100);
+    // The odd cent follows the larger share rather than being dropped.
+    expect(broken).toBe(33.33);
+    expect(replacement).toBe(66.67);
+  });
+});
+
+/**
+ * Getting rid of a contract that never happened.
+ *
+ * Two everyday cases: a draft raised by mistake, and a customer who took the
+ * bike, changed his mind half an hour later and paid nothing. Neither is a
+ * record worth keeping, and both otherwise sit in the list forever.
+ */
+describe("cancelling and deleting contracts that took no money", () => {
+  function paymentCount(rentalId: number): number {
+    return countRows("payments", "rental_id = ?", rentalId);
+  }
+
+  it("cancels a draft, which could not be cancelled at all before", () => {
+    const customerId = createTestCustomer();
+    const vehicleId = createTestVehicle();
+    const draft = createDraftRental(buildActivationInput(customerId, vehicleId));
+
+    const cancelled = cancelRental({
+      rentalId: draft.id,
+      reason: "Raised by mistake.",
+    });
+
+    expect(cancelled.status).toBe("cancelled");
+  });
+
+  it("leaves a vehicle alone when the cancelled contract never held it", () => {
+    const customerId = createTestCustomer();
+    const vehicleId = createTestVehicle();
+    // The vehicle is out on a real contract while a draft names it too.
+    const draft = createDraftRental(buildActivationInput(customerId, vehicleId));
+    activateRental(buildActivationInput(customerId, vehicleId));
+
+    cancelRental({ rentalId: draft.id, reason: "Raised by mistake." });
+
+    // Cancelling the draft must not hand back a bike somebody is riding.
+    expect(vehicleStatus(vehicleId)).toBe("rented");
+  });
+
+  it("deletes a cancelled contract that never took a payment", () => {
+    const customerId = createTestCustomer();
+    const vehicleId = createTestVehicle();
+    const rental = activateRental(buildActivationInput(customerId, vehicleId));
+    cancelRental({
+      rentalId: rental.id,
+      reason: "Customer changed his mind half an hour in.",
+    });
+
+    deleteRental({ rentalId: rental.id, reason: "Nothing was ever taken." });
+
+    expect(countRows("rentals", "id = ?", rental.id)).toBe(0);
+    expect(countRows("rental_vehicle_segments", "rental_id = ?", rental.id)).toBe(0);
+    expect(countRows("vehicle_mileage_events", "rental_id = ?", rental.id)).toBe(0);
+    // The bike was already freed by the cancel and stays free.
+    expect(vehicleStatus(vehicleId)).toBe("available");
+  });
+
+  it("keeps a contract that took money, however small", () => {
+    const customerId = createTestCustomer();
+    const vehicleId = createTestVehicle();
+    const rental = activateRental(buildActivationInput(customerId, vehicleId));
+    createPayment({
+      rentalId: rental.id,
+      type: "rent",
+      method: "cash",
+      amount: 25,
+      paymentDate: new Date().toISOString(),
+      notes: null,
+    });
+    cancelRental({ rentalId: rental.id, reason: "Customer changed his mind." });
+
+    expect(paymentCount(rental.id)).toBe(1);
+    expect(() =>
+      deleteRental({ rentalId: rental.id, reason: "Tidying up." }),
+    ).toThrow(/payments recorded/i);
+
+    expect(countRows("rentals", "id = ?", rental.id)).toBe(1);
+  });
+
+  it("refuses to delete a contract that is still open", () => {
+    const customerId = createTestCustomer();
+    const vehicleId = createTestVehicle();
+    const rental = activateRental(buildActivationInput(customerId, vehicleId));
+
+    expect(() =>
+      deleteRental({ rentalId: rental.id, reason: "Tidying up." }),
+    ).toThrow(/cancelled/i);
+
+    expect(countRows("rentals", "id = ?", rental.id)).toBe(1);
+    expect(vehicleStatus(vehicleId)).toBe("rented");
+  });
+
+  it("records what was deleted in the audit log, which keeps it", () => {
+    const customerId = createTestCustomer();
+    const vehicleId = createTestVehicle();
+    const rental = activateRental(buildActivationInput(customerId, vehicleId));
+    cancelRental({ rentalId: rental.id, reason: "Customer changed his mind." });
+
+    deleteRental({ rentalId: rental.id, reason: "Nothing was ever taken." });
+
+    const entry = getSqliteDatabase()
+      .prepare(
+        `select reason, entity_label, before_json from audit_events
+         where action = 'rental.deleted' and entity_id = ?`,
+      )
+      .get(rental.id) as
+      | { reason: string; entity_label: string; before_json: string }
+      | undefined;
+
+    expect(entry?.reason).toBe("Nothing was ever taken.");
+    expect(entry?.entity_label).toBe(rental.contractNo);
+    // The snapshot outlives the contract it describes.
+    expect(JSON.parse(entry?.before_json ?? "{}")).toMatchObject({
+      contractNo: rental.contractNo,
+    });
+  });
+
+  it("deletes a cancelled draft, accessories and collateral with it", () => {
+    const customerId = createTestCustomer();
+    const vehicleId = createTestVehicle();
+    const draft = createDraftRental(
+      buildActivationInput(customerId, vehicleId, {
+        collateralItems: [
+          {
+            type: "passport",
+            description: "Customer passport",
+            referenceNumber: "P12345",
+            estimatedValue: null,
+            currency: null,
+            notes: null,
+          },
+        ],
+      }),
+    );
+    cancelRental({ rentalId: draft.id, reason: "Raised by mistake." });
+
+    deleteRental({ rentalId: draft.id, reason: "Nothing was ever taken." });
+
+    expect(countRows("rentals", "id = ?", draft.id)).toBe(0);
+    expect(countRows("rental_collateral_items", "rental_id = ?", draft.id)).toBe(0);
   });
 });

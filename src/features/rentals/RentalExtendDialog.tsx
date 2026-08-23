@@ -9,12 +9,14 @@ import {
 } from "lucide-react";
 import { useEffect, useId, useMemo, useRef } from "react";
 import { useForm, useWatch } from "react-hook-form";
+import { createPortal } from "react-dom";
 import { BidiValue } from "@/components/ui/bidi-value";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useModalBehavior } from "@/hooks/useModalBehavior";
 import {
   calculateExtensionSummary,
+  extendedReturnDatetime,
   getDefaultRentalExtendFormValues,
   normalizeToCalendarDate,
   rentalExtendFormSchema,
@@ -22,6 +24,7 @@ import {
   type RentalExtendFormInput,
   type RentalExtendFormValues,
   type RentalExtendInput,
+  toRentSegmentPeriods,
   type RentalListRecord,
 } from "@/shared/rentals";
 
@@ -73,8 +76,7 @@ export function RentalExtendDialog({
       ? getDefaultRentalExtendFormValues(rental, 7)
       : {
           newExpectedReturnDatetime: "",
-          dailyPrice: "",
-          recordPayment: true,
+          recordPayment: false,
           paymentAmount: "0",
           paymentMethod: "cash",
           paymentNotes: "",
@@ -93,14 +95,22 @@ export function RentalExtendDialog({
     control,
     name: "newExpectedReturnDatetime",
   });
-  const dailyPriceValue = useWatch({ control, name: "dailyPrice" });
   const recordPayment = useWatch({ control, name: "recordPayment" });
   const printFirstPageOnly = useWatch({
     control,
     name: "printFirstPageOnly",
   });
 
-  const dailyPriceNum = Number(dailyPriceValue) || rental?.dailyPrice || 0;
+  // The contract's own rate: extending moves the date, it does not reprice.
+  const dailyPriceNum = rental?.dailyPrice ?? 0;
+
+  // Present only after a mid-contract replacement. Without it the preview
+  // would price every day at the current vehicle's rate and disagree with the
+  // total the service goes on to write.
+  const segments = useMemo(
+    () => toRentSegmentPeriods(rental?.vehicleSegments),
+    [rental],
+  );
 
   const summary = useMemo(() => {
     if (!rental || !newReturnDate) {
@@ -112,10 +122,11 @@ export function RentalExtendDialog({
       currentExpectedReturnDatetime: rental.expectedReturnDatetime,
       newExpectedReturnDatetime: newReturnDate,
       dailyPrice: dailyPriceNum,
+      segments,
       accessoryCharges: rental.accessoryCharges,
       paidAmount: rental.paidAmount,
     });
-  }, [rental, newReturnDate, dailyPriceNum]);
+  }, [rental, newReturnDate, dailyPriceNum, segments]);
 
   function handleQuickAddDays(days: number) {
     if (!rental) return;
@@ -136,6 +147,7 @@ export function RentalExtendDialog({
       currentExpectedReturnDatetime: rental.expectedReturnDatetime,
       newExpectedReturnDatetime: updatedDateStr,
       dailyPrice: dailyPriceNum,
+      segments,
       accessoryCharges: rental.accessoryCharges,
       paidAmount: rental.paidAmount,
     });
@@ -152,8 +164,12 @@ export function RentalExtendDialog({
 
     const input: RentalExtendInput = {
       rentalId: rental.id,
-      newExpectedReturnDatetime: data.newExpectedReturnDatetime,
-      dailyPrice: data.dailyPrice,
+      // Staff pick a date; the contract keeps its own time of day, so
+      // extending by N days adds exactly N billable days.
+      newExpectedReturnDatetime: extendedReturnDatetime(
+        rental.expectedReturnDatetime,
+        data.newExpectedReturnDatetime,
+      ),
       recordPayment: data.recordPayment,
       paymentAmount: data.recordPayment ? data.paymentAmount : undefined,
       paymentMethod: data.recordPayment ? data.paymentMethod : undefined,
@@ -168,7 +184,7 @@ export function RentalExtendDialog({
     return null;
   }
 
-  return (
+  const dialog = (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 px-4 py-6 backdrop-blur-[1px] overflow-y-auto"
       data-motion="overlay"
@@ -293,26 +309,6 @@ export function RentalExtendDialog({
               </div>
             </div>
 
-            {/* Daily Price Field */}
-            <div>
-              <label className="text-sm font-medium">
-                {t("Daily Price")}
-              </label>
-              <div className="mt-1">
-                <Input
-                  data-ltr="true"
-                  inputMode="decimal"
-                  placeholder="50"
-                  aria-invalid={Boolean(errors.dailyPrice)}
-                  {...register("dailyPrice")}
-                />
-              </div>
-              {errors.dailyPrice ? (
-                <p className="mt-1 text-xs text-destructive">
-                  {errors.dailyPrice.message}
-                </p>
-              ) : null}
-            </div>
           </div>
 
           {/* Live Extension Summary Card */}
@@ -466,4 +462,10 @@ export function RentalExtendDialog({
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") {
+    return dialog;
+  }
+
+  return createPortal(dialog, document.body);
 }

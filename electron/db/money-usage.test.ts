@@ -128,7 +128,7 @@ describe("services read the minor column, never the mirror", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("declares a Legacy and a Minor property for all 29 pairs in the schema", () => {
+  it("declares a Legacy and a Minor property for all 30 pairs in the schema", () => {
     const schema = fs.readFileSync(path.join(electronDbPath, "schema.ts"), "utf8");
 
     for (const pair of moneyColumnPairs) {
@@ -136,7 +136,7 @@ describe("services read the minor column, never the mirror", () => {
       expect(schema).toContain(`integer("${pair.minorColumn}")`);
     }
 
-    expect(schema.match(/Legacy: real\(/g)).toHaveLength(29);
+    expect(schema.match(/Legacy: real\(/g)).toHaveLength(30);
   });
 });
 

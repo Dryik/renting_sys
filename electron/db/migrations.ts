@@ -1,9 +1,9 @@
 import type Database from "better-sqlite3";
 import {
-  allMoneyMirrorTriggerSql,
   backfillMoneyMinorColumns,
-  moneyColumnPairs,
+  moneyColumnPairsUpTo,
   moneyMinorColumnDefinition,
+  moneyMirrorTriggerSqlFor,
 } from "./money-columns";
 import {
   accessoriesTableSql,
@@ -21,6 +21,7 @@ import {
   numberSequencesTableSql,
   rentalAccessoriesTableSql,
   rentalCollateralItemsTableSql,
+  rentalVehicleSegmentsTableSql,
   rolePermissionsTableSql,
   rolesTableSql,
   usersTableSql,
@@ -222,7 +223,12 @@ export const migrations: Migration[] = [
     version: 12,
     name: "integer minor units for money",
     up: (database) => {
-      for (const pair of moneyColumnPairs) {
+      // The inventory as it stood at version 12. A pair added by a later
+      // version belongs to a table this migration's database does not have
+      // yet, and asking for it here would break every upgrade from below 12.
+      const pairs = moneyColumnPairsUpTo(12);
+
+      for (const pair of pairs) {
         addColumnIfMissing(
           database,
           pair.table,
@@ -242,7 +248,7 @@ export const migrations: Migration[] = [
       // Runs inside the migration's transaction: any value that cannot convert
       // rolls back the columns, the backfill and the version bump together, so
       // the file stays a valid version 11 next to its safety backup.
-      backfillMoneyMinorColumns(database);
+      backfillMoneyMinorColumns(database, pairs);
 
       // The guards go on in the same transaction as the backfill and the
       // version bump. A file that records version 12 has never once existed
@@ -250,7 +256,41 @@ export const migrations: Migration[] = [
       // REAL-only amount into it unnoticed. `finishSchema` re-runs the same
       // idempotent statements afterwards purely to repair a file whose triggers
       // were dropped by hand.
-      database.exec(allMoneyMirrorTriggerSql);
+      database.exec(moneyMirrorTriggerSqlFor(pairs));
+    },
+  },
+  {
+    version: 13,
+    name: "vehicle replacement history",
+    up: (database, now) => {
+      database.exec(rentalVehicleSegmentsTableSql);
+
+      // Every existing contract becomes a contract with one vehicle, which is
+      // exactly what it was. Nothing downstream then needs to special-case a
+      // rental from before this version: the segmented total of a one-segment
+      // contract is the total it already had.
+      //
+      // The rate is copied from the minor column, the one the app calculates
+      // with. Copying the REAL column instead would import migration 12's
+      // deliberately unconverted historical values as if they were current.
+      database
+        .prepare(
+          `insert into rental_vehicle_segments (
+             rental_id, vehicle_id, sequence, start_datetime, end_datetime,
+             daily_price, daily_price_minor, mileage_out, mileage_in,
+             fuel_out, fuel_in, reason, created_by_user_id, created_at, updated_at
+           )
+           select
+             id, vehicle_id, 1, start_datetime, actual_return_datetime,
+             daily_price_minor / 100.0, daily_price_minor, mileage_out, mileage_in,
+             fuel_out, fuel_in, null, created_by_user_id, ?, ?
+           from rentals`,
+        )
+        .run(now, now);
+
+      // The new pair gets its guards in the same transaction as the rows it
+      // guards, so a version 13 file has never existed without them.
+      database.exec(moneyMirrorTriggerSqlFor(moneyColumnPairsUpTo(13)));
     },
   },
 ];

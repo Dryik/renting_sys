@@ -82,6 +82,27 @@ export function canOperateRental(rental: RentalListRecord): boolean {
   return rental.status === "active" || rental.status === "overdue";
 }
 
+/**
+ * Cancelling reaches further than the other actions: a draft can be cancelled
+ * too, which is how a contract raised by mistake leaves the list. Returning,
+ * extending and replacing still need a contract that is actually running.
+ */
+export function canCancelRental(rental: RentalListRecord): boolean {
+  return canOperateRental(rental) || rental.status === "draft";
+}
+
+/**
+ * Deleting is offered only once a contract is cancelled and only while nothing
+ * financial has touched it. The service enforces both; this decides whether
+ * the button is worth showing.
+ */
+export function canDeleteRental(
+  rental: RentalListRecord,
+  paymentCount: number,
+): boolean {
+  return rental.status === "cancelled" && paymentCount === 0;
+}
+
 export function getErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message) {
     return error.message;

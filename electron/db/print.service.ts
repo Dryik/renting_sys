@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog } from "electron";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import fs from "node:fs";
 import os from "node:os";
@@ -12,6 +12,7 @@ import {
   payments,
   rentalAccessories,
   rentalCollateralItems,
+  rentalVehicleSegments,
   rentals,
   users,
   vehicleSales,
@@ -20,6 +21,7 @@ import {
 import { getShopSettings } from "./settings.service";
 import { escapeHtml } from "../../src/shared/html";
 import { translate } from "../../src/shared/i18n";
+import { calculateSegmentedRentMinor } from "../../src/shared/rentals";
 import {
   getDirectionForLanguage,
   getLocaleForLanguage,
@@ -229,25 +231,25 @@ function logPrintEvent(
   outcome: string,
   reason?: string,
 ): void {
-  const entry = {
-    timestamp: new Date().toISOString(),
-    documentType,
-    outcome,
-    reason,
-    appVersion: app.getVersion(),
-    electronVersion: process.versions.electron,
-    os: `${process.platform} ${os.release()}`,
-    packaged: app.isPackaged,
-    pageSize: "A4",
-  };
-  const line = JSON.stringify(entry);
-  console.info("Print event:", line);
   try {
+    const entry = {
+      timestamp: new Date().toISOString(),
+      documentType,
+      outcome,
+      reason,
+      appVersion: app.getVersion(),
+      electronVersion: process.versions.electron,
+      os: `${process.platform} ${os.release()}`,
+      packaged: app.isPackaged,
+      pageSize: "A4",
+    };
+    const line = JSON.stringify(entry);
     const logsDirectory = app.getPath("logs");
     fs.mkdirSync(logsDirectory, { recursive: true });
     fs.appendFileSync(path.join(logsDirectory, "printing.jsonl"), `${line}\n`, "utf8");
-  } catch (error) {
-    console.error("Failed to write print diagnostics:", error);
+  } catch {
+    // Diagnostics must never interrupt a completed contract action or print.
+    // In particular, development launches can outlive their stdout pipe.
   }
 }
 
@@ -407,6 +409,40 @@ export async function printRentalContract(
       ),
     }));
 
+  // Printed only when the contract ran on more than one vehicle, so a customer
+  // reissued a contract after a breakdown can see which bike they had when.
+  const vehiclePeriods = db
+    .select({
+      plateNumber: vehicles.plateNumber,
+      brand: vehicles.brand,
+      model: vehicles.model,
+      startDatetime: rentalVehicleSegments.startDatetime,
+      endDatetime: rentalVehicleSegments.endDatetime,
+      dailyPriceMinor: rentalVehicleSegments.dailyPriceMinor,
+      reason: rentalVehicleSegments.reason,
+    })
+    .from(rentalVehicleSegments)
+    .innerJoin(vehicles, eq(rentalVehicleSegments.vehicleId, vehicles.id))
+    .where(eq(rentalVehicleSegments.rentalId, rentalId))
+    .orderBy(asc(rentalVehicleSegments.sequence))
+    .all();
+  const periodDays =
+    vehiclePeriods.length > 1
+      ? calculateSegmentedRentMinor(
+          printableRental.startDatetime,
+          printableRental.actualReturnDatetime ??
+            printableRental.expectedReturnDatetime,
+          vehiclePeriods.map((period) => ({
+            startDatetime: period.startDatetime,
+            endDatetime: period.endDatetime,
+            dailyPriceMinor: columnToMinor(
+              period.dailyPriceMinor,
+              "rental_vehicle_segments.daily_price_minor",
+            ),
+          })),
+        ).segmentDays
+      : [];
+
   const currentUser = getCurrentUserForService();
   const issuedByName =
     rental.activatedByName ?? rental.createdByName ?? currentUser?.fullName ?? null;
@@ -420,6 +456,15 @@ export async function printRentalContract(
     settings,
     accessories: assignedAccessories,
     collateralItems,
+    vehiclePeriods: vehiclePeriods.map((period, index) => ({
+      plateNumber: period.plateNumber,
+      brand: period.brand,
+      model: period.model,
+      startDatetime: period.startDatetime,
+      endDatetime: period.endDatetime,
+      days: periodDays[index] ?? 0,
+      reason: period.reason,
+    })),
     issuedByName,
     issuedByUsername,
     printedAt: new Date().toISOString(),

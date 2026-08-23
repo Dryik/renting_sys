@@ -1,6 +1,6 @@
 # Product Scope
 
-Current release: **v0.4.0**.
+Current release: **v0.4.3**.
 
 This app is for small car and motorcycle rental shops running one Windows
 desktop or laptop. It is local-only: no cloud, no server, no account to sign up

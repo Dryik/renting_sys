@@ -54,6 +54,15 @@ import {
 
 const repositoryPath = path.resolve(fileURLToPath(import.meta.url), "..", "..", "..");
 const releasedTag = process.env.RENTAL_UPGRADE_FROM_TAG ?? "v0.3.9";
+/**
+ * The schema version a data file reaches after this release upgrades it.
+ *
+ * Written out because this script stays dependency-free and cannot import the
+ * TypeScript migration ladder. `upgrade-rehearsal.test.ts` asserts it equals
+ * `LATEST_SCHEMA_VERSION`, so a new migration that forgets to update it fails
+ * in `npm test` rather than three checks into a twenty-minute CI run.
+ */
+const expectedSchemaVersion = 13;
 const debuggingPort = Number(process.env.RENTAL_UPGRADE_DEBUG_PORT ?? 9411);
 const upgradeMethod = readUpgradeMethod(process.env.RENTAL_UPGRADE_METHOD);
 
@@ -338,18 +347,22 @@ async function main() {
     const after = readManifest(databasePath, uploadsPath, expectedMoneyPairs);
     report.after = after;
 
-    check("the database is at schema version 12", after.schemaVersion, 12);
+    check(
+      `the database is at schema version ${expectedSchemaVersion}`,
+      after.schemaVersion,
+      expectedSchemaVersion,
+    );
     check("integrity_check reports ok", after.integrity.integrityCheck, ["ok"]);
     check("foreign_key_check returns no rows", after.integrity.foreignKeyViolations, []);
     check(
-      "all 29 minor-unit columns exist, exactly the expected ones",
+      "all 30 minor-unit columns exist, exactly the expected ones",
       after.minorColumns.slice().sort(),
       expectedMoneyPairs
         .map((pair) => `${pair.table}.${pair.minorColumn}`)
         .sort(),
     );
     check(
-      "all 58 mirror triggers exist, exactly the expected ones",
+      "all 60 mirror triggers exist, exactly the expected ones",
       after.mirrorTriggers.slice().sort(),
       expectedTriggerNameList.slice().sort(),
     );
@@ -376,7 +389,7 @@ async function main() {
     check(
       "it records the upgrade it protected",
       [archive.sourceSchemaVersion, archive.targetSchemaVersion],
-      [11, 12],
+      [11, expectedSchemaVersion],
     );
     check("the archived database is itself at version 11", archive.restoredSchemaVersion, 11);
     check("the archived database passes integrity_check", archive.restoredIntegrity, ["ok"]);
@@ -429,7 +442,11 @@ async function main() {
     await stopApplication({ log });
 
     const secondManifest = readManifest(databasePath, uploadsPath, expectedMoneyPairs);
-    check("the second launch did not migrate again", secondManifest.schemaVersion, 12);
+    check(
+      "the second launch did not migrate again",
+      secondManifest.schemaVersion,
+      expectedSchemaVersion,
+    );
     check(
       "the second launch wrote no new safety backup",
       countFiles(migrationBackupsPath),
@@ -533,7 +550,7 @@ function compareUploads(before, after) {
 }
 
 /**
- * The exhaustive money proof, over all 29 pairs and every row in them.
+ * The exhaustive money proof, over all 30 pairs and every row in them.
  *
  * Three separate claims, because they fail for different reasons:
  *
@@ -549,6 +566,7 @@ function compareUploads(before, after) {
  */
 function compareMoneyPairs(before, after) {
   const missingPairs = [];
+  const introduced = [];
   const idDrift = [];
   const valueDrift = [];
   const conversionDrift = [];
@@ -564,23 +582,37 @@ function compareMoneyPairs(before, after) {
       continue;
     }
 
-    const beforeIds = (was?.rows ?? []).map((row) => row.id);
-    const afterIds = now.rows.map((row) => row.id);
+    // A table the upgrade itself creates cannot be asked whether it kept the
+    // same row ids, because it had none. Its rows still face the conversion
+    // proof below, which is what shows a backfill wrote a real money pair
+    // rather than a plausible-looking number, and the table is named in a
+    // check of its own so one appearing unannounced still fails.
+    const introducedByUpgrade = was === undefined;
 
-    if (JSON.stringify(beforeIds) !== JSON.stringify(afterIds)) {
-      idDrift.push({ column: key, before: beforeIds, after: afterIds });
-      continue;
+    if (introducedByUpgrade) {
+      introduced.push(key);
+    } else {
+      const beforeIds = was.rows.map((row) => row.id);
+      const afterIds = now.rows.map((row) => row.id);
+
+      if (JSON.stringify(beforeIds) !== JSON.stringify(afterIds)) {
+        idDrift.push({ column: key, before: beforeIds, after: afterIds });
+        continue;
+      }
     }
 
     const beforeById = new Map((was?.rows ?? []).map((row) => [row.id, row.legacy]));
 
     for (const row of now.rows) {
       rowsChecked += 1;
-      const original = beforeById.get(row.id);
 
-      if (!Object.is(original ?? null, row.legacy ?? null)) {
-        valueDrift.push({ column: key, id: row.id, before: original, after: row.legacy });
-        continue;
+      if (!introducedByUpgrade) {
+        const original = beforeById.get(row.id);
+
+        if (!Object.is(original ?? null, row.legacy ?? null)) {
+          valueDrift.push({ column: key, id: row.id, before: original, after: row.legacy });
+          continue;
+        }
       }
 
       const expected = toMinorUnitsOrNull(row.legacy);
@@ -600,6 +632,13 @@ function compareMoneyPairs(before, after) {
   log(`  money proof covered ${rowsChecked} row(s) across ${expectedMoneyPairs.length} pairs`);
 
   check("every expected money pair carries its minor column", missingPairs, []);
+  // Named rather than merely tolerated: a money-bearing table appearing that
+  // this release did not introduce is a finding, not a detail.
+  check(
+    "only the tables this upgrade introduces are new",
+    introduced.slice().sort(),
+    ["rental_vehicle_segments.daily_price"],
+  );
   check("every money column kept the same row ids", idDrift.map((entry) => entry.column), []);
   check("every stored major-unit value is untouched", valueDrift, []);
   check("every minor value is the conversion of its mirror", conversionDrift, []);

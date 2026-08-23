@@ -1,6 +1,9 @@
 import type Database from "better-sqlite3";
 import { MONEY_SCALE, toMinorUnits } from "../../src/shared/money";
 
+/** The version that split every money column into a mirror and a minor pair. */
+const MONEY_PAIRS_INTRODUCED_VERSION = 12;
+
 /**
  * The audited inventory of every stored money column.
  *
@@ -28,6 +31,16 @@ export type MoneyColumnPair = {
   minorColumn: string;
   /** True only where the legacy column already allowed NULL. */
   nullable: boolean;
+  /**
+   * The schema version that introduced this pair.
+   *
+   * Version 12 converted everything that existed then, and a migration must
+   * keep describing the database as it was when it ran — it cannot add a
+   * column to a table a later version introduces. Anything added afterwards
+   * carries the version that brought it, so `moneyColumnPairsUpTo` can hand
+   * each migration the inventory of its own moment.
+   */
+  sinceVersion: number;
 };
 
 export const moneyColumnPairs: readonly MoneyColumnPair[] = [
@@ -52,6 +65,7 @@ export const moneyColumnPairs: readonly MoneyColumnPair[] = [
   pair("accessories", "default_charge"),
   pair("rental_accessories", "unit_charge"),
   nullablePair("rental_collateral_items", "estimated_value"),
+  pairSince(13, "rental_vehicle_segments", "daily_price"),
 
   pair("payments", "amount"),
   pair("expenses", "amount"),
@@ -75,7 +89,24 @@ function pair(table: string, legacyColumn: string): MoneyColumnPair {
     legacyColumn,
     minorColumn: `${legacyColumn}_minor`,
     nullable: false,
+    sinceVersion: MONEY_PAIRS_INTRODUCED_VERSION,
   };
+}
+
+/** A pair added after version 12, by the version that added it. */
+function pairSince(
+  sinceVersion: number,
+  table: string,
+  legacyColumn: string,
+): MoneyColumnPair {
+  return { ...pair(table, legacyColumn), sinceVersion };
+}
+
+/** Every pair a database at `version` is expected to have. */
+export function moneyColumnPairsUpTo(
+  version: number,
+): readonly MoneyColumnPair[] {
+  return moneyColumnPairs.filter((entry) => entry.sinceVersion <= version);
 }
 
 function nullablePair(table: string, legacyColumn: string): MoneyColumnPair {
@@ -156,6 +187,13 @@ export function triggerName(
   event: "insert" | "update",
 ): string {
   return `${pair.table}_${pair.minorColumn}_${event === "insert" ? "ins" : "upd"}_ck`;
+}
+
+/** The mirror triggers for one set of pairs, idempotent. */
+export function moneyMirrorTriggerSqlFor(
+  pairs: readonly MoneyColumnPair[],
+): string {
+  return pairs.map((entry) => moneyMirrorTriggerSql(entry)).join("\n");
 }
 
 /** Every mirror trigger, idempotent, applied on the fresh and upgrade paths. */
